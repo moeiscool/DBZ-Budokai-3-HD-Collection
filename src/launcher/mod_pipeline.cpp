@@ -74,11 +74,144 @@ std::filesystem::path ModsOutDir() {
 
 std::string Quote(const std::string& s) { return "\"" + s + "\""; }
 
-std::string PythonExecutable() {
+// Candidate command prefixes for a Python 3 interpreter. The order matters:
+// on Windows a bare "python" can resolve to the Microsoft Store *alias stub*
+// (a zero-byte reparse point in ...\WindowsApps) which just prints "Python was
+// not found..." and exits with code 9009 -- that was issue #13. The python.org
+// launcher ("py -3") never picks that stub, so it is tried first, then the
+// usual names. Every candidate is actually *probed* before use.
+std::vector<std::string> PythonCandidates() {
+  std::vector<std::string> v;
   if (const char* py = std::getenv("DBZ3_PYTHON"); py && *py) {
-    return py;
+    v.push_back(Quote(py));
   }
-  return "python";
+#if REX_PLATFORM_WIN32
+  v.push_back("py -3");
+  v.push_back("python");
+  v.push_back("python3");
+#else
+  v.push_back("python3");
+  v.push_back("python");
+#endif
+  return v;
+}
+
+std::string PythonMissingMessage() {
+  return
+      "============================================================\n"
+      "No se encontro Python 3 en este equipo.\n"
+      "This feature (model swap / texture mods) runs Python scripts.\n"
+      "============================================================\n"
+      "1) Instala Python 3 desde https://www.python.org/downloads/\n"
+      "   (en Windows, marca \"Add python.exe to PATH\").\n"
+      "2) Instala las dependencias:\n"
+      "       py -3 -m pip install pillow numpy\n"
+      "3) Si lo tienes en otra ruta, define la variable DBZ3_PYTHON.\n"
+      "\n"
+      "Nota: el alias de Microsoft Store (python.exe en WindowsApps) NO sirve:\n"
+      "solo muestra un aviso y termina con el codigo 9009.\n"
+      "Note: the Microsoft Store 'python.exe' alias is only a stub (exit 9009).\n"
+      "============================================================\n";
+}
+
+std::string DependencyHintMessage() {
+  return
+      "\n------------------------------------------------------------\n"
+      "Parece que falta una dependencia de Python (Pillow / numpy).\n"
+      "A Python dependency looks missing (Pillow / numpy).\n"
+      "Instalalas con / Install them with:\n"
+      "       py -3 -m pip install pillow numpy\n"
+      "------------------------------------------------------------\n";
+}
+
+#if REX_PLATFORM_WIN32
+// Runs a command line and returns true only if it exits with code 0. Output is
+// discarded (NUL). Used to validate each Python candidate cheaply. A 15 s cap
+// avoids a hung interpreter blocking the pipeline forever.
+bool ProbeCommandLine(const std::string& cmd) {
+  int wlen = MultiByteToWideChar(CP_UTF8, 0, cmd.c_str(), -1, nullptr, 0);
+  if (wlen <= 0) {
+    return false;
+  }
+  std::vector<wchar_t> wcmd(wlen);
+  MultiByteToWideChar(CP_UTF8, 0, cmd.c_str(), -1, wcmd.data(), wlen);
+
+  SECURITY_ATTRIBUTES sa{};
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+  HANDLE hNul = CreateFileW(L"NUL", GENERIC_WRITE,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                            OPEN_EXISTING, 0, nullptr);
+
+  STARTUPINFOW si{};
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdOutput = hNul;
+  si.hStdError = hNul;
+  si.hStdInput = hNul;
+
+  PROCESS_INFORMATION pi{};
+  const BOOL ok = CreateProcessW(nullptr, wcmd.data(), nullptr, nullptr, TRUE,
+                                 CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+  if (hNul != INVALID_HANDLE_VALUE) {
+    CloseHandle(hNul);
+  }
+  if (!ok) {
+    return false;
+  }
+  if (WaitForSingleObject(pi.hProcess, 15000) == WAIT_TIMEOUT) {
+    TerminateProcess(pi.hProcess, 1);
+    WaitForSingleObject(pi.hProcess, 2000);
+  }
+  DWORD rc = 1;
+  GetExitCodeProcess(pi.hProcess, &rc);
+  CloseHandle(pi.hThread);
+  CloseHandle(pi.hProcess);
+  return rc == 0;
+}
+#else
+// POSIX probe: run the command through /bin/sh with output to /dev/null.
+bool ProbeCommandLine(const std::string& cmd) {
+  const char* devnull = "/dev/null";
+  posix_spawn_file_actions_t actions;
+  posix_spawn_file_actions_init(&actions);
+  posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, devnull,
+                                   O_WRONLY, 0);
+  posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, devnull,
+                                   O_WRONLY, 0);
+
+  const std::string shell = "/bin/sh";
+  std::vector<char*> argv = {
+      const_cast<char*>(shell.c_str()), const_cast<char*>("-c"),
+      const_cast<char*>(cmd.c_str()), nullptr};
+  pid_t pid = -1;
+  const int rc = posix_spawn(&pid, shell.c_str(), &actions, nullptr, argv.data(),
+                             environ);
+  posix_spawn_file_actions_destroy(&actions);
+  if (rc != 0) {
+    return false;
+  }
+  int status = 0;
+  waitpid(pid, &status, 0);
+  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+#endif
+
+// Returns a usable Python command prefix (already quoted / argument-ready),
+// or "" if no working Python 3 could be found.
+std::string ResolvePython() {
+  for (const std::string& cand : PythonCandidates()) {
+#if REX_PLATFORM_WIN32
+    if (ProbeCommandLine(cand + " -c \"import sys\"")) {
+      return cand;
+    }
+#else
+    if (ProbeCommandLine(cand + " -c 'import sys'")) {
+      return cand;
+    }
+#endif
+  }
+  return "";
 }
 
 int ParseIntField(const std::string& s) {
@@ -169,19 +302,30 @@ void ModPipeline::RunAsync(const std::filesystem::path& script,
     worker_.join();
   }
 
-  std::string cmd = Quote(PythonExecutable()) + " " + Quote(script.string());
+  // "tail" = quoted script + quoted args. The Python interpreter itself is
+  // resolved inside the worker with a real probe, so a bare "python" that
+  // resolves to the Microsoft Store alias stub is skipped instead of failing
+  // with exit code 9009 (issue #13).
+  std::string tail = Quote(script.string());
   for (const std::string& a : args) {
     // Escapar cada argumento: si contiene espacios, envolverlo en comillas
     // para que cmd.exe lo trate como un solo token (las rutas del proyecto
     // tienen espacios, p.ej. "...DBZ Budokai 3 HD Collection\...").
     if (a.find(' ') != std::string::npos || a.find('\t') != std::string::npos) {
-      cmd += " " + Quote(a);
+      tail += " " + Quote(a);
     } else {
-      cmd += " " + a;
+      tail += " " + a;
     }
   }
 
-  worker_ = std::thread([this, cmd]() {
+  worker_ = std::thread([this, tail]() {
+    const std::string python = ResolvePython();
+    if (python.empty()) {
+      AppendOutput(PythonMissingMessage());
+      running_.store(false);
+      return;
+    }
+    const std::string cmd = python + " " + tail;
 #if REX_PLATFORM_WIN32
     // Usamos CreateProcess en vez de _popen: _popen pasa el comando a
     // "cmd.exe /c", que falla al parsear comillas cuando el comando empieza
@@ -242,6 +386,13 @@ void ModPipeline::RunAsync(const std::filesystem::path& script,
     if (rc != 0) {
       AppendOutput("\n[exit code " + std::to_string(rc) + "]\n");
     }
+    // 9009 = the Microsoft Store alias stub ("command not found"); a
+    // "No module named ..." traceback means Pillow/numpy are missing.
+    if (rc == 9009) {
+      AppendOutput(PythonMissingMessage());
+    } else if (Output().find("No module named") != std::string::npos) {
+      AppendOutput(DependencyHintMessage());
+    }
     generation_.fetch_add(1);
     running_.store(false);
 #else  // !REX_PLATFORM_WIN32
@@ -287,6 +438,11 @@ void ModPipeline::RunAsync(const std::filesystem::path& script,
       AppendOutput("\n[exit code " +
                    std::to_string(WIFEXITED(status) ? WEXITSTATUS(status) : -1) +
                    "]\n");
+    }
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+      AppendOutput(PythonMissingMessage());
+    } else if (Output().find("No module named") != std::string::npos) {
+      AppendOutput(DependencyHintMessage());
     }
     generation_.fetch_add(1);
     running_.store(false);

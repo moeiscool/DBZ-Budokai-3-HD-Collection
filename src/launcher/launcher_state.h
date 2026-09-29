@@ -91,6 +91,12 @@ class LauncherDialog : public rex::ui::ImGuiDialog {
   // Game-data validation banner (P1): transient error shown when a folder the
   // user picked for "Carpeta extraida" is not a valid game dir.
   std::string banner_error_;
+
+  // "Repair installation" (footer button or --dbz3_repair): the one-shot flag is
+  // consumed once per session and the report is shown in a modal popup.
+  bool repair_checked_ = false;
+  bool repair_popup_ = false;
+  std::string repair_report_;
 };
 
 }  // namespace dbz3::launcher

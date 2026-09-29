@@ -214,6 +214,13 @@ REXCVAR_DEFINE_STRING(dbz3_input_backend, DBZ3_DEFAULT_INPUT_BACKEND, "DBZ3/Inpu
     .allowed({"xinput", "sdl"})
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
+// Controller glyph set: which button names the launcher shows next to the MnK
+// keybinds (LT/L2/ZL, ...). Cosmetic only; the runtime mapping is unchanged.
+REXCVAR_DEFINE_STRING(dbz3_input_glyphs, "xbox", "DBZ3/Input",
+                      "Launcher button labels: xbox, playstation or switch")
+    .allowed({"xbox", "playstation", "switch"})
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 // Keyboard/mouse controller emulation (MnK driver in the runtime). Defaults to
 // ON: Budokai 3 is a gamepad game and the keyboard must work out of the box on
 // PC. Disable it if you only ever use a real pad.
@@ -301,6 +308,13 @@ REXCVAR_DEFINE_BOOL(dbz3_occlusion_queries, true, "DBZ3/Dev",
 REXCVAR_DEFINE_BOOL(dbz3_skip_launcher, false, "DBZ3/Dev",
                     "Skip the pre-game launcher and boot straight into the game")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+
+// One-shot self-repair. Set by the launcher's "Reparar instalacion" button (via
+// RepairInstallation) or from the command line as --dbz3_repair=true /
+// REX_DBZ3_REPAIR=1; the launcher reads and clears it on the next draw.
+REXCVAR_DEFINE_BOOL(dbz3_repair, false, "DBZ3/Dev",
+                    "Repair the installation on the next launcher start")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 // Destination folder for the dev texture dump. The dump can be hundreds of MB
 // (every unique texture as a DDS), so it must NOT default to the install/build
@@ -601,6 +615,83 @@ void SaveUserSettings() {
     REXLOG_WARN("dbz3: could not normalise the escaped config at {}", path.string());
   }
   REXLOG_INFO("dbz3: user settings saved to {}", path.string());
+}
+
+std::string RepairInstallation() {
+  std::string report;
+  auto line = [&](const std::string& s) {
+    report += s;
+    report += '\n';
+    REXLOG_INFO("dbz3 repair: {}", s);
+  };
+  line("[OK] Reparacion del launcher iniciada");
+
+  // 1. User settings: quarantine an unreadable file, then write a clean one.
+  const auto settings_path = UserSettingsPath();
+  if (std::filesystem::exists(settings_path)) {
+    bool parses = TomlParses(settings_path);
+    if (!parses) {
+      EscapeTomlStrings(settings_path);
+      parses = TomlParses(settings_path);
+    }
+    if (!parses) {
+      std::error_code ec;
+      const std::filesystem::path quarantine = settings_path.string() + ".invalid";
+      std::filesystem::remove(quarantine, ec);
+      std::filesystem::rename(settings_path, quarantine, ec);
+      if (ec) {
+        line("[!] No se pudo apartar el archivo de ajustes: " + ec.message());
+      } else {
+        line("[i] Archivo de ajustes ilegible apartado en: " + quarantine.string());
+      }
+    }
+  }
+  SaveUserSettings();
+  line("[OK] Ajustes escritos en: " + UserSettingsPath().string());
+
+  // 2. Runtime DLLs next to the executable.
+  const auto exe_dir = rex::filesystem::GetExecutableFolder();
+  struct DllCheck {
+    const char* name;
+    bool required;
+  };
+  const DllCheck dlls[] = {
+      {"rexruntime.dll", true},
+      {"rexgpu-xenos.dll", true},
+      {"amd_fidelityfx_dx12.dll", false},
+  };
+  for (const DllCheck& d : dlls) {
+    const auto file = exe_dir / d.name;
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(file, ec);
+    if (exists && std::filesystem::is_regular_file(file, ec)) {
+      const auto size = std::filesystem::file_size(file, ec);
+      if (ec || size == 0) {
+        line(std::string("[!] ") + d.name + " no se puede leer (0 bytes)");
+      } else {
+        line(std::string("[OK] ") + d.name + " (" + std::to_string(size) + " B)");
+      }
+    } else {
+      line(std::string(d.required ? "[!] FALTA " : "[i] No encontrado (opcional): ") + d.name);
+    }
+  }
+
+  // 3. SDL controller mappings (only used by the SDL backend).
+  if (std::filesystem::exists(exe_dir / "gamecontrollerdb.txt")) {
+    line("[OK] gamecontrollerdb.txt presente");
+  } else {
+    line("[i] gamecontrollerdb.txt no encontrado (solo afecta al backend SDL)");
+  }
+
+  // 4. User-data folder (saves, xex/iso caches).
+  const auto data_root = UserDataRoot();
+  std::error_code ec;
+  std::filesystem::create_directories(data_root, ec);
+  line(std::string(ec ? "[!] " : "[OK] ") + "Datos de usuario: " + data_root.string() +
+       (UserDataIsPortable() ? " (portable)" : " (fuera del ejecutable)"));
+
+  line("[OK] Reparacion completada.");
+  return report;
 }
 
 int32_t ResolutionScale() { return REXCVAR_GET(dbz3_resolution_scale); }
@@ -1782,6 +1873,9 @@ void SetRumbleEnabled(bool enabled) { REXCVAR_SET(dbz3_rumble, enabled); }
 
 std::string InputBackend() { return REXCVAR_GET(dbz3_input_backend); }
 void SetInputBackend(const std::string& backend) { REXCVAR_SET(dbz3_input_backend, backend); }
+
+std::string InputGlyphs() { return REXCVAR_GET(dbz3_input_glyphs); }
+void SetInputGlyphs(const std::string& glyph_set) { REXCVAR_SET(dbz3_input_glyphs, glyph_set); }
 
 bool MnkMode() { return REXCVAR_GET(dbz3_mnk_mode); }
 void SetMnkMode(bool enabled) { REXCVAR_SET(dbz3_mnk_mode, enabled); }

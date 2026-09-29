@@ -145,6 +145,41 @@ void DrawKeybind(const char* label, std::string& cvar_value) {
   }
 }
 
+// Friendly button name for a keybind suffix, following the selected glyph set
+// ("xbox", "playstation" or "switch"). The runtime's button mapping is fixed,
+// so this only changes the label shown next to each MnK keybind (LT vs L2 vs
+// ZL, ...): pure cosmetics. ASCII only (the launcher uses the base font).
+const char* ButtonGlyph(const std::string& set, const char* suffix) {
+  const bool ps = set == "playstation";
+  const bool sw = set == "switch";
+  if (std::strcmp(suffix, "a") == 0) return "A";
+  if (std::strcmp(suffix, "b") == 0) return "B";
+  if (std::strcmp(suffix, "x") == 0) return "X";
+  if (std::strcmp(suffix, "y") == 0) return "Y";
+  if (std::strcmp(suffix, "left_trigger") == 0) return ps ? "L2" : (sw ? "ZL" : "LT");
+  if (std::strcmp(suffix, "right_trigger") == 0) return ps ? "R2" : (sw ? "ZR" : "RT");
+  if (std::strcmp(suffix, "left_shoulder") == 0) return ps ? "L1" : (sw ? "L" : "LB");
+  if (std::strcmp(suffix, "right_shoulder") == 0) return ps ? "R1" : (sw ? "R" : "RB");
+  if (std::strcmp(suffix, "lstick_up") == 0) return "LS-Up";
+  if (std::strcmp(suffix, "lstick_down") == 0) return "LS-Down";
+  if (std::strcmp(suffix, "lstick_left") == 0) return "LS-Left";
+  if (std::strcmp(suffix, "lstick_right") == 0) return "LS-Right";
+  if (std::strcmp(suffix, "lstick_press") == 0) return "L3";
+  if (std::strcmp(suffix, "rstick_up") == 0) return "RS-Up";
+  if (std::strcmp(suffix, "rstick_down") == 0) return "RS-Down";
+  if (std::strcmp(suffix, "rstick_left") == 0) return "RS-Left";
+  if (std::strcmp(suffix, "rstick_right") == 0) return "RS-Right";
+  if (std::strcmp(suffix, "rstick_press") == 0) return "R3";
+  if (std::strcmp(suffix, "dpad_up") == 0) return "D-Pad Up";
+  if (std::strcmp(suffix, "dpad_down") == 0) return "D-Pad Down";
+  if (std::strcmp(suffix, "dpad_left") == 0) return "D-Pad Left";
+  if (std::strcmp(suffix, "dpad_right") == 0) return "D-Pad Right";
+  if (std::strcmp(suffix, "back") == 0) return ps ? "Share" : (sw ? "Minus" : "Back");
+  if (std::strcmp(suffix, "start") == 0) return ps ? "Options" : (sw ? "Plus" : "Start");
+  if (std::strcmp(suffix, "guide") == 0) return ps ? "PS" : (sw ? "Home" : "Guide");
+  return suffix;
+}
+
 // Height reserved at the bottom of every settings tab for the always-visible
 // footer (config summary + Reset/Save + PLAY). Keeps the primary action on
 // screen on every tab and removes the window-level scrollbar that pushed PLAY
@@ -401,6 +436,18 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   // updated every frame so changing the "Language" combo re-translates the whole
   // launcher immediately.
   i18n::SetLanguage(dbz3::settings::Language());
+
+  // One-shot repair (--dbz3_repair=true / REX_DBZ3_REPAIR=1): run once, show the
+  // report and clear the flag so it never triggers again. The footer button runs
+  // RepairInstallation directly.
+  if (!repair_checked_) {
+    repair_checked_ = true;
+    if (rex::cvar::Query<bool>("dbz3_repair")) {
+      rex::cvar::SetFlagByName("dbz3_repair", "false");
+      repair_report_ = dbz3::settings::RepairInstallation();
+      repair_popup_ = true;
+    }
+  }
 
   // Fill the entire host window. The host window is always 1280x720 windowed
   // during the launcher (fullscreen/resolution are applied on Play), so the
@@ -954,6 +1001,18 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   if (ImGui::Button(i18n::T("Guardar ajustes", "Save settings"), ImVec2(180, 0))) {
     dbz3::settings::SaveUserSettings();
   }
+  ImGui::SameLine(0, 10);
+  if (ImGui::Button(i18n::T("Reparar instalacion", "Repair install"), ImVec2(180, 0))) {
+    repair_report_ = dbz3::settings::RepairInstallation();
+    repair_popup_ = true;
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("%s", i18n::T(
+        "Comprueba y repara los archivos del juego (ajustes, DLLs, datos de "
+        "usuario). Util si algo no arranca o los ajustes no se guardan.",
+        "Checks and repairs the game files (settings, DLLs, user data). Useful "
+        "if something does not start or settings are not saved."));
+  }
   ImGui::SameLine();
   ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 16.0f - 300.0f);
   // PLAY is gated on the assets being found: pressing it with no game data
@@ -977,6 +1036,26 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   }
   ImGui::PopStyleColor(3);
   ImGui::EndDisabled();
+
+  // Repair report (modal). Opened by the footer button or the one-shot cvar.
+  if (repair_popup_) {
+    ImGui::OpenPopup("repair_result");
+    repair_popup_ = false;
+  }
+  if (ImGui::BeginPopupModal("repair_result", nullptr,
+                             ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::TextColored(kDragonOrange, "%s",
+                       i18n::T("Resultado de la reparacion", "Repair result"));
+    ImGui::Separator();
+    ImGui::BeginChild("##repair_body", ImVec2(620, 300), true);
+    ImGui::TextUnformatted(repair_report_.c_str());
+    ImGui::EndChild();
+    ImGui::Spacing();
+    if (ImGui::Button(i18n::T("Cerrar", "Close"), ImVec2(120, 0))) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
 
   ImGui::End();
 }
@@ -1518,6 +1597,21 @@ void LauncherDialog::DrawInputTab() {
         "but may hang with RTSS/OBS. Restart to apply."));
   }
 
+  const char* glyph_items[] = {"Xbox", "PlayStation", "Switch"};
+  static const char* glyph_values[] = {"xbox", "playstation", "switch"};
+  std::string glyphs = dbz3::settings::InputGlyphs();
+  int glyph_idx = glyphs == "playstation" ? 1 : (glyphs == "switch" ? 2 : 0);
+  if (ImGui::Combo(i18n::T("Tipo de mando", "Button labels"), &glyph_idx, glyph_items, 3)) {
+    dbz3::settings::SetInputGlyphs(glyph_values[glyph_idx]);
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("%s", i18n::T(
+        "Cambia los nombres de los botones que se ven abajo (LT/L2/ZL, ...). "
+        "Solo afecta a las etiquetas del launcher, no al mapeo del juego.",
+        "Changes the button names shown below (LT/L2/ZL, ...). Only affects "
+        "the launcher labels, not the game mapping."));
+  }
+
   double deadzone = dbz3::settings::Deadzone();
   if (SliderD(i18n::T("Zona muerta de los sticks", "Analog stick deadzone"), &deadzone, 0.0, 0.9,
               "%.2f")) {
@@ -1581,14 +1675,19 @@ void LauncherDialog::DrawInputTab() {
     const float kb_w =
         ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x * 2.0f / 3.0f;
     int kb_col = 0;
-#define DBZ3_DRAW_KEYBIND(name)                                        \
-  do {                                                                 \
-    std::string name = dbz3::settings::Keybind(#name);                 \
-    ImGui::SetNextItemWidth(kb_w);                                     \
-    DrawKeybind(#name, name);                                          \
-    dbz3::settings::SetKeybind(#name, name);                           \
-    if (kb_col % 3 != 2) ImGui::SameLine();                            \
-    ++kb_col;                                                          \
+#define DBZ3_DRAW_KEYBIND(name)                                          \
+  do {                                                                   \
+    std::string kb_val = dbz3::settings::Keybind(#name);                 \
+    const char* kb_lbl = ButtonGlyph(glyphs, #name);                     \
+    const float kb_lw = ImGui::CalcTextSize(kb_lbl).x;                   \
+    std::string kb_tag = std::string(kb_lbl) + "##kb_" #name;            \
+    float kb_iw = kb_w - kb_lw - ImGui::GetStyle().ItemInnerSpacing.x - 6.0f; \
+    if (kb_iw < 40.0f) kb_iw = 40.0f;                                    \
+    ImGui::SetNextItemWidth(kb_iw);                                      \
+    DrawKeybind(kb_tag.c_str(), kb_val);                                 \
+    dbz3::settings::SetKeybind(#name, kb_val);                           \
+    if (kb_col % 3 != 2) ImGui::SameLine();                              \
+    ++kb_col;                                                            \
   } while (0)
     DBZ3_DRAW_KEYBIND(a);
     DBZ3_DRAW_KEYBIND(b);

@@ -396,6 +396,13 @@ void SetRumbleEnabled(bool enabled);
 std::string InputBackend();
 void SetInputBackend(const std::string& backend);
 
+// Controller glyph set for the launcher's button labels: "xbox" (default),
+// "playstation" or "switch". Purely cosmetic: it only changes the friendly
+// names shown next to the MnK keybinds (LT vs L2 vs ZL, ...). The runtime's
+// button mapping never changes.
+std::string InputGlyphs();
+void SetInputGlyphs(const std::string& glyph_set);
+
 // Keyboard/mouse controller emulation (MnK). On by default: the keyboard must
 // work out of the box on PC.
 bool MnkMode();
@@ -492,5 +499,14 @@ void SetDimUnfocused(bool enabled);
 // Host graphics backend: "d3d12" or "vulkan".
 std::string GpuBackend();
 void SetGpuBackend(const std::string& backend);
+
+// --- Maintenance -----------------------------------------------------------
+// Verify and self-heal the installation: quarantine an unreadable
+// dbz3_user.toml and rewrite clean defaults, check that the runtime DLLs and
+// gamecontrollerdb.txt are present next to the executable, and make sure the
+// user-data folder exists. Returns a short, human-readable ASCII report for the
+// launcher popup and the logs. Safe to call at any time; never touches the game
+// data (us/eu/), mods/ or the caches.
+std::string RepairInstallation();
 
 }  // namespace dbz3::settings

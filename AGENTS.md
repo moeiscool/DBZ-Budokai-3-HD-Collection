@@ -576,12 +576,13 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
 
 > Detalle completo verbatim en `HISTORICO_RELEASES.md` §C. Resumen operativo:
 
-- **Tabs**: Video / Upscaling / Audio / Input / Mods / Model Swap / Texturas /
-  Dev. Footer con **PLAY verde siempre visible** + resumen "Inicio:
-  región-backend-escala-efecto-idioma" + selector de región. **Idioma**
+- **Tabs**: Video / Upscaling / Audio / Input / Mods / Native mods / Model Swap /
+  Texturas / Dev. Footer con **PLAY verde siempre visible** + resumen "Inicio:
+  región-backend-escala-efecto-idioma" + selector de región + botones
+  Restablecer / Guardar / **Reparar instalación**. **Idioma**
   (`dbz3_language`): ES/EN/IT/DE/FR + JP (launcher vía i18n.cpp `kTable[]`;
-  fichero i18n GENERADO: si se añaden strings, regenerar con
-  `extract_i18n.py`/`gen_i18n.py`; juego vía `XGetLanguage`).
+  la tabla se mantiene a mano —añadir la entrada con la clave ES exacta—: los
+  `extract_i18n.py`/`gen_i18n.py` no están versionados; juego vía `XGetLanguage`).
 - **Resolución del ejecutable (v1.2.2)**: `ResolveBootSource()` = `CheckDefaultXex`
   de la ruta canónica y, si no, `FindGameExecutable()` (por **tamaño+MD5**;
   escaneo del root depth ≤3 + `root`/`DBZ3`/`assets`/`assets/DBZ3`) →
@@ -643,9 +644,19 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
   (sistema real vía `RtlGetVersion`).
 - **Input**: `dbz3_input_backend` (xinput/sdl), `dbz3_mnk_mode` (default TRUE),
   `dbz3_mnk_mouse`, `dbz3_mnk_sensitivity` (0.1-5.0 → `mnk_sensitivity`),
-  deadzone/rumble, 24 keybinds (`dbz3_keybind_*`). **Mando (SDL)**:
-  `gamecontrollerdb.txt` (608 KB, zlib) se envía junto al exe; el runtime lo carga
-  con la cvar `hid_mappings_file` (backend SDL).
+  deadzone/rumble, 24 keybinds (`dbz3_keybind_*`). **Etiquetas de botón**
+  (`dbz3_input_glyphs` = Xbox/PlayStation/Switch, 2026-09-30): la pestaña
+  Controles muestra nombres legibles junto a cada keybind (`ButtonGlyph()` en
+  `launcher_state.cpp`); **solo cosmético**, no toca el mapeo del runtime.
+  **Mando (SDL)**: `gamecontrollerdb.txt` (608 KB, zlib) se envía junto al exe; el
+  runtime lo carga con la cvar `hid_mappings_file` (backend SDL).
+- **Reparar instalación (2026-09-30)**: botón en el pie + cvar de un solo uso
+  `dbz3_repair` (CLI `--dbz3_repair=true` / `REX_DBZ3_REPAIR=1`) que reabre el
+  launcher y muestra el informe en un popup. `dbz3::settings::RepairInstallation()`
+  pone en cuarentena un `dbz3_user.toml` ilegible (`*.invalid`) y reescribe
+  ajustes limpios, verifica `rexruntime.dll`/`rexgpu-xenos.dll`/
+  `amd_fidelityfx_dx12.dll`/`gamecontrollerdb.txt` y asegura `user_data`. No toca
+  `us/eu/`, `mods/` ni las cachés.
 - **Dev**: FPS counter, diag logging gateado por `DevMode() && DiagLogging()`,
   minidump en crash, palancas GPU `dbz3_async_shaders` → `async_shader_compilation`
   y `dbz3_occlusion_queries` → `occlusion_query_enable`, versiones de ficheros.

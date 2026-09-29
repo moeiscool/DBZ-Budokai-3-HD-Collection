@@ -325,6 +325,12 @@ static const Entry kTable[] = {
       {"Versiones", "Versioni", "Versionen", "Versions"},
       {"Mezcla de versiones detectada.", "Mix di versioni rilevato.", "Versionsmix erkannt.", "Melange de versions detecte."},
       {"Aviso: escala interna + mejora de texturas multiplican el coste. Si notas tirones o el juego baja a 30, deja la escala en 1x (abajo) o desactiva la mejora.", "Avviso: scala interna + miglioramento texture moltiplicano il costo. Se noti scatti o il gioco scende a 30, riporta la scala a 1x (sotto) o disattiva il miglioramento.", "Achtung: interne Skalierung + Texturverbesserung vervielfachen die Kosten. Bei Rucklern oder 30 fps die Skalierung unten auf 1x setzen oder die Verbesserung abschalten.", "Attention : echelle interne + amelioration des textures multiplient le cout. En cas de saccades ou de chute a 30, remettez l'echelle a 1x (ci-dessous) ou desactivez l'amelioration."},
+      {"Tipo de mando", "Tipo di controller", "Controllertyp", "Type de manette"},
+      {"Cambia los nombres de los botones que se ven abajo (LT/L2/ZL, ...). Solo afecta a las etiquetas del launcher, no al mapeo del juego.", "Cambia i nomi dei pulsanti mostrati sotto (LT/L2/ZL, ...). Influisce solo sulle etichette del launcher, non sulla mappatura del gioco.", "Aendert die unten angezeigten Button-Namen (LT/L2/ZL, ...). Betrifft nur die Launcher-Beschriftungen, nicht die Spielzuordnung.", "Change les noms des boutons affiches ci-dessous (LT/L2/ZL, ...). N'affecte que les libelles du launcher, pas le mappage du jeu."},
+      {"Reparar instalacion", "Ripara installazione", "Installation reparieren", "Reparer l'installation"},
+      {"Comprueba y repara los archivos del juego (ajustes, DLLs, datos de usuario). Util si algo no arranca o los ajustes no se guardan.", "Controlla e ripara i file del gioco (impostazioni, DLL, dati utente). Utile se qualcosa non parte o le impostazioni non si salvano.", "Prueft und repariert die Spieldateien (Einstellungen, DLLs, Nutzerdaten). Hilfreich, wenn etwas nicht startet oder Einstellungen nicht gespeichert werden.", "Verifie et repare les fichiers du jeu (reglages, DLL, donnees utilisateur). Utile si quelque chose ne demarre pas ou si les reglages ne sont pas enregistres."},
+      {"Resultado de la reparacion", "Risultato della riparazione", "Ergebnis der Reparatur", "Resultat de la reparation"},
+      {"Cerrar", "Chiudi", "Schliessen", "Fermer"},
   };
 
 const Entry* FindEntry(const char* es) {

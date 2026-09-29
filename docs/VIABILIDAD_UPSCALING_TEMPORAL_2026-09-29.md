@@ -115,18 +115,48 @@ hizo reblue). Ninguna de las dos es "integrar una librería".
 - **`gamecontrollerdb.txt`** enviado junto al exe (el runtime ya tiene la cvar
   `hid_mappings_file`): el backend SDL reconoce mandos genéricos.
 
+**Ya adoptado (2026-09-30, QoL del launcher — solo host):**
+- **Etiquetas de botón (glyphs)**: cvar `dbz3_input_glyphs` (Xbox / PlayStation /
+  Switch). La pestaña **Controles** cambia los nombres junto a cada keybind
+  (`LT` vs `L2` vs `ZL`, `D-Pad Up`, `LS-Up`, ...) usando el helper
+  `ButtonGlyph()` de `src/launcher/launcher_state.cpp`. Es solo cosmético: **no
+  toca el mapeo del runtime** (a diferencia del glyph set de reblue, que
+  reescribe bloques de una hoja DDS del guest vía hooks).
+- **"Reparar instalación"** (`dbz3::settings::RepairInstallation()`): botón en el
+  pie del launcher y bandera de un solo uso `dbz3_repair` (CLI
+  `--dbz3_repair=true` / `REX_DBZ3_REPAIR=1`) que reabre el launcher y muestra un
+  informe en un popup. Pone en cuarentena un `dbz3_user.toml` ilegible
+  (`*.invalid`) y reescribe ajustes limpios, verifica `rexruntime.dll`,
+  `rexgpu-xenos.dll`, `amd_fidelityfx_dx12.dll` y `gamecontrollerdb.txt`, y
+  asegura la carpeta de datos de usuario. **No toca `us/eu/`, `mods/` ni las
+  cachés.** Validado en runtime (uno de los informes dejó el `.invalid` de un
+  toml roto y regeneró el bueno).
+
+**Descartado (con motivo):**
+- **PSO precache/predictor/recorder** (reblue `src/gpu/pipeline/pso_*`): el
+  predictor y la disciplina de precache son agnósticos, pero el *build* de cada
+  PSO depende de **plume** (`RenderGraphicsPipelineDesc`,
+  `CreateHostGraphicsPipeline`). Contra `rexgpu-xenos` (Xenia) habría que
+  reimplementar `Build` y el formato de caché; no es una tarea de launcher.
+- **Hooks de resolución de salida** (reblue `src/gpu/hooks/output.cpp`): RE de
+  guest con direcciones concretas de Blue Dragon (`0x82DDA670`, viewports,
+  `VisualRender::ctor`, ...). No aplica a DBZ3; exigiría localizar los
+  equivalentes del motor de Budokai (investigación, no QoL).
+- **`frame_interp`** (reblue `src/engine/frame_interp.cpp`, 3.000+ líneas):
+  desacopla render de la simulación a 30 Hz del guest con decenas de gates.
+  Es RE de guest por juego; DBZ3 ya corre a 60 Hz fijos.
+- **Idioma de UI vs voces**: reblue separa `bd_language` (`user_language`, boot)
+  de `bd_opt_voice_type` (opción in-game contra `[Voice]` de `bd_boot.ini`). En
+  DBZ3 el idioma de texto ya se controla (`dbz3_language`); el de voces vive en
+  el motor del guest y requeriría localizar su opción (RE).
+- **Perfiles**: reblue usa un directorio por perfil (`profiles/<name>` con su
+  toml/saves/mods). Nuestro launcher ya tiene perfiles **de mods**
+  (`dbz3_mod_profile` + `mods/profiles.txt`); un sistema de perfiles de ajustes
+  completo es un rediseño de datos, no una mejora de un día.
+
 **Candidatos siguientes (coste medio, sin rehacer la GPU):**
-- **PSO precache/predictor** (reblue `pipeline/pso_precache.*`,
-  `pso_predictor.*`, `pso_recorder.*`): precompilar pipelines en cargas en vez de
-  en el primer draw → menos stutter (complementa `async_shader_compilation`).
-- **Hooks de resolución de salida** (reblue `config/hooks/output_resolution.toml`
-  + `output_resolution.cpp`): técnica de RE de guest para que el *composite*
-  renderice a tamaño del swapchain (1:1) en vez de estirar el canvas de diseño.
-  Es RE por juego, pero es exactamente lo que falta para "resolución nativa".
-- **Desbloqueo de tick** (reblue `config/hooks/frame_interp.toml`): encadenado de
-  ticks / frame interpolation para >60 fps. RE de guest.
-- **QoL de launcher**: perfiles (`--profile`), `--repair`, idioma de UI y de voces
-  por separado, glyphs de mando (Xbox/PS/Switch/Deck).
+- **PSO precache adaptado a Xenia** (solo si se decide tocar `rexgpu-xenos`).
+- **Perfiles de ajustes** (snapshots con nombre del `dbz3_user.toml`).
 
 ## 7. Riesgos y licencias
 
