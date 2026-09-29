@@ -705,14 +705,16 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
 - **Issues (triaje 2026-09-29)**: cerrados #7 (crash al título = menú HD, v1.2.2
   EX), #11 (volcado: v1.2.8 + HUD/RGBA8 v1.2.8.1), #9 (importar saves: receta por
   carpeta; sin converter), #12 (FPS a 4K: respondida — escala interna 1x + FSR),
-  #3 (CrossOver Mac; el splash sin canal rojo es de D3DMetal). **Abiertos**: #13
-  (extraer texturas a PNG: `python` resolvía al alias de Microsoft Store → exit
-  9009; fix de resolución de intérprete en `src/launcher/mod_pipeline.cpp` —
-  probe `py -3`/`python`/`python3`/`DBZ3_PYTHON` + aviso de Pillow/numpy —
-  **implementado, pendiente de release**), #8 (bajones de FPS: esperando el log
-  `perf`), #1 (pico de volumen al volar sin repro; deducción Kaioken RECTIFICADA:
-  Kaioken SÍ es parte del ciclo de Goku, el cápsula es requisito para SSJ).
-  #10/#6/#5/#4/#2 cerrados antes.
+  #13 (extraer texturas a PNG: `python` = alias de Microsoft Store → exit 9009;
+  fix de intérprete en `mod_pipeline.cpp` + **seguimiento del reporter**: la
+  carpeta elegida se ignoraba porque la validación rechazaba rutas absolutas por
+  el `:` de unidad y caía a `mods/<mod>/textures`; arreglado en `launcher_state.cpp`
+  y `mod center hd/texture_b3.py`), #3 (CrossOver Mac; el splash sin canal rojo
+  es de D3DMetal). **Abiertos**: #8 (bajones de FPS: esperando el log `perf`),
+  #1 (pico de volumen al volar; última respuesta del reporter = livestream con
+  timestamps 17:37 / 2:08:46, contestada aceptando el clip como repro; deducción
+  Kaioken RECTIFICADA: Kaioken SÍ es parte del ciclo de Goku, el cápsula es
+  requisito para SSJ). #10/#6/#5/#4/#2 cerrados antes.
 - **DRED + gamecontrollerdb (2026-09-29, de reblue/LostOdysseyRecomp)**: DRED
   (`d3d12_dred`, ON) ya no depende de `d3d12_debug` → el reporte de *device lost*
   nombra queue/list y las allocation nodes; `gamecontrollerdb.txt` se envía junto

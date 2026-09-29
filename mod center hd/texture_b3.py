@@ -31,6 +31,22 @@ def _first_existing(*paths):
     return paths[0]
 
 
+def _valid_custom_dir(path):
+    """True if `path` can be used as the PNG folder.
+
+    Windows forbids < > " | ? * and ':' inside a name, but ':' is the drive
+    designator as the 2nd character (C:\\...). Rejecting ':' outright silently
+    sent every absolute path (the ones the folder picker returns) back to the
+    default mods/<mod>/textures folder.
+    """
+    for i, c in enumerate(path):
+        if c in '<>"|?*':
+            return False
+        if c == ':' and i != 1:
+            return False
+    return True
+
+
 # Ruta del xbcompress / xbdecompress (XDK). Funciona tanto desde el repo de
 # desarrollo como desde el paquete de release standalone (tools junto al script).
 TOOLS_DIR = _first_existing(
@@ -294,7 +310,7 @@ def cmd_extract(args):
         # Carpeta de texturas elegida por el usuario (p.ej. donde estÃ¡
         # editando). El meta se guarda junto a los PNG. Si contiene caracteres
         # invalidos de Windows, ignorarla y usar la automatica.
-        if any(c in args.dir for c in '<>:"|?*'):
+        if not _valid_custom_dir(args.dir):
             print('AVISO: la ruta de carpeta contiene caracteres invalidos; '
                   'usando la automatica: %s' % os.path.join(mods_root, mod_name, 'textures'))
             tex_dir = os.path.join(mods_root, mod_name, 'textures')
@@ -385,7 +401,7 @@ def cmd_build(args):
     os.makedirs(mods_root, exist_ok=True)
     if args.dir:
         # Carpeta de texturas custom (donde el usuario esta editando).
-        if any(c in args.dir for c in '<>:"|?*'):
+        if not _valid_custom_dir(args.dir):
             print('AVISO: la ruta de carpeta contiene caracteres invalidos; '
                   'usando la automatica: %s' % os.path.join(mods_root, mod_name, 'textures'))
             tex_dir = os.path.join(mods_root, mod_name, 'textures')

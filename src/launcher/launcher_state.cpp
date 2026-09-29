@@ -2593,12 +2593,17 @@ void LauncherDialog::DrawTexturesTab() {
     // Solo usar la carpeta configurada si no contiene caracteres invalidos
     // de Windows; si no, usar la automatica (una ruta invalida persistente
     // en el campo romperia la extraccion con cualquier personaje).
+    // ':' solo es valido como letra de unidad (C:\...), nunca dentro de un
+    // componente: rechazarlo entero descartaba toda ruta absoluta y caia al
+    // default silenciosamente.
     const std::string cfg = tex_dir_buf_[0] ? tex_dir_buf_ : "";
     bool cfg_valid = !cfg.empty();
     if (cfg_valid) {
-      for (char c : cfg) {
-        if (c == '<' || c == '>' || c == ':' || c == '"' || c == '|' ||
-            c == '?' || c == '*') {
+      for (std::size_t i = 0; i < cfg.size(); ++i) {
+        const char c = cfg[i];
+        const bool drive_colon = (c == ':' && i == 1);
+        if (c == '<' || c == '>' || c == '"' || c == '|' || c == '?' ||
+            c == '*' || (c == ':' && !drive_colon)) {
           cfg_valid = false;
           break;
         }
