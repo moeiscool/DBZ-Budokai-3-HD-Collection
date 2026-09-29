@@ -3374,6 +3374,26 @@ void D3D12CommandProcessor::LogDeviceRemovalDiagnostics(ID3D12Device* device, HR
     return;
   }
 
+  // Best-effort debug name of a D3D12 object (set with SetName). A breadcrumb
+  // only carries the queue/list pointer, and a page-fault allocation only its
+  // type, so the name is the one piece that turns them into something useful.
+  auto object_name = [](ID3D12Object* object, char* out, size_t out_size) {
+    out[0] = '\0';
+    if (object == nullptr) {
+      return;
+    }
+    UINT size = 0;
+    if (FAILED(object->GetPrivateData(WKPDID_D3DDebugObjectName, &size, nullptr)) || size == 0 ||
+        size > out_size) {
+      return;
+    }
+    if (FAILED(object->GetPrivateData(WKPDID_D3DDebugObjectName, &size, out))) {
+      out[0] = '\0';
+      return;
+    }
+    out[out_size - 1] = '\0';
+  };
+
   D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT breadcrumbs = {};
   if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput(&breadcrumbs))) {
     for (const D3D12_AUTO_BREADCRUMB_NODE* node = breadcrumbs.pHeadAutoBreadcrumbNode; node;
@@ -3382,8 +3402,13 @@ void D3D12CommandProcessor::LogDeviceRemovalDiagnostics(ID3D12Device* device, HR
           *node->pLastBreadcrumbValue == 0) {
         continue;
       }
-      REXGPU_ERROR("DRED breadcrumb: completed {} of {} ops", *node->pLastBreadcrumbValue,
-                   node->BreadcrumbCount);
+      char queue_name[128];
+      char list_name[128];
+      object_name(node->pCommandQueue, queue_name, sizeof(queue_name));
+      object_name(node->pCommandList, list_name, sizeof(list_name));
+      REXGPU_ERROR("DRED breadcrumb: completed {} of {} ops (queue='{}', list='{}')",
+                   *node->pLastBreadcrumbValue, node->BreadcrumbCount,
+                   queue_name[0] ? queue_name : "<unnamed>", list_name[0] ? list_name : "<unnamed>");
       uint32_t last = std::min(*node->pLastBreadcrumbValue, node->BreadcrumbCount);
       uint32_t start = last > 3 ? last - 3 : 0;
       uint32_t end = std::min(last + 1, node->BreadcrumbCount);
@@ -3397,6 +3422,17 @@ void D3D12CommandProcessor::LogDeviceRemovalDiagnostics(ID3D12Device* device, HR
   D3D12_DRED_PAGE_FAULT_OUTPUT page_fault = {};
   if (SUCCEEDED(dred->GetPageFaultAllocationOutput(&page_fault)) && page_fault.PageFaultVA != 0) {
     REXGPU_ERROR("DRED page fault at VA 0x{:016X}", page_fault.PageFaultVA);
+    // These lists are what the driver still held / had just freed around the
+    // faulting VA (a freed resource read by the GPU is the common cause).
+    auto log_allocations = [](const char* which, const D3D12_DRED_ALLOCATION_NODE* node) {
+      for (; node; node = node->pNext) {
+        const char* name = node->ObjectNameA ? node->ObjectNameA : "<unnamed>";
+        REXGPU_ERROR("  DRED {} allocation: type={} name='{}'", which,
+                     static_cast<unsigned>(node->AllocationType), name);
+      }
+    };
+    log_allocations("existing", page_fault.pHeadExistingAllocationNode);
+    log_allocations("recently-freed", page_fault.pHeadRecentFreedAllocationNode);
   }
 }
 

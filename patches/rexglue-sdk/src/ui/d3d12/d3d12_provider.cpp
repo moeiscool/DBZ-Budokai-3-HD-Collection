@@ -23,6 +23,14 @@
 REXCVAR_DEFINE_BOOL(d3d12_debug, false, "UI/D3D12", "Enable Direct3D 12 and DXGI debug layer")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
+// DRED needs only D3D12GetDebugInterface, not the (heavy) debug layer, so it is
+// enabled by default: it is what names the faulting op and the allocation at
+// the faulting VA when the device is lost. See LogDeviceRemovalDiagnostics.
+REXCVAR_DEFINE_BOOL(d3d12_dred, true, "UI/D3D12",
+                    "Enable D3D12 Device Removed Extended Data (auto-breadcrumbs "
+                    "+ page-fault reporting) for GPU-crash diagnostics")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 REXCVAR_DEFINE_BOOL(d3d12_break_on_error, false, "UI/D3D12",
                     "Break on Direct3D 12 validation errors");
 
@@ -231,19 +239,22 @@ bool D3D12Provider::Initialize() {
       REXLOG_WARN("Failed to enable the Direct3D 12 debug layer");
       debug = false;
     }
+  }
 
-    // Enable DRED (Device Removed Extended Data) for diagnosing GPU crashes.
-    {
-      Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dred_settings;
-      if (SUCCEEDED(pfn_d3d12_get_debug_interface_(IID_PPV_ARGS(&dred_settings)))) {
-        dred_settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-        dred_settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
-        REXLOG_INFO("DRED (Device Removed Extended Data) enabled");
-      } else {
-        REXLOG_WARN(
-            "Failed to enable DRED - device removal diagnostics will be "
-            "limited");
-      }
+  // Enable DRED (Device Removed Extended Data) for diagnosing GPU crashes.
+  // Independent of the debug layer on purpose: DRED only needs the debug
+  // interface object, so it is armed by default and works in a normal release
+  // run. Without it a device loss only prints an HRESULT with no context.
+  if (REXCVAR_GET(d3d12_dred)) {
+    Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dred_settings;
+    if (SUCCEEDED(pfn_d3d12_get_debug_interface_(IID_PPV_ARGS(&dred_settings)))) {
+      dred_settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+      dred_settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+      REXLOG_INFO("DRED (Device Removed Extended Data) enabled");
+    } else {
+      REXLOG_WARN(
+          "Failed to enable DRED - device removal diagnostics will be "
+          "limited");
     }
   }
   // Create the DXGI factory.

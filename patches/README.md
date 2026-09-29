@@ -410,3 +410,33 @@ por ejecucion sin borrar los viejos.
 - **DLLs canonicas (2026-09-19b, texturas HD: RGBA8 + guardia + min-size)**: `rexgpu-xenos.dll`
   **6.227.456 B** (baseline; SHA256 varia por build), `rexruntime.dll`
   **10.910.208 B**, `amd_fidelityfx_dx12.dll` **5.413.888 B**.
+
+### 2026-09-29 - DRED activo en release + gamecontrollerdb
+
+Dos cosas aprendidas de la recompilacion hermana **reblue** (ReXGlue 0.10, misma
+base que este proyecto): el DRED solo estaba armado cuando `d3d12_debug=ON`, y el
+`gamecontrollerdb.txt` que el runtime ya sabe leer **no se enviaba**. Los dos
+ficheros de abajo ya forman parte del arbol de parches.
+
+- **`src/ui/d3d12/d3d12_provider.cpp`** (rexruntime): DRED sale de dentro del
+  `if (d3d12_debug)` y pasa a su propia cvar **`d3d12_dred`** (default **true**).
+  `ID3D12DeviceRemovedExtendedDataSettings` se obtiene con
+  `D3D12GetDebugInterface`, que **no** requiere la capa debug (esa es pesada y
+  sigue OFF por defecto): armar DRED en release es gratis y es lo unico que,
+  cuando el device se pierde, nombra la operacion que fallo (auto-breadcrumbs) y
+  la asignacion en la VA del page fault.
+- **`src/graphics/d3d12/command_processor.cpp`** (rexgpu-xenos):
+  `LogDeviceRemovalDiagnostics` enriquece el reporte:
+  - cada breadcrumb imprime ademas el nombre (SetName) de la **command queue** y
+    la **command list** que iba ejecutando;
+  - del page fault se vuelcan los nodos `D3D12_DRED_ALLOCATION_NODE`
+    (existentes + liberados recientemente) con su tipo y nombre.
+- **`gamecontrollerdb.txt`** (~608 KB, raiz + espejo en `github/`): base de mandos
+  de la comunidad (SDL_GameControllerDB, zlib). El runtime ya tiene la cvar
+  **`hid_mappings_file`** (default `gamecontrollerdb.txt`) y carga el fichero con
+  `SDL_AddGamepadMappingsFromFile`; lo que faltaba era **enviarlo** junto al exe.
+  `CMakeLists.txt` lo copia en POST_BUILD, `tools/make_release.ps1` lo mete en el
+  zip y `tools/sync_github.ps1` lo versiona. Beneficio: el backend SDL reconoce
+  mandos genericos que no van por XInput.
+- **DLLs canonicas (2026-09-29)**: `rexruntime.dll` **10.920.448 B**,
+  `rexgpu-xenos.dll` **6.360.064 B**, `amd_fidelityfx_dx12.dll` **5.413.888 B**.

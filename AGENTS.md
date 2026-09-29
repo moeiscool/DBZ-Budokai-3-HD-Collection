@@ -504,12 +504,12 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
 
 - **DLLs canónicas del SDK 0.10** (NO reemplazar por las regeneradas del build):
   - **Baseline (único en uso)**: `rexglue-sdk-0.10/out/win-amd64-baseline/` →
-    `rexruntime.dll` **10917888 B** y `rexgpu-xenos.dll` **6355456 B** (v1.2.9);
-    `amd_fidelityfx_dx12.dll` 5413888.
+    `rexruntime.dll` **10920448 B** y `rexgpu-xenos.dll` **6360064 B**
+    (2026-09-29); `amd_fidelityfx_dx12.dll` 5413888.
     - rexruntime lleva: `audio_gain`, `dbz3_perf_logging`, `dbz3_io_logging`/
       `dbz3_io_readahead`, poda de logs, `dbz3_mute_unfocused`, `frame_cap`
-      (definido en `src/ui/presenter.cpp`), **aviso de disco lento** y sello
-      `dbz3_runtime_build`.
+      (definido en `src/ui/presenter.cpp`), `d3d12_dred` (DRED ON por defecto,
+      sin capa debug), **aviso de disco lento** y sello `dbz3_runtime_build`.
     - rexgpu-xenos lleva: `fg=` y `cfg=`/`upx`/`upx_dyn=`/`texload=`/`vram=`/
       `lim=` en la línea `perf`, fix de mips del shader `texture_upscale_cs` +
       clamp anti-ringing, extensión a RGBA8 nativas, `dbz3_upscale_min_size`,
@@ -525,7 +525,8 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
   valor de referencia es el de `out/win-amd64-baseline/` (lo que usa
   `verify_release.ps1`). Tamaños de releases previas: 10910720/6346240
   (v1.2.8.2), 10910208/6227456 (v1.2.6), 6346752 (v1.2.7), 6340096 (v1.2.8),
-  6342656 (v1.2.8.1), 10910208/6355456 (v1.2.9).
+  6342656 (v1.2.8.1), 10910208/6355456 (v1.2.9); **10920448/6360064**
+  (2026-09-29, DRED por defecto).
 - ⚠️ **Sello de build** (v1.2.9): `rex/dbz3_build.h` (`DBZ3_RUNTIME_BUILD`) se
   publica por las cvars `dbz3_runtime_build` / `dbz3_gpu_build`; **subirlo junto
   con `src/version.rc`** (`verify_release.ps1` lo comprueba). El launcher lo usa
@@ -541,6 +542,7 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
   distinto** — NO copiarlo. Usar las de los `out/` canónicos.
 - **Parches del SDK** en `github/patches/` (afs.cpp/h, host_path_file.cpp,
   host_path_entry.cpp, input_system.cpp, d3d12_presenter.cpp, presenter.cpp,
+  d3d12_provider.cpp (DRED), command_processor.cpp (DRED report), texture_cache.*,
   sdl_input_driver.{h,cpp}, xam_info.cpp, graphics_system.cpp,
   function_dispatcher.cpp, rex_app.cpp). **Si se toca el SDK: actualizar
   patches/ + recompilar + copiar DLLs.**
@@ -641,7 +643,9 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
   (sistema real vía `RtlGetVersion`).
 - **Input**: `dbz3_input_backend` (xinput/sdl), `dbz3_mnk_mode` (default TRUE),
   `dbz3_mnk_mouse`, `dbz3_mnk_sensitivity` (0.1-5.0 → `mnk_sensitivity`),
-  deadzone/rumble, 24 keybinds (`dbz3_keybind_*`).
+  deadzone/rumble, 24 keybinds (`dbz3_keybind_*`). **Mando (SDL)**:
+  `gamecontrollerdb.txt` (608 KB, zlib) se envía junto al exe; el runtime lo carga
+  con la cvar `hid_mappings_file` (backend SDL).
 - **Dev**: FPS counter, diag logging gateado por `DevMode() && DiagLogging()`,
   minidump en crash, palancas GPU `dbz3_async_shaders` → `async_shader_compilation`
   y `dbz3_occlusion_queries` → `occlusion_query_enable`, versiones de ficheros.
@@ -687,12 +691,24 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
   UPX). Verificación: `tools/verify_release.ps1` (hashes DLL vs SDK, VERSIONINFO,
   sello vs `version.rc`, cvar vsync en rexgpu, mods/ vacía, zip sin assets).
   `make_release.ps1` monta: dbz3.exe + DLLs + `mod center hd/` + `mods/` + docs.
-- **Issues (triaje 2026-09-25)**: cerrados #7 (crash al título = menú HD, v1.2.2
-  EX), #11 (volcado: v1.2.8 + HUD/RGBA8 v1.2.8.1), #3 (CrossOver Mac; el splash
-  sin canal rojo es de D3DMetal). Abiertos: #8 (bajones de FPS: comentado el fix
-  de la v1.2.8.2, esperando el log `perf`), #9 (importar saves: receta por carpeta
-  + helper pendiente de decidir), #1 (pico de volumen al volar sin repro).
+- **Issues (triaje 2026-09-29)**: cerrados #7 (crash al título = menú HD, v1.2.2
+  EX), #11 (volcado: v1.2.8 + HUD/RGBA8 v1.2.8.1), #9 (importar saves: receta por
+  carpeta; sin converter), #12 (FPS a 4K: respondida — escala interna 1x + FSR),
+  #3 (CrossOver Mac; el splash sin canal rojo es de D3DMetal). **Abiertos**: #13
+  (extraer texturas a PNG: `python` resolvía al alias de Microsoft Store → exit
+  9009; fix de resolución de intérprete en `src/launcher/mod_pipeline.cpp` —
+  probe `py -3`/`python`/`python3`/`DBZ3_PYTHON` + aviso de Pillow/numpy —
+  **implementado, pendiente de release**), #8 (bajones de FPS: esperando el log
+  `perf`), #1 (pico de volumen al volar sin repro; deducción Kaioken RECTIFICADA:
+  Kaioken SÍ es parte del ciclo de Goku, el cápsula es requisito para SSJ).
   #10/#6/#5/#4/#2 cerrados antes.
+- **DRED + gamecontrollerdb (2026-09-29, de reblue/LostOdysseyRecomp)**: DRED
+  (`d3d12_dred`, ON) ya no depende de `d3d12_debug` → el reporte de *device lost*
+  nombra queue/list y las allocation nodes; `gamecontrollerdb.txt` se envía junto
+  al exe (cvar `hid_mappings_file` del SDK). Ver §7 y
+  `docs/VIABILIDAD_UPSCALING_TEMPORAL_2026-09-29.md`. ⚠️ Las
+  DLL se recompilaron: baseline `rexruntime` **10920448**, `rexgpu-xenos`
+  **6360064**.
 
 ### 9.3 🔴 CARPETA `github/` — REPO DE SUBIDA (sync manual)
 `github/` es la copia versionable (NO es repo git local; se sube manualmente). El
@@ -772,6 +788,9 @@ Ver **`docs/HOJA_DE_RUTA_2026_09.md`** — 3 fases:
 
 ## 13. NOTAS DE OPERACIÓN
 
+- **Respuestas de issues = "IA" PARCIAL (declarado en #1, 2026-09-29)**: el
+  mantenedor es usuario avanzado (no experto) y usa IA para analizar/acelerar;
+  las decisiones y pruebas son suyas. Ser explícito si se pregunta; no ocultarlo.
 - Los datos de referencia que vivían en `%TEMP%\opencode\` (b327_*.bin,
   cell_*.bin, etc.) **ya NO existen** (limpieza 2026-09-02): regenerar desde
   `us/` + `ps2_games/` con las herramientas de `awo_tools/`.

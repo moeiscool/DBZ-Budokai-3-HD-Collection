@@ -80,7 +80,8 @@ if (-not $DryRun) {
 
 # Archivos raiz versionables.
 $rootFiles = @("AGENTS.md", "AWO_FORMAT.md", "CMakeLists.txt", "CMakePresets.json",
-               "dbz3_config.toml", "dbz3_manifest.toml", "README.md", "README_EN.md")
+               "dbz3_config.toml", "dbz3_manifest.toml", "README.md", "README_EN.md",
+               "gamecontrollerdb.txt")
 foreach ($f in $rootFiles) {
     $srcFile = Join-Path $root $f
     if (-not (Test-Path -LiteralPath $srcFile)) {

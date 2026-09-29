@@ -115,6 +115,17 @@ foreach ($dll in $runtime_dlls) {
     Copy-Item -LiteralPath (Join-Path $sdk $dll) (Join-Path $OutDir $dll)
 }
 
+# SDL game controller mappings (community GameControllerDB, zlib): shipped next
+# to dbz3.exe so the runtime's `hid_mappings_file` default resolves and the SDL
+# input backend has real mappings for generic pads.
+$ctrldb = Join-Path $root "gamecontrollerdb.txt"
+if (-not (Test-Path -LiteralPath $ctrldb)) { $ctrldb = Join-Path $root "github\gamecontrollerdb.txt" }
+if (Test-Path -LiteralPath $ctrldb) {
+    Copy-Item -LiteralPath $ctrldb (Join-Path $OutDir "gamecontrollerdb.txt")
+} else {
+    Write-Warning "No se encontro gamecontrollerdb.txt - omitido"
+}
+
 # Shared DLLs: canonical copy in github/ root (versioned), then the snapshot
 # of the previous release, then the US build dir.
 foreach ($dll in $shared_dlls) {

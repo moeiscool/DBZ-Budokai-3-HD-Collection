@@ -112,6 +112,19 @@ endif()
 # and copies the xenos GPU plugin next to the executable.
 rexglue_configure_target(dbz3 GPU_PLUGINS xenos)
 
+# SDL game controller mappings (community GameControllerDB, zlib). The runtime's
+# `hid_mappings_file` cvar defaults to "gamecontrollerdb.txt" and loads it from
+# the working directory, so shipping it next to the exe gives the SDL input
+# backend real mappings for generic pads. See AGENTS.md seccion 7.
+set(DBZ3_CONTROLLERDB "${CMAKE_CURRENT_SOURCE_DIR}/gamecontrollerdb.txt")
+if(EXISTS "${DBZ3_CONTROLLERDB}")
+    add_custom_command(TARGET dbz3 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${DBZ3_CONTROLLERDB}" "$<TARGET_FILE_DIR:dbz3>/gamecontrollerdb.txt"
+        COMMENT "Staging gamecontrollerdb.txt next to dbz3"
+        VERBATIM)
+endif()
+
 # Codegen target - run 'cmake --build . --target dbz3_codegen'
 add_custom_target(dbz3_codegen
     COMMAND $<TARGET_FILE:rex::rexglue> codegen ${CMAKE_CURRENT_SOURCE_DIR}/dbz3_manifest.toml
