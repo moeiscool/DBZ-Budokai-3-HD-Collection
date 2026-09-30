@@ -462,7 +462,7 @@ bool TomlParses(const std::filesystem::path& path) {
   if (!in) return false;
   std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   try {
-    toml::parse(text);
+    (void)toml::parse(text);
     return true;
   } catch (const toml::parse_error&) {
     return false;

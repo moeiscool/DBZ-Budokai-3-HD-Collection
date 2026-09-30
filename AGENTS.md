@@ -1,7 +1,8 @@
 # DBZ Budokai 3 HD Collection — Contexto del proyecto (operativo)
 
 > Documento de contexto para agentes/AI. **Compactado 2026-09-26** (117 KB → ~60 KB)
-> al publicar la **v1.2.9**. El relato detallado verbatim vive en
+> al publicar la **v1.2.9**; **actualizado 2026-09-30** para la **v1.3.0**. El
+> relato detallado verbatim vive en
 > `docs/01_estructura/HISTORICO_AGENTS.md` (hasta 2026-09-02) y
 > `docs/01_estructura/HISTORICO_RELEASES.md` (releases 1.1.3→1.2.9, investigación
 > del port PS2→B3 y detalle del launcher). Este documento es la referencia
@@ -66,7 +67,10 @@ lógica de región/mods, y runtime.
 **Juego funcional**: D3D12 principal, 60,0 fps, **núcleo dual US+EU** en un solo
 exe, mando XInput, teclado por defecto (`mnk_mode=true`). Vulkan experimental
 (entra en el CI de Linux). Swap nativo HD↔HD y texturas funcionan. Port completo
-PS2→HD **aparcado** (§3.4.10). El diagnóstico de la v1.2.9 se explica solo.
+PS2→HD **aparcado** (§3.4.10). El diagnóstico de la v1.2.9 se explica solo; la
+**v1.3.0** añade «Reparar instalación», etiquetas de botón (Xbox/PS/Switch), DRED
+por defecto, `gamecontrollerdb.txt`, el fix del extractor de texturas (#13) y
+pulido/optimización del launcher.
 
 > El detalle release a release (diagnósticos, causas, mediciones, tamaños de DLL)
 > está en `docs/01_estructura/HISTORICO_RELEASES.md` §A y en los docs de sesión.
@@ -76,7 +80,8 @@ PS2→HD **aparcado** (§3.4.10). El diagnóstico de la v1.2.9 se explica solo.
 
 | Release | Fecha | Contenido clave | FileVersion | Doc de sesión |
 |---|---|---|---|---|
-| **v1.2.9** (Latest) | 2026-09-26 | Diagnóstico autoexplicativo: avisos SIEMPRE activos (fps sostenido, disco lento, instalación mixta), `vram=`/`lim=` en `perf`, guardia de VRAM, línea `entorno`, `copy_sdk_dlls.ps1` | 1.2.9 | SESION_DIAGNOSTICO_2026-09-26 |
+| **v1.3.0** (Latest) | 2026-09-30 | «Reparar instalación», etiquetas de botón (Xbox/PS/Switch), DRED por defecto, `gamecontrollerdb.txt`, fix del extractor de texturas (#13), pulido y optimización del launcher | 1.3.0 | SESION_LAUNCHER_V130_2026-09-30 |
+| v1.2.9 | 2026-09-26 | Diagnóstico autoexplicativo: avisos SIEMPRE activos (fps sostenido, disco lento, instalación mixta), `vram=`/`lim=` en `perf`, guardia de VRAM, línea `entorno`, `copy_sdk_dlls.ps1` | 1.2.9 | SESION_DIAGNOSTICO_2026-09-26 |
 | v1.2.8.2 | 2026-09-24 | La mejora de texturas deja de hundir los FPS (throttle de dinámicas: solo nivel 0) + `cfg=`/`upx_dyn=`/`texload=` | 1.2.8.2 | SESION_PERF_TEXTURAS_2026-09-24 |
 | v1.2.8.1 | 2026-09-23 | Volcado de HUD/UI sin comprimir + packs RGBA8 + tope 4 versiones/identidad (issue #11) | 1.2.8.1 | SESION_VOLCADO_FORMATOS_2026-09-23 |
 | v1.2.8 | 2026-09-21 | Fix del volcado: registro de cvars compartido → `REXCVAR_QUERY` (issue #11) | 1.2.8.0 | SESION_FIX_VOLCADO_2026-09-21 |
@@ -526,11 +531,13 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
   `verify_release.ps1`). Tamaños de releases previas: 10910720/6346240
   (v1.2.8.2), 10910208/6227456 (v1.2.6), 6346752 (v1.2.7), 6340096 (v1.2.8),
   6342656 (v1.2.8.1), 10910208/6355456 (v1.2.9); **10920448/6360064**
-  (2026-09-29, DRED por defecto).
-- ⚠️ **Sello de build** (v1.2.9): `rex/dbz3_build.h` (`DBZ3_RUNTIME_BUILD`) se
+  (v1.3.0, 2026-09-30; mismo tamaño que v1.2.9 pero sello `1.3.0`).
+- ⚠️ **Sello de build**: `rex/dbz3_build.h` (`DBZ3_RUNTIME_BUILD`) se
   publica por las cvars `dbz3_runtime_build` / `dbz3_gpu_build`; **subirlo junto
   con `src/version.rc`** (`verify_release.ps1` lo comprueba). El launcher lo usa
-  para avisar de instalaciones mixtas.
+  para avisar de instalaciones mixtas. **Al subir la versión hay que recompilar
+  `rexruntime` y `rexgpu-xenos`** (targets del SDK baseline) para que el sello
+  embebido coincida; si no, el aviso salta en TODAS las instalaciones nuevas.
 - **🔴 El build del juego SOBRESCRIBE `rexruntime.dll`** con la versión stale de
   `rexglue/bin`: tras `cmake --build`, copiar las canónicas con
   `powershell -ExecutionPolicy Bypass -File tools\copy_sdk_dlls.ps1` (avisa si el
@@ -687,13 +694,14 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
   primer `[[switch_tables]]`; usar `DBZ3_COLLECT_UNREGISTERED` / `DBZ3_DUMP_IMAGE`).
 
 ### 9.2 Releases y estado GitHub
-- **v1.2.9 = Latest** (2026-09-26): diagnóstico autoexplicativo (ver §3.0).
-- **v1.2.8.2 / 1.2.8.1 / 1.2.8 / 1.2.7 / 1.2.6 / 1.2.5 / 1.2.4 EX / 1.2.4 /
-  1.2.3 / 1.2.2 EX / 1.2.1 / 1.2.0 / 1.1.4 EX / 1.1.3 / 1.1.2 / 1.1.1** =
-  no-Latest (contenido en §3.0); **v1.1.0-clasico** = fallback (runtime avx2);
-  tags v1.0.0..v1.0.9 + v1.0.5-EX conservados (zips binarios viejos NO existen).
-  ⚠️ La **v1.2.2 plana se retiró** (le faltaban los fixes del ISO).
-- **PortForge**: `defaultVersion` = 1.2.9; visibles 1.2.9 / 1.2.8.2 / 1.2.8.1;
+- **v1.3.0 = Latest** (2026-09-30): Reparar instalación, etiquetas de botón,
+  DRED por defecto, `gamecontrollerdb.txt`, fix #13, pulido/optimización.
+- **v1.2.9 / 1.2.8.2 / 1.2.8.1 / 1.2.8 / 1.2.7 / 1.2.6 / 1.2.5 / 1.2.4 EX /
+  1.2.4 / 1.2.3 / 1.2.2 EX / 1.2.1 / 1.2.0 / 1.1.4 EX / 1.1.3 / 1.1.2 /
+  1.1.1** = no-Latest (contenido en §3.0); **v1.1.0-clasico** = fallback (runtime
+  avx2); tags v1.0.0..v1.0.9 + v1.0.5-EX conservados (zips binarios viejos NO
+  existen). ⚠️ La **v1.2.2 plana se retiró** (le faltaban los fixes del ISO).
+- **PortForge**: `defaultVersion` = 1.3.0; visibles 1.3.0 / 1.2.9 / 1.2.8.2;
   el resto al archivo (`portforge/archive/`).
 - ⚠️ **El exe de release se compila desde `out\build\win-amd64-dual`** (core dual);
   `make_release.ps1` toma `dbz3.exe` de ahí + DLLs del
@@ -714,7 +722,9 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
   #1 (pico de volumen al volar; última respuesta del reporter = livestream con
   timestamps 17:37 / 2:08:46, contestada aceptando el clip como repro; deducción
   Kaioken RECTIFICADA: Kaioken SÍ es parte del ciclo de Goku, el cápsula es
-  requisito para SSJ). #10/#6/#5/#4/#2 cerrados antes.
+  requisito para SSJ). #10/#6/#5/#4/#2 cerrados antes. **Revisión
+  2026-09-30**: sin respuestas nuevas pendientes (el último mensaje de #11 es una
+  confirmación de éxito del reporter).
 - **DRED + gamecontrollerdb (2026-09-29, de reblue/LostOdysseyRecomp)**: DRED
   (`d3d12_dred`, ON) ya no depende de `d3d12_debug` → el reporte de *device lost*
   nombra queue/list y las allocation nodes; `gamecontrollerdb.txt` se envía junto

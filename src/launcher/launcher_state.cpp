@@ -1,4 +1,4 @@
-﻿// dbz3 - Pre-game launcher screen implementation.
+// dbz3 - Pre-game launcher screen implementation.
 // Dark modern style with Dragon Ball accent colors (orange/blue).
 
 #include "launcher_state.h"
@@ -39,6 +39,24 @@ constexpr ImVec4 kPanelBgAlt(0.14f, 0.15f, 0.18f, 1.0f);
 constexpr ImVec4 kTextMain(0.92f, 0.92f, 0.94f, 1.0f);
 constexpr ImVec4 kTextDim(0.55f, 0.57f, 0.62f, 1.0f);
 
+// Component colors, named so the same meaning always looks the same.
+constexpr ImVec4 kBorder(0.25f, 0.25f, 0.30f, 1.0f);
+constexpr ImVec4 kFrameBg(0.16f, 0.17f, 0.20f, 1.0f);
+constexpr ImVec4 kFrameBgHovered(0.22f, 0.23f, 0.27f, 1.0f);
+constexpr ImVec4 kFrameBgActive(0.28f, 0.29f, 0.33f, 1.0f);
+constexpr ImVec4 kRowBg(0.18f, 0.19f, 0.22f, 1.0f);
+constexpr ImVec4 kTabBg(0.13f, 0.14f, 0.17f, 1.0f);
+constexpr ImVec4 kOk(0.45f, 0.85f, 0.45f, 1.0f);
+constexpr ImVec4 kOkSoft(0.55f, 0.85f, 0.55f, 1.0f);
+constexpr ImVec4 kWarn(1.00f, 0.75f, 0.35f, 1.0f);
+constexpr ImVec4 kError(1.00f, 0.45f, 0.35f, 1.0f);
+constexpr ImVec4 kInfo(0.55f, 0.78f, 0.98f, 1.0f);
+constexpr ImVec4 kGold(1.00f, 0.72f, 0.30f, 1.0f);
+constexpr ImVec4 kSrcActive(0.42f, 0.31f, 0.15f, 1.0f);
+constexpr ImVec4 kPlayIdle(0.16f, 0.62f, 0.28f, 1.0f);
+constexpr ImVec4 kPlayHovered(0.22f, 0.74f, 0.36f, 1.0f);
+constexpr ImVec4 kPlayActive(0.11f, 0.50f, 0.22f, 1.0f);
+
 // Double slider with named min/max (avoids rvalue-address issues with clang).
 bool SliderD(const char* label, double* value, double min, double max, const char* fmt) {
   return ImGui::SliderScalar(label, ImGuiDataType_Double, value, &min, &max, fmt);
@@ -57,7 +75,9 @@ const char* ModTypeLabelText(const std::string& type) {
 
 void PushSectionHeader(const char* title) {
   ImGui::TextColored(kDragonOrange, "%s", title);
+  ImGui::PushStyleColor(ImGuiCol_Separator, kDragonOrangeDim);
   ImGui::Separator();
+  ImGui::PopStyleColor();
   ImGui::Spacing();
 }
 
@@ -384,8 +404,13 @@ void LauncherDialog::ApplyTheme() {
   style.GrabRounding = 6.0f;
   style.ChildRounding = 6.0f;
   style.TabRounding = 6.0f;
-  style.WindowBorderSize = 1.0f;
+  style.PopupRounding = 8.0f;
+  style.ScrollbarRounding = 6.0f;
+  style.GrabMinSize = 12.0f;
+  style.WindowBorderSize = 0.0f;
   style.FrameBorderSize = 0.0f;
+  style.TabBarBorderSize = 1.0f;
+  style.TabBarOverlineSize = 2.0f;
   style.WindowPadding = ImVec2(12, 8);
   style.FramePadding = ImVec2(7, 4);
   style.ItemSpacing = ImVec2(7, 4);
@@ -394,29 +419,43 @@ void LauncherDialog::ApplyTheme() {
   style.ScrollbarSize = 10.0f;
   style.Colors[ImGuiCol_WindowBg] = kPanelBg;
   style.Colors[ImGuiCol_ChildBg] = kPanelBgAlt;
+  style.Colors[ImGuiCol_PopupBg] = kPanelBgAlt;
   style.Colors[ImGuiCol_Text] = kTextMain;
   style.Colors[ImGuiCol_TextDisabled] = kTextDim;
-  style.Colors[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.30f, 1.0f);
-  style.Colors[ImGuiCol_FrameBg] = ImVec4(0.16f, 0.17f, 0.20f, 1.0f);
-  style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.23f, 0.27f, 1.0f);
-  style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.28f, 0.29f, 0.33f, 1.0f);
+  style.Colors[ImGuiCol_TextSelectedBg] =
+      ImVec4(kDragonOrange.x, kDragonOrange.y, kDragonOrange.z, 0.35f);
+  style.Colors[ImGuiCol_Border] = kBorder;
+  style.Colors[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+  style.Colors[ImGuiCol_FrameBg] = kFrameBg;
+  style.Colors[ImGuiCol_FrameBgHovered] = kFrameBgHovered;
+  style.Colors[ImGuiCol_FrameBgActive] = kFrameBgActive;
   style.Colors[ImGuiCol_TitleBg] = kDragonOrangeDim;
   style.Colors[ImGuiCol_TitleBgActive] = kDragonOrangeDim;
-  style.Colors[ImGuiCol_Button] = ImVec4(0.16f, 0.17f, 0.20f, 1.0f);
+  style.Colors[ImGuiCol_Button] = kFrameBg;
   style.Colors[ImGuiCol_ButtonHovered] = kDragonOrangeDim;
   style.Colors[ImGuiCol_ButtonActive] = kDragonOrange;
-  style.Colors[ImGuiCol_Header] = ImVec4(0.18f, 0.19f, 0.22f, 1.0f);
+  style.Colors[ImGuiCol_Header] = kRowBg;
   style.Colors[ImGuiCol_HeaderHovered] = kDragonOrangeDim;
   style.Colors[ImGuiCol_HeaderActive] = kDragonOrangeDim;
-  style.Colors[ImGuiCol_Tab] = ImVec4(0.13f, 0.14f, 0.17f, 1.0f);
+  style.Colors[ImGuiCol_Tab] = kTabBg;
   style.Colors[ImGuiCol_TabHovered] = kDragonOrangeDim;
-  style.Colors[ImGuiCol_TabActive] = kDragonOrange;
-  style.Colors[ImGuiCol_TabUnfocused] = ImVec4(0.13f, 0.14f, 0.17f, 1.0f);
-  style.Colors[ImGuiCol_TabUnfocusedActive] = kDragonOrangeDim;
+  style.Colors[ImGuiCol_TabSelected] = kDragonOrange;
+  style.Colors[ImGuiCol_TabSelectedOverline] = kDragonOrange;
+  style.Colors[ImGuiCol_TabDimmed] = kTabBg;
+  style.Colors[ImGuiCol_TabDimmedSelected] = kDragonOrangeDim;
   style.Colors[ImGuiCol_SliderGrab] = kDragonOrange;
   style.Colors[ImGuiCol_SliderGrabActive] = kDragonOrange;
   style.Colors[ImGuiCol_CheckMark] = kDragonOrange;
-  style.Colors[ImGuiCol_CheckMark] = kDragonOrange;
+  style.Colors[ImGuiCol_Separator] = kBorder;
+  style.Colors[ImGuiCol_SeparatorHovered] = kDragonOrangeDim;
+  style.Colors[ImGuiCol_SeparatorActive] = kDragonOrange;
+  style.Colors[ImGuiCol_ScrollbarBg] = kPanelBg;
+  style.Colors[ImGuiCol_ScrollbarGrab] = kFrameBgActive;
+  style.Colors[ImGuiCol_ScrollbarGrabHovered] = kDragonOrangeDim;
+  style.Colors[ImGuiCol_ScrollbarGrabActive] = kDragonOrange;
+  style.Colors[ImGuiCol_ResizeGrip] = kFrameBg;
+  style.Colors[ImGuiCol_ResizeGripHovered] = kDragonOrangeDim;
+  style.Colors[ImGuiCol_ResizeGripActive] = kDragonOrange;
 }
 
 LauncherDialog::LauncherDialog(rex::ui::ImGuiDrawer* drawer, std::function<void()> on_play)
@@ -429,6 +468,33 @@ void LauncherDialog::OnClose() {
   // close the dialog (Play button or window X) without pressing "Save settings".
   // The Play button also saves explicitly; this guarantees nothing is ever lost.
   dbz3::settings::SaveUserSettings();
+}
+
+void LauncherDialog::RefreshAssets() {
+  const double now = ImGui::GetTime();
+  if (assets_.valid && now < assets_.next_refresh) {
+    return;
+  }
+  AssetProbe p;
+  p.game_root = dbz3::EffectiveGameRoot();
+  p.iso_mode = dbz3::settings::IsIsoMode();
+  p.sel_region = dbz3::settings::ResolveRegion(p.game_root);
+  p.root_ok = !p.game_root.empty() && std::filesystem::is_directory(p.game_root);
+  p.region_ok = p.root_ok && std::filesystem::is_directory(p.game_root / p.sel_region);
+  p.us_ok = p.root_ok && std::filesystem::is_directory(p.game_root / "us");
+  const auto& boot = dbz3::settings::CurrentBootSource();
+  p.xex_status = boot.status;
+  p.redirect_default_xex = boot.redirect_default_xex;
+  p.boot_note = boot.note;
+  p.xex_present = !boot.xex.empty() && std::filesystem::is_regular_file(boot.xex);
+  p.xex_blocked = p.xex_present && (p.xex_status == dbz3::settings::XexStatus::kDbz1 ||
+                                    p.xex_status == dbz3::settings::XexStatus::kHdMenu);
+  p.xex_ok = p.xex_present && !p.xex_blocked;
+  p.assets_ready =
+      (p.iso_mode ? p.xex_ok : (p.region_ok || p.us_ok) && p.xex_ok) && !p.xex_blocked;
+  p.valid = true;
+  p.next_refresh = now + 0.4;
+  assets_ = p;
 }
 
 void LauncherDialog::OnDraw(ImGuiIO& io) {
@@ -466,6 +532,10 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   ImGui::SetWindowFontScale(1.0f);
   ImGui::PopStyleColor();
   ImGui::TextColored(kTextDim, "Recompiled with ReXGlue  -  HD Collection (PAL)");
+  ImGui::PushStyleColor(ImGuiCol_Separator, kDragonOrangeDim);
+  ImGui::Separator();
+  ImGui::PopStyleColor();
+  ImGui::Spacing();
 
   // --- Update check (GitHub releases, Dusk-style) -----------------------------
   // Started once; the HTTPS request runs on a background thread so the UI never
@@ -489,7 +559,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
                                         "Checking for updates..."));
       break;
     case dbz3::launcher::UpdateState::kAvailable: {
-      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.85f, 0.45f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_Text, kOk);
       ImGui::Text(i18n::T("Nueva version disponible: v%s", "New version available: v%s"),
                   dbz3::launcher::LatestVersion().c_str());
       ImGui::PopStyleColor();
@@ -554,54 +624,37 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   // folder/ISO picker that relocates the game data in-place (no restart needed).
   // Two sources are supported: an extracted folder (us//eu/ + default.xex) and
   // a disc image (.iso) whose game drive is mounted at Play time.
-  const auto game_root = dbz3::EffectiveGameRoot();
-  const bool iso_mode = dbz3::settings::IsIsoMode();
-  const std::string sel_region = dbz3::settings::ResolveRegion(game_root);
-  const bool root_ok = !game_root.empty() && std::filesystem::is_directory(game_root);
+  RefreshAssets();
+  const auto& game_root = assets_.game_root;
+  const bool iso_mode = assets_.iso_mode;
+  const std::string& sel_region = assets_.sel_region;
+  const bool root_ok = assets_.root_ok;
   // Auto-correct the region selection when the chosen source is missing but the
   // other one exists (e.g. EU-only data with the default "us"): keeps the
   // banner, the footer summary and the region mount at Play time in sync with
   // what is actually present. In ISO mode the region comes from the disc's own
   // default.xex (extracted to the ISO cache folder at startup).
-  // The boot source resolved at startup (or on the last source switch) is
-  // authoritative: it reports the executable the runtime will really run, which
-  // is the staged copy when Budokai 3's file has another name or lives in a
-  // subfolder (retail discs keep it as DBZ3/yae3_xenon.xex).
-  const auto& boot = dbz3::settings::CurrentBootSource();
-  const auto xex_status = boot.status;
+  const auto xex_status = assets_.xex_status;
   if (iso_mode && (xex_status == dbz3::settings::XexStatus::kUs ||
                    xex_status == dbz3::settings::XexStatus::kEu)) {
     const std::string iso_region = xex_status == dbz3::settings::XexStatus::kEu ? "eu" : "us";
     if (sel_region != iso_region) {
       dbz3::settings::SetRegion(iso_region);
+      assets_.sel_region = iso_region;
     }
   } else if (sel_region != dbz3::settings::Region()) {
     dbz3::settings::SetRegion(sel_region);
   }
-  const bool region_ok = root_ok && std::filesystem::is_directory(game_root / sel_region);
-  const bool us_ok = root_ok && std::filesystem::is_directory(game_root / "us");
-  const bool xex_present =
-      !boot.xex.empty() && std::filesystem::is_regular_file(boot.xex);
-  const auto xex_status_final = boot.status;
-  // Each core is recompiled from one executable: the US/NA core boots only the
-  // US xex and the EU/PAL core only the EU xex. A known xex of the OTHER
-  // variant blocks Play (the guest would exit with "No function registered").
-  const bool xex_expected = dbz3::settings::XexIsExpected(xex_status_final);
-  // Block only on a KNOWN wrong-variant xex (EU xex on the US core or vice
-  // versa). An unknown xex (modified/patched dump) is NOT blocked: it shows
-  // the amber note below and the user can still try to launch, since a
-  // compatible-but-modified copy of the right variant works fine. Blocking it
-  // silently disabled Play for those users while the Enter shortcut (not gated
-  // by BeginDisabled) still launched the game.
-  const bool xex_blocked =
-      xex_present && (xex_status_final == dbz3::settings::XexStatus::kDbz1 ||
-                      xex_status_final == dbz3::settings::XexStatus::kHdMenu);
-  const bool xex_ok = xex_present && !xex_blocked;
-  const bool assets_ready =
-      (iso_mode ? xex_ok : (region_ok || us_ok) && xex_ok) && !xex_blocked;
+  const bool region_ok = assets_.region_ok;
+  const bool us_ok = assets_.us_ok;
+  const bool xex_present = assets_.xex_present;
+  const auto xex_status_final = assets_.xex_status;
+  const bool xex_blocked = assets_.xex_blocked;
+  const bool xex_ok = assets_.xex_ok;
+  const bool assets_ready = assets_.assets_ready;
 
   if (assets_ready) {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.85f, 0.45f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, kOk);
     if (iso_mode) {
       const std::filesystem::path iso = dbz3::settings::IsoPath();
       ImGui::Text(i18n::T("[OK] Disco: %s", "[OK] Disc: %s"), iso.filename().string().c_str());
@@ -618,7 +671,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
       // ISO mode reads the game data straight off the disc; the per-entry AFS
       // override hooks are wired to host files, so mods need the extracted
       // folder. Inform the user instead of silently running without them.
-      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_Text, kWarn);
       ImGui::TextWrapped(
           i18n::T("Modo disco: se juega tal cual del ISO. Los mods requieren la "
                   "carpeta extraida (elige 'Carpeta extraida' como origen).",
@@ -626,18 +679,18 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
                   "extracted folder (choose 'Extracted folder' as the source)."));
       ImGui::PopStyleColor();
     }
-    if (boot.redirect_default_xex && !boot.note.empty()) {
+    if (assets_.redirect_default_xex && !assets_.boot_note.empty()) {
       // The executable was found somewhere other than `<data>/default.xex` (e.g.
       // DBZ3/yae3_xenon.xex on a retail disc dump) and staged automatically.
-      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.78f, 0.98f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_Text, kInfo);
       ImGui::TextWrapped(
           i18n::T("Ejecutable detectado: %s (no hay que renombrar nada)",
                   "Executable detected: %s (nothing to rename)"),
-          boot.note.c_str());
+          assets_.boot_note.c_str());
       ImGui::PopStyleColor();
     }
     if (xex_status == dbz3::settings::XexStatus::kUnknown) {
-      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.35f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_Text, kWarn);
       ImGui::TextWrapped(
           i18n::T("Nota: default.xex no es un ejecutable estandar de Budokai 3 "
                   "(version modificada o de otra region). Si el juego se cierra "
@@ -648,7 +701,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
       ImGui::PopStyleColor();
     }
   } else if (xex_blocked) {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.35f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, kError);
     if (xex_status_final == dbz3::settings::XexStatus::kDbz1) {
       ImGui::TextWrapped(
           i18n::T("Este es el ejecutable de DBZ Budokai HD Collection (DBZ1), no "
@@ -700,7 +753,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
     }
     ImGui::PopStyleColor();
   } else {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.35f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, kError);
     ImGui::Text(i18n::T("No se encontraron los datos del juego.", "Game data not found."));
     ImGui::PopStyleColor();
     std::string missing;
@@ -735,7 +788,6 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   // active source is highlighted; clicking either one opens its picker, and
   // picking a source switches the game drive over in-place (no restart needed).
   const bool src_folder = !iso_mode;
-  const ImVec4 kSrcActive(0.42f, 0.31f, 0.15f, 1.0f);
   if (src_folder) {
     ImGui::PushStyleColor(ImGuiCol_Button, kSrcActive);
   }
@@ -749,6 +801,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
         dbz3::settings::SaveUserSettings();
         if (dbz3::RelocateGameData(picked)) {
           banner_error_.clear();
+          InvalidateAssets();
           REXLOG_INFO("dbz3: game data relocated to {}", picked);
         } else {
           banner_error_ = i18n::T("No se pudo montar la carpeta elegida.",
@@ -802,6 +855,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
         // Re-point the game drive at the new ISO right away (no restart).
         dbz3::RelocateGameData(dbz3::EffectiveGameRoot());
         banner_error_.clear();
+        InvalidateAssets();
         REXLOG_INFO("dbz3: game ISO set to {}", picked);
       } else {
         banner_error_ = i18n::T("El archivo no parece una imagen de disco Xbox 360.",
@@ -835,13 +889,13 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   // the file was repaired) instead of letting their settings vanish in silence.
   const auto config_state = dbz3::settings::LastConfigLoadState();
   if (config_state == dbz3::settings::ConfigLoadState::kRepaired) {
-    ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s",
+    ImGui::TextColored(kOkSoft, "%s",
                        i18n::T("Tus ajustes se han recuperado (el archivo de "
                                "configuracion estaba danado y se ha reparado).",
                                "Your settings were recovered (the config file was "
                                "damaged and has been repaired)."));
   } else if (config_state == dbz3::settings::ConfigLoadState::kInvalid) {
-    ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s",
+    ImGui::TextColored(kError, "%s",
                        i18n::T("No se pudo leer tu archivo de ajustes (dbz3_user.toml): "
                                "tiene un error de formato. Se ha guardado una copia en "
                                "dbz3_user.toml.bak y se usan los valores por defecto. "
@@ -935,6 +989,10 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
 
   // Utility zone (left) + primary action (right).
   ImGui::SetCursorPosX(16);
+  ImGui::PushStyleColor(ImGuiCol_Button, kFrameBg);
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kDragonOrangeDim);
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive, kDragonOrange);
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
   if (ImGui::Button(i18n::T("Restablecer valores", "Reset to defaults"), ImVec2(180, 0))) {
     rex::cvar::SetFlagByName("dbz3_resolution_scale", "1");
     rex::cvar::SetFlagByName("dbz3_language", "1");
@@ -996,6 +1054,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
     // Reset also returns the mods to vanilla (all disabled).
     dbz3::ApplyProfile("vanilla");
     mods_loaded_ = false;
+    InvalidateAssets();
   }
   ImGui::SameLine(0, 10);
   if (ImGui::Button(i18n::T("Guardar ajustes", "Save settings"), ImVec2(180, 0))) {
@@ -1005,6 +1064,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   if (ImGui::Button(i18n::T("Reparar instalacion", "Repair install"), ImVec2(180, 0))) {
     repair_report_ = dbz3::settings::RepairInstallation();
     repair_popup_ = true;
+    InvalidateAssets();
   }
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("%s", i18n::T(
@@ -1013,15 +1073,17 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
         "Checks and repairs the game files (settings, DLLs, user data). Useful "
         "if something does not start or settings are not saved."));
   }
+  ImGui::PopStyleVar();
+  ImGui::PopStyleColor(3);
   ImGui::SameLine();
   ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 16.0f - 300.0f);
   // PLAY is gated on the assets being found: pressing it with no game data
   // would crash before the guest even starts (P1). The banner above offers the
   // folder picker to fix it.
   ImGui::BeginDisabled(!assets_ready);
-  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.62f, 0.28f, 1.0f));
-  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.74f, 0.36f, 1.0f));
-  ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.11f, 0.50f, 0.22f, 1.0f));
+  ImGui::PushStyleColor(ImGuiCol_Button, kPlayIdle);
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kPlayHovered);
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive, kPlayActive);
   if (ImGui::Button("PLAY", ImVec2(300, 42)) ||
       (assets_ready && ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
     dbz3::settings::SaveUserSettings();
@@ -1809,7 +1871,7 @@ void LauncherDialog::DrawNativeModsTab() {
   }
 
   if (!native_mods_status_.empty()) {
-    ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.35f, 1.0f), "%s",
+    ImGui::TextColored(kOk, "%s",
                        native_mods_status_.c_str());
   }
   ImGui::EndChild();
@@ -1849,7 +1911,7 @@ void LauncherDialog::DrawModsTab() {
   // .iso. Warn prominently instead of silently ignoring every mod.
   if (dbz3::settings::IsIsoMode()) {
     ImGui::Spacing();
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.72f, 0.30f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, kGold);
     ImGui::TextWrapped(i18n::T(
         "Aviso: estas en modo disco (ISO). Los mods NO se aplican al jugar "
         "directamente del .iso. Para usarlos, elige 'Carpeta extraida' como "
@@ -2019,7 +2081,6 @@ void LauncherDialog::DrawModsTab() {
 
     // Save-as-profile dialog.
     if (profile_name_dialog_) {
-      ImGui::Separator();
       ImGui::Text("%s", i18n::T("Guardar estado actual como perfil:",
                                 "Save current state as profile:"));
       ImGui::SetNextItemWidth(300);
@@ -2055,7 +2116,7 @@ void LauncherDialog::DrawModsTab() {
 
     // Transient status line (click to dismiss).
     if (!mods_status_.empty()) {
-      ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.35f, 1.0f), "%s",
+      ImGui::TextColored(kOk, "%s",
                          mods_status_.c_str());
       if (ImGui::IsItemClicked()) {
         mods_status_.clear();
@@ -2190,7 +2251,7 @@ ImGui::TextDisabled(i18n::T("%d archivo%s", "%d file%s"), mod.file_count,
       DrawBadge(ModTypeLabelText(mod.type), tc);
       if (mod.enabled) {
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.35f, 1.0f), "ON");
+        ImGui::TextColored(kOk, "ON");
       }
       if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(i18n::T("%s\n%s\nAutor: %s\nVersion: %s\nTipo: %s\nOrigen: %s\nDestino: %s",
@@ -2297,7 +2358,7 @@ void LauncherDialog::DrawModelSwapTab() {
 
   const bool iso = dbz3::settings::IsIsoMode();
   if (iso) {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.72f, 0.30f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, kGold);
     ImGui::TextWrapped(i18n::T(
         "Estas en modo disco (ISO): el mod generado NO se aplicara mientras "
         "juegues directamente del .iso. Elige 'Carpeta extraida' como origen "
@@ -2408,7 +2469,7 @@ void LauncherDialog::DrawModelSwapTab() {
   ImGui::EndDisabled();
   if (same_pair) {
     ImGui::SameLine();
-    ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "%s",
+    ImGui::TextColored(kGold, "%s",
                        i18n::T("Origen y destino son el mismo personaje.",
                                "Source and destination are the same character."));
   }
@@ -2417,20 +2478,20 @@ void LauncherDialog::DrawModelSwapTab() {
     const B3Char& src = chars[pipeline_src_idx_];
     const B3Char& dst = chars[pipeline_dst_idx_];
     ImGui::Spacing();
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.13f, 0.14f, 0.17f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, kTabBg);
     ImGui::BeginChild("##swap_preview", ImVec2(0, 108.0f), true);
     ImGui::TextColored(kDragonOrange, "%s", i18n::T("Vista previa", "Preview"));
     ImGui::Text(i18n::T("Origen:  %s", "Source:  %s"), src.DisplayName().c_str());
     if (!src.playable) {
       ImGui::SameLine();
-      ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "%s",
+      ImGui::TextColored(kGold, "%s",
                          i18n::T("(no jugable)", "(not playable)"));
     }
     ImGui::TextDisabled("bin %d", src.bin);
     ImGui::Text(i18n::T("Destino: %s", "Target: %s"), dst.DisplayName().c_str());
     if (!dst.playable) {
       ImGui::SameLine();
-      ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f), "%s",
+      ImGui::TextColored(kGold, "%s",
                          i18n::T("(no jugable)", "(not playable)"));
     }
     ImGui::TextDisabled("slot %d", dst.bin);
@@ -2440,7 +2501,7 @@ void LauncherDialog::DrawModelSwapTab() {
 
   ImGui::Separator();
   if (mod_pipeline_.IsRunning()) {
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), i18n::T("Trabajando...", "Working..."));
+    ImGui::TextColored(kGold, i18n::T("Trabajando...", "Working..."));
   } else if (!mod_pipeline_.Output().empty()) {
     ImGui::TextDisabled(i18n::T("Hecho.", "Done."));
   }
@@ -2695,7 +2756,7 @@ void LauncherDialog::DrawTexturesTab() {
   }
 
   if (mod_pipeline_.IsRunning()) {
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), i18n::T("Trabajando...", "Working..."));
+    ImGui::TextColored(kGold, i18n::T("Trabajando...", "Working..."));
   } else if (!mod_pipeline_.Output().empty()) {
     ImGui::TextDisabled(i18n::T("Hecho.", "Done."));
   }

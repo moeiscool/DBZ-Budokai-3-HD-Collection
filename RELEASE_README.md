@@ -63,26 +63,31 @@ El paquete **NO incluye los archivos del juego** (copyright). Aporta los de tu
 > Para extraer los archivos de tu **ISO legal** usa `extract-xiso` (FATX de Xbox
 > 360). Tamaños y SHA-256 de cada archivo en `baserom.md`.
 
-## Novedades de esta release — v1.2.9 (2026-09-26)
+## Novedades de esta release — v1.3.0 (2026-09-30)
 
-**Los logs ya se explican solos.** Esta versión no añade funciones de juego:
-añade **diagnóstico**, para que un «me va mal» se resuelva sin tres rondas de
-preguntas. Nace de analizar unos logs con **cero errores** en los que, aun así,
-había tres cosas que costaban una sesión entera de deducir: una instalación no
-identificable, 31 fps sostenidos (vsync a media tasa) y un disco lento.
+**Mejoras de launcher y runtime.** Esta versión pule la interfaz, añade una
+reparación de instalación en un clic y refuerza el diagnóstico de problemas
+(sobre todo cuando algo va mal de verdad), además de arreglar un fallo del
+extractor de texturas.
 
-- **Avisos SIEMPRE activos** (no hay que activar nada; máx. 3 por sesión y el log
-  normal sigue limpio): **fps sostenido** por debajo de la mitad del límite con
-  ajustes caros activos, **disco lento** (5+ lecturas físicas ≥ 50 ms) e
-  **instalación mixta** (archivos de dos versiones → banner naranja + `[warning]`).
-- **Línea `entorno`** al arrancar el launcher, con sistema real, RAM y **todas**
-  las versiones instaladas.
-- **`vram=`/`lim=` en la línea `perf`** y **guardia de VRAM**: al 92 % del heap
-  local no se conceden nuevos upscales (mejor dejar de mejorar texturas que caer
-  a 30).
-- **Tab Vídeo**: aviso al combinar escala interna > 1x **y** mejora de texturas.
-- **Herramientas**: `tools/copy_sdk_dlls.ps1` (el build del juego sobrescribe las
-  DLL del runtime con copias stale) y `verify_release.ps1` (sello de versión).
+- **«Reparar instalación»** (botón en el pie): pone en cuarentena un
+  `dbz3_user.toml` ilegible, reescribe ajustes limpios y verifica que
+  `rexruntime.dll`, `rexgpu-xenos.dll`, `amd_fidelityfx_dx12.dll` y
+  `gamecontrollerdb.txt` están presentes. **No** toca `us/`, `eu/`, `mods/` ni
+  las cachés.
+- **Etiquetas de botón** en Controles: junto a cada tecla se muestra el nombre
+  del botón del mando (Xbox / PlayStation / Switch). Es **solo cosmético**: no
+  cambia el mapeo.
+- **DRED activo por defecto**: si el driver pierde el device, el log nombra la
+  queue/list y las allocation nodes implicadas en vez de un cierre opaco.
+- **Mando**: se envía `gamecontrollerdb.txt` junto al ejecutable, con mapeos de
+  mandos genéricos para el backend SDL.
+- **Fix del extractor de texturas** (issue #13): la carpeta elegida se ignoraba
+  si la ruta llevaba el `:` de la unidad (p. ej. `C:\...`) y caía a
+  `mods/<mod>/textures`; ahora se respeta.
+- **Pulido visual y rendimiento**: tema del launcher revisado (cabeceras de
+  sección, pie con botones secundarios) y sondeo de assets/versión **cacheados**,
+  con menos lecturas de disco por fotograma.
 
 Si tu equipo va lento: actualiza, reproduce el problema, cierra el juego y
 adjunta el `logs\dbz3_NNN.log`: ya trae sistema, RAM, versiones, configuración,
@@ -93,6 +98,8 @@ rendimiento»**.
 
 | Versión | Fecha | Resumen |
 |---|---|---|
+| v1.3.0 | 2026-09-30 | Reparar instalación, etiquetas de botón (Xbox/PS/Switch), DRED por defecto, `gamecontrollerdb.txt`, fix del extractor de texturas (#13), pulido y optimización del launcher |
+| v1.2.9 | 2026-09-26 | Diagnóstico autoexplicativo: avisos siempre activos (fps, disco, instalación mixta), `vram`/`lim` en `perf`, guardia de VRAM |
 | v1.2.8.2 | 2026-09-24 | El upscale de texturas deja de hundir los fps (solo nivel 0 en texturas dinámicas) + `cfg`/`upx_dyn`/`texload` en `perf` |
 | v1.2.8.1 | 2026-09-23 | El volcado cubre el HUD/UI sin comprimir; packs RGBA8; tope de 4 versiones por textura (issue #11) |
 | v1.2.8 | 2026-09-21 | Fix del volcado de texturas: la carpeta elegida ya llega al plugin (`REXCVAR_QUERY`) |

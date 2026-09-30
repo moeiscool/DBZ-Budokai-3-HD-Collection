@@ -169,28 +169,31 @@ std::string HttpGet(const wchar_t*, const wchar_t*) { return {}; }
 }  // namespace
 
 std::string CurrentVersion() {
+  static const std::string kVersion = []() -> std::string {
 #if REX_PLATFORM_WIN32
-  wchar_t path[MAX_PATH] = {};
-  if (GetModuleFileNameW(GetModuleHandleW(nullptr), path, MAX_PATH)) {
-    DWORD unused = 0;
-    const DWORD size = GetFileVersionInfoSizeW(path, &unused);
-    if (size) {
-      std::vector<uint8_t> data(size);
-      if (GetFileVersionInfoW(path, 0, size, data.data())) {
-        VS_FIXEDFILEINFO* info = nullptr;
-        UINT len = 0;
-        if (VerQueryValueW(data.data(), L"\\", reinterpret_cast<void**>(&info), &len) && info) {
-          char buf[64];
-          std::snprintf(buf, sizeof(buf), "%d.%d.%d.%d", HIWORD(info->dwFileVersionMS),
-                        LOWORD(info->dwFileVersionMS), HIWORD(info->dwFileVersionLS),
-                        LOWORD(info->dwFileVersionLS));
-          return buf;
+    wchar_t path[MAX_PATH] = {};
+    if (GetModuleFileNameW(GetModuleHandleW(nullptr), path, MAX_PATH)) {
+      DWORD unused = 0;
+      const DWORD size = GetFileVersionInfoSizeW(path, &unused);
+      if (size) {
+        std::vector<uint8_t> data(size);
+        if (GetFileVersionInfoW(path, 0, size, data.data())) {
+          VS_FIXEDFILEINFO* info = nullptr;
+          UINT len = 0;
+          if (VerQueryValueW(data.data(), L"\\", reinterpret_cast<void**>(&info), &len) && info) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%d.%d.%d.%d", HIWORD(info->dwFileVersionMS),
+                          LOWORD(info->dwFileVersionMS), HIWORD(info->dwFileVersionLS),
+                          LOWORD(info->dwFileVersionLS));
+            return buf;
+          }
         }
       }
     }
-  }
 #endif
-  return {};
+    return {};
+  }();
+  return kVersion;
 }
 
 std::string CurrentVersionLabel() {

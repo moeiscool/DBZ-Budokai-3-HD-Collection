@@ -3,13 +3,16 @@
 
 #pragma once
 
+#include <filesystem>
 #include <functional>
+#include <string>
 
 #include <imgui.h>
 
 #include <rex/ui/imgui_dialog.h>
 
 #include "mod_pipeline.h"
+#include "settings.h"
 #include "../mods.h"
 #include "../native_mods.h"
 
@@ -39,6 +42,27 @@ class LauncherDialog : public rex::ui::ImGuiDialog {
   void DrawModelSwapTab();
   void DrawTexturesTab();
   void DrawDevTab();
+
+  struct AssetProbe {
+    bool valid = false;
+    double next_refresh = 0.0;
+    std::filesystem::path game_root;
+    std::string sel_region;
+    bool root_ok = false;
+    bool region_ok = false;
+    bool us_ok = false;
+    bool iso_mode = false;
+    bool xex_present = false;
+    bool xex_ok = false;
+    bool xex_blocked = false;
+    bool assets_ready = false;
+    bool redirect_default_xex = false;
+    std::string boot_note;
+    dbz3::settings::XexStatus xex_status = dbz3::settings::XexStatus::kMissing;
+  };
+  void RefreshAssets();
+  void InvalidateAssets() { assets_.valid = false; }
+  AssetProbe assets_;
 
   std::function<void()> on_play_;
 
