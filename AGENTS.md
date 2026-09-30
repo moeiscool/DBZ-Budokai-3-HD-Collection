@@ -732,6 +732,13 @@ AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=...
   `docs/VIABILIDAD_UPSCALING_TEMPORAL_2026-09-29.md`. ⚠️ Las
   DLL se recompilaron: baseline `rexruntime` **10920448**, `rexgpu-xenos`
   **6360064**.
+- **CI Linux** (`.github/workflows/linux.yml`, 2026-09-30): la versión se lee de
+  `src/version.rc` (`DBZ3_VERSION_STR`) → el tar.gz se nombra
+  `DBZ-Budokai-3-HD-Collection-v<ver>-linux-amd64.tar.gz` (nada hardcodeado). El
+  job adjunta el tar.gz al release `v<ver>` con `gh release upload --clobber`
+  **solo si el release ya existe** (nunca lo crea); si no, deja el *artifact*.
+  `permissions: contents: write`. Orden de publicación Windows→Linux: crear el
+  release Windows primero, luego el CI Linux sube su asset.
 
 ### 9.3 🔴 CARPETA `github/` — REPO DE SUBIDA (sync manual)
 `github/` es la copia versionable (NO es repo git local; se sube manualmente). El

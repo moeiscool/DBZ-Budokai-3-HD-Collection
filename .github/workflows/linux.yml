@@ -13,7 +13,7 @@ on:
       - '.github/workflows/linux.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-linux-amd64:
@@ -21,6 +21,17 @@ jobs:
     steps:
       - name: Check out public project
         uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          # Single source of truth: src/version.rc (DBZ3_VERSION_STR "x.y.z")
+          version=$(grep -oE 'DBZ3_VERSION_STR[[:space:]]+"[^"]+"' src/version.rc \
+            | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $version"
 
       - name: Check out private generated code
         uses: actions/checkout@v4
@@ -127,10 +138,25 @@ jobs:
             ldd package/dbz3 | tee package/ldd-dbz3.txt
           ! grep -E 'not found|librexruntime\.so => not found' package/ldd-dbz3.txt
           readelf -d package/dbz3 | grep -E 'RPATH|RUNPATH' | grep '\$ORIGIN'
-          tar -C package -czf DBZ-Budokai-3-HD-Collection-v1.2.9-linux-amd64.tar.gz .
+          tar -C package -czf "DBZ-Budokai-3-HD-Collection-v${{ steps.version.outputs.version }}-linux-amd64.tar.gz" .
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DBZ-Budokai-3-HD-Collection-v1.2.9-linux-amd64
-          path: DBZ-Budokai-3-HD-Collection-v1.2.9-linux-amd64.tar.gz
+          name: DBZ-Budokai-3-HD-Collection-v${{ steps.version.outputs.version }}-linux-amd64
+          path: DBZ-Budokai-3-HD-Collection-v${{ steps.version.outputs.version }}-linux-amd64.tar.gz
+
+      - name: Attach Linux package to release
+        if: startsWith(github.ref, 'refs/heads/master')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          file="DBZ-Budokai-3-HD-Collection-v${{ steps.version.outputs.version }}-linux-amd64.tar.gz"
+          # Only attach when the release for this version exists; never create it here.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "$file" --clobber --repo "$GITHUB_REPOSITORY"
+            echo "Attached $file to release $tag"
+          else
+            echo "No release $tag yet; skipping asset upload (artifact retained above)."
+          fi
