@@ -98,6 +98,82 @@ ImGui / usar las matrices view-proj del juego para inyectar 3D en su pase
 - **Regla de su KB**: no publicar ficheros de juego ni código decompilado —
   alineado con lo nuestro.
 
+## Plan de uso concreto (qué se puede hacer con esto)
+
+Ordenado por **retorno / esfuerzo**. Nada de esto se ejecuta hasta decidirlo.
+
+### Bloque A — Desbloquear la Vía B (bind/skin) — *mayor impacto, mayor esfuerzo*
+
+El único bloqueo vivo. Aquí el toolkit aporta el **método**, no código de B3.
+Tres piezas, en este orden:
+
+1. **Oráculo conocido bueno** (barato): `_grow_tpl` (plantilla nativa crecida)
+   renderiza PERFECTO. Convertirlo en oráculo formal: capturar del juego la
+   malla con `_grow_tpl` y comparar el port contra ella por variables (posición
+   media por hueso, error T-pose), no a ojo. Es "measurement scene" de la
+   técnica de oráculos.
+2. **Capturar `M_bind`** (medio): en vez de más prueba-y-error, **RenderDoc**
+   (`renderdoc-mcp`) sobre un frame en BIND/T-pose → leer las constant buffers
+   con las matrices y el depth. Alternativa: RE de `sub_82087F58` con
+   **Ghidra vía MCP** (MCPServer o pyghidra-mcp): seguir xrefs desde los strings
+   del formato AWO y renombrar hasta identificar el binding.
+3. **Round-trip del binding** (medio): aplicar la paleta candidata a `pos`
+   (bone-local) → reproducir T-pose → comparar contra el oráculo. El round-trip
+   es el criterio de aceptación (método que ya validó el AWO).
+
+Desbloquea: geometría PS2 completa (bind/skin correcto), fin del "aparcado" de
+la Vía B — no la entrega actual (swap HD↔HD), pero sí el port de modelos que no
+existen en HD.
+
+### Bloque B — Arnés de pruebas del juego (bajo esfuerzo, uso inmediato)
+
+El `um win` cubre lo que ya hacemos, pero mejora dos cosas concretas:
+
+- **WinDrive** (`um/ps1/WinDrive.ps1`, PowerShell con C# embebido, sin build):
+  `drag`, `rel` (ratón relativo para cámaras/raw input), `hold`, `scanmode`
+  (scan-codes hardware para juegos DirectInput/raw que ignoran VK), `size`
+  (fijar client size), `idle` (comprobar que el humano no está tecleando), `fg`
+  (proceso en primer plano) y `kill` por PID exacto. Nuestro `press_key.ps1` usa
+  `PostMessage`; WinDrive usa `SendInput` real + **guarda de seguridad** (solo
+  envía si el juego está en primer plano o nada lo está y el cursor está encima)
+  → más robusto para la demo 3D y para probar el input.
+- **Captura GPU-safe**: confirma que GDI saca negro en juegos GPU;
+  `gfxcapture` (Windows.Graphics.Capture) captura la ventana real aunque esté
+  tapada. Nuestro `grab_window.ps1` ya va por ahí; anotar el `--scale 0.33`
+  (leer miniaturas ahorra tokens) y el protocolo de coordenadas ×3.
+
+### Bloque C — `um publish check` como lint pre-release (bajo esfuerzo)
+
+Adoptar (reimplementar, ~125 líneas) en `tools/` antes de `make_release.ps1`:
+detecta **ficheros de juego copiados verbatim** (tamaño+hash contra `us/`+`eu/`),
+**secretos** (claves, `.env`), **huellas de decompilador** (`FUN_xxxx`,
+`sub_XXXX`, "Decompiled with"), **rutas absolutas de usuario** y **archivos de
+motor grandes**. Complementa §9.3 (`.gitignore`) con lo que éste no cubre:
+hash-match contra los AFS del install y escaneo de secretos.
+
+### Bloque D — Oracles / journal / circuit-breaker (proceso, sin código)
+
+Adoptar formalmente en `RE_MASTER_2026_09.md`: **trace-replay** (grabar
+posiciones/velocidades reales por tick y reproducirlas contra el port),
+**synthetic host** (construir contra un host falso de geometría conocida),
+**circuit-breaker** (~3 fallos idénticos → parar y cambiar de enfoque) y
+**journal** (`MODLOG.md`, sobrevive a la compactación de contexto). Nuestro
+protocolo §4 ya está a medio camino; esto añade las dos técnicas nuevas.
+
+### Bloque E — Assets generativos con fal.ai (NO recomendado ahora)
+
+`um fal` / `um render3d` generan sprites/3D/audio (de pago, `FAL_KEY`). Serviría
+para crear **contenido nuevo** (no portar geometría real): p. ej. iconos, retratos
+o una intro. Choca con el objetivo actual (contenido auténtico del juego). Se
+anota y se descarta salvo petición explícita.
+
+### Bloque F — Reimplementación estilo `libsm64`/Skate-3 (vía futura, pesada)
+
+`retro-decomp.md` y el patrón 4 de `mashup-mods`: usar el **recomp como oráculo**
+para escribir un motor idiomático alternativo que lea el AWO/`data_cmn.afs` del
+usuario. Es lo que hicieron IW4L (MW2 en Rust) y el motor Skate 3. Demasiado
+pesado y arriesgado; **solo se anota** como dirección a largo plazo.
+
 ## Conclusión
 
 Valor real = **método de RE** (Ghidra/IDA/RenderDoc vía MCP + oráculos +
@@ -107,6 +183,9 @@ retoma, este documento fija el protocolo: (1) oráculo `_grow_tpl` conocido buen
 (2) capturar `M_bind` con RenderDoc en BIND/T-pose o RE de `sub_82087F58` con
 Ghidra vía MCP, (3) round-trip del binding (aplicar paleta → reproducir T-pose →
 comparar). Opcional: adoptar `um publish check` como lint pre-release.
+
+**Prioridad sugerida**: A (desbloqueo real) > B/C (arnés + lint, baratos) > D
+(proceso) > E/F (descartados ahora).
 
 ## Referencias
 
