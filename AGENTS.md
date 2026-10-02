@@ -308,12 +308,12 @@ gobierna**). Ver §3.4.9.
 
 1. Vía A práctica: reactivar/refinar `cell_npm4`; extender a los 16 AWGs
    auxiliares (`port_ps2_b3_inject_aux.py`, ver §10).
-2. Vía B: **corregido 2026-09-30** — el bind/skin/huesos/IB/UV/ejes del port son
-   **idénticos** al nativo válido (oráculo `bind_oracle.py`), luego el bloqueo NO
-   es el skin. Nuevo foco: **el VB que llega al GPU** (copia del port truncada por
-   `g(0x2C)`/`g(0x34)`) o la interpretación de `pos`/`nrm`. El mapeo hueso→slot (σ)
-   de la paleta solo importaría si el VB fuese correcto y aún así fallara.
-   Consulta `SESION_DRAW_SEMANTICS_2026-09-11.md` §21.
+2. Vía B: **corregido 2026-09-30 / confirmado 2026-10-01** — el
+   bind/skin/huesos/IB/UV/ejes del port son **idénticos** al nativo válido
+   (oráculo `bind_oracle.py`) **y el GPU recibe el VB del port byte a byte**
+   (`vbdump_vs_bin.py`, §22). El bloqueo NO son los datos: está en el **shader de
+   skinning** (`pos`/`nrm`+paleta). Si se retoma, RE del shader de skinning.
+   Consulta `SESION_DRAW_SEMANTICS_2026-09-11.md` §21-§22.
 3. `vb2` (layout B) para cara/piernas.
 
 ### 3.4.7 REFERENCIAS
@@ -399,6 +399,14 @@ launcher). Detalle: `docs/07_ports/SESION_DRAW_SEMANTICS_2026-09-11.md` §20.
   PORT y que `n`/`n_ib` son los del port). Refuta la hipótesis "causa raíz = skin
   `(pos,bone)`" de §10. Herramientas: `awo_tools/bind_oracle.py` +
   `bind_oracle_bones.py`; detalle en `SESION_DRAW_SEMANTICS_2026-09-11.md` §21.
+- **🔴 RESUELTO 2026-10-01 (verificación en runtime)**: se instrumentó temporalmente
+  `rexgpu-xenos` (`command_processor.cpp` d3d12, **YA REVERTIDA**) para volcar el
+  **VB real servido al GPU**. Resultado: el VB del cuerpo (129712 B, `vfetch=95`) es
+  **copia VERBATIM del bin del PORT** (sha1 `91fa3a12…`, **32428/32428 dwords**),
+  NO del nativo (21214). ⇒ la cadena bin→GPU es **correcta de extremo a extremo**.
+  La causa del render deforme está **exclusivamente en el shader de skinning**
+  (`pos`/`nrm`+paleta), no en los datos. Herramientas:
+  `awo_tools/vbdump_info.py` + `vbdump_vs_bin.py`; detalle en §22.
 - **SWAP HD↔HD (entrega)**: `mod center hd/swap_b3.py` + `catalog_b3.cat` (183),
   mid-insert virtual. En el launcher: pestaña "Cambio de modelo". Guardia
   origen==destino en `src/launcher/mod_pipeline.cpp`.
