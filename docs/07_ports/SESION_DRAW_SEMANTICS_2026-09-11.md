@@ -807,6 +807,8 @@ Verificado sobre la plantilla `e147` (Cell F2) leyendo los 17 AWGs:
 | Posición por hueso (radios) | — | similares (misma dispersión) |
 | Selftest forward/inverse | OK | OK |
 | Permutación de ejes | — | **xyz/+++ es la mejor** (no hay permutación) |
+| **Conectividad (longitud de aristas)** | med 0.574 p95 7.17 max 26.6 | **med 0.593 p95 7.14 max 26.5 (≈idéntica, 1.00×)** |
+| Campos `+0x2C`/`+0x34` (VB/IB size) | 129712 / 12602 | **idénticos** |
 | Solo difieren | — | `pos` (+0) y `nrm` (+20), máx 0.78 u (50 % vértices) |
 
 ### Conclusión (CORRIGE §10 y §3.4.10)
@@ -816,15 +818,25 @@ Verificado sobre la plantilla `e147` (Cell F2) leyendo los 17 AWGs:
   está parseando mal**; la hipótesis "causa raíz = skin `(pos,bone)`" **queda
   refutada** por evidencia offline.
 - El **IB, huesos, UV** son idénticos; **no hay permutación de ejes**.
+- La **conectividad es idéntica**: las longitudes de arista del port coinciden con
+  el nativo (med/p95/max ≈ 1.00×) → **NO hay triángulos cruzados**; el IB del HD
+  aplicado a las posiciones PS2 produce una malla tan coherente como la nativa.
+- Los **campos de dimensionado** `+0x2C` (VB size) y `+0x34` (IB size) son
+  idénticos y correctos (129712 y 12602).
 - Lo único que cambia es **`pos`/`nrm`** (la forma PS2), dentro del mismo volumen.
 
-⇒ **El port es estructuralmente correcto.** Si en juego "explota" pese a esto, la
-causa NO está en bind/skin/huesos/IB/UV/ejes (todos verificados idénticos), sino
-en cómo el renderer **interpreta esa `pos`/`nrm`** o en algo fuera del bin (p. ej.
-el **VB se sirve truncado** por `g(0x2C)`/`g(0x34)` mal fijados, o el fetch lee
-otra región). Prioridad nueva: verificar en runtime que el **VB copiado al GPU
-coincide byte a byte** con `[vb0, ib)` del bin del **port** (no del nativo) y que
-`n`/`n_ib` del fetch son los del port.
+⇒ **El port es estructuralmente correcto.** Agotadas TODAS las comprobaciones
+offline (bind, huesos, UV, ejes, conectividad, campos de tamaño, bounds, radios),
+la causa NO está en el bin. Debe estar en **runtime**: el **VB/paleta servidos al
+GPU no son los del port** (copia tomada del nativo, o `n`/`n_ib` del fetch
+distintos) o la **interpretación de `pos`/`nrm`** en el shader. Prioridad nueva:
+verificar **en juego** que el VB copiado al GPU coincide byte a byte con
+`[vb0, ib)` del bin del **port** (no del nativo).
+
+⚠️ Esto requiere **re-crear** la instrumentación de `command_processor.cpp`
+(la captura de VB **no** está en la DLL canónica; solo queda `dbz3_drawlog`, que
+captura el *layout* de vertex-fetch, no los bytes). El backup previo
+(`%TEMP%\opencode\draw_evidence\`) **ya no existe** (limpieza).
 
 ### Notas
 - El análisis offline NO sustituye a la verificación en juego (regla del
