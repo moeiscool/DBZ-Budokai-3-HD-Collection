@@ -865,3 +865,49 @@ runtime sirve el VB equivocado.
   oráculo: "works in the fake host ≠ works in the game").
 - Reproducir: ver cabecera de `awo_tools/bind_oracle.py`.
 
+## 22. 🔴 VERIFICACIÓN EN RUNTIME DEL VB SERVIDO AL GPU (2026-10-01) — RESULTADO
+
+> Cierra el Bloque A del método de oráculos. Requirió **re-crear** una
+> instrumentación temporal en `rexgpu-xenos` (`command_processor.cpp`, d3d12):
+> en el bucle de residencia del vertex fetch, volcar a `dbz3_vbdump.bin` los
+> **bytes REALES** que se sirven al GPU (copia de shared memory), gateado por el
+> marker `dbz3_vbdump.on` junto al exe. **YA REVERTIDA** (código y DLL canónica
+> restaurados; el código limpio no contiene `dbz3_vbdump`).
+
+### Montaje
+1. Instrumentación: dump por `dbz3_vbdump_one()` de los VBs con
+   `size >= 16384 && size % 44 == 0` (solo la geometría del modelo).
+2. **Un solo mod activo**: `cell_win2` (el port). Cuerpo Cell F2 (AWG0).
+3. Corrida real (`tools/long_run.ps1` + `press_key.ps1`) hasta el menú/select,
+   donde se dibuja el modelo. ~60 fps, 0 errores.
+
+### Resultado (duro)
+
+El VB capturado (`addr=0x1D23A000`, `vfetch=95`, `size=129712` = 2948×44):
+
+| Comparación | sha1 | dwords coincidentes |
+|---|---|---|
+| VB GPU vs bin del **PORT** (`cell_win2`) | `91fa3a12…` **==** | **32428/32428 (100 %)** |
+| VB GPU vs bin **NATIVO** (`cell_native`) | `91fa3a12…` ≠ | 21214/32428 |
+
+⇒ **El GPU recibe EXACTAMENTE la geometría del port, byte a byte** (copia
+verbatim de `[vb0, ib)` del bin del port). **No** está truncado, ni servido desde
+el nativo, ni corrompido.
+
+### Conclusión DEFINITIVA (Bloque A cerrado)
+
+Sumado al §21 (bind/huesos/UV/IB/ejes/conectividad/campos/espacio correctos), la
+cadena **bin → shared memory → GPU es correcta de extremo a extremo**. La
+deformidad del render **NO está en los datos**. La causa está **exclusivamente en
+el shader de skinning** (cómo interpreta `pos`/`nrm` + la paleta) o en la
+**paleta** aplicada — NO en el bin, el IB, el binding ni la transferencia.
+
+⇒ Siguiente paso real (si se retoma la Vía B): RE del **shader de skinning**
+(qué hace con `pos`/`nrm` y la paleta) — el `dbz3_vfetch.log` (layout de fetch)
+y el `dbz3_drawlog` ayudan. El port de datos ya está demostrado correcto.
+
+### Artefactos
+- Evidencia: `%TEMP%\opencode\vbdump\dbz3_vbdump_win2.bin` (37 MB, 200 VBs).
+- Analizadores: `awo_tools/vbdump_info.py`, `awo_tools/vbdump_vs_bin.py`.
+- Coste: 2 builds de `rexgpu-xenos` (instrumentada + revertida).
+
