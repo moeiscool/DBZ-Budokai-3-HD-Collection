@@ -775,3 +775,59 @@ Verificado sobre la plantilla `e147` (Cell F2) leyendo los 17 AWGs:
   destino, aviso `[NO JUGABLE]`, auto-activación del mod, log de salida, ruta
   AFS automática o manual. Pulido de cierre: eliminado log temporal
   `pipeline_cmd.log`; guardia origen==destino (`mod_pipeline.cpp`).
+
+## 21. 🔴 ORÁCULO OFFLINE DEL PORT (2026-09-30) — CORRIGE EL DIAGNÓSTICO
+
+> Motivado por `docs/07_ports/UNIVERSAL_MODDER_2026-09-30.md` (método de
+> "oráculos": *la lectura del código no es la especificación; el oráculo sí*).
+> Comparación **offline** de bins descomprimidos, sin abrir el juego ni
+> instrumentar nada. Herramientas nuevas: `awo_tools/bind_oracle.py` y
+> `awo_tools/bind_oracle_bones.py`.
+
+### Montaje
+1. Se descomprimen dos bins reales con `xbdecompress` (bin del mod están LZX):
+   - **referente BUENO**: `mods/cell_native/.../327/geom.bin` (swap nativo; en
+     juego renderiza bien).
+   - **Vía B**: `mods/cell_win2/.../327/geom.bin` (el port; en juego deforme).
+2. Se cargan con `AwgVertexBuffer.load(bin #AMB descomprimido)` (⚠️ la
+   herramienta espera el **#AMB completo**, NO un #AWO aislado: su parser usa
+   `awo=0x40`).
+3. Se aplica `world[bone]·pos` (model-space) y se comparan.
+
+### Resultados (duros, reproducibles)
+
+| Métrica | native | win2 (Vía B) |
+|---|---|---|
+| Ventanas / IB | 2948 / 6302 | **2948 / 6302 (idéntico)** |
+| Huesos / labels / usados | 48 / id. / 34 | **idéntico** |
+| **`world[bone]` (bind de ejes)** | — | **diff = 0.0 (IDÉNTICO)** |
+| **`bone` u32 @+16** | — | **0/2948 ventanas difieren (IDÉNTICO)** |
+| **`uv` @+40** | — | **0/2948 difieren (IDÉNTICO)** |
+| Bounds model-space | x[-10.229,12.771] y[-15.486,10.440] z[-3.139,5.019] | **casi idéntico** (Δx_min=0.045) |
+| Posición por hueso (radios) | — | similares (misma dispersión) |
+| Selftest forward/inverse | OK | OK |
+| Permutación de ejes | — | **xyz/+++ es la mejor** (no hay permutación) |
+| Solo difieren | — | `pos` (+0) y `nrm` (+20), máx 0.78 u (50 % vértices) |
+
+### Conclusión (CORRIGE §10 y §3.4.10)
+
+- El **bind (`world`) es idéntico** al del nativo válido → **el bind NO está roto**.
+- La **asignación de hueso por vértice (+16) es idéntica** → **el skin PS2 NO se
+  está parseando mal**; la hipótesis "causa raíz = skin `(pos,bone)`" **queda
+  refutada** por evidencia offline.
+- El **IB, huesos, UV** son idénticos; **no hay permutación de ejes**.
+- Lo único que cambia es **`pos`/`nrm`** (la forma PS2), dentro del mismo volumen.
+
+⇒ **El port es estructuralmente correcto.** Si en juego "explota" pese a esto, la
+causa NO está en bind/skin/huesos/IB/UV/ejes (todos verificados idénticos), sino
+en cómo el renderer **interpreta esa `pos`/`nrm`** o en algo fuera del bin (p. ej.
+el **VB se sirve truncado** por `g(0x2C)`/`g(0x34)` mal fijados, o el fetch lee
+otra región). Prioridad nueva: verificar en runtime que el **VB copiado al GPU
+coincide byte a byte** con `[vb0, ib)` del bin del **port** (no del nativo) y que
+`n`/`n_ib` del fetch son los del port.
+
+### Notas
+- El análisis offline NO sustituye a la verificación en juego (regla del
+  oráculo: "works in the fake host ≠ works in the game").
+- Reproducir: ver cabecera de `awo_tools/bind_oracle.py`.
+

@@ -149,6 +149,16 @@ deformación o crash.
 Aceptación: `RENDER_OK` offline, `RENDER_OK` en escena mínima y después
 `FLOW_OK`.
 
+> **Actualización F4 (2026-09-30) — oráculo offline refuta "causa = skin".**
+> Comparando `cell_native` (bueno) vs `cell_win2` (port) descomprimidos: `world`
+> (bind) IDÉNTICO, `bone`@+16 IDÉNTICO, `uv`@+40 IDÉNTICO, IB/huesos iguales, sin
+> permutación de ejes, bounds model-space casi idénticos; solo cambian `pos`/`nrm`.
+> ⇒ El port es estructuralmente correcto. La causa del render deforme NO es el
+> bind/skin: mirar **cómo el renderer interpreta `pos`/`nrm`** o el **VB servido al
+> GPU**. Herramientas: `awo_tools/bind_oracle.py`/`bind_oracle_bones.py`; detalle en
+> `docs/07_ports/SESION_DRAW_SEMANTICS_2026-09-11.md` §21 y
+> `docs/07_ports/UNIVERSAL_MODDER_2026-09-30.md` (método de oráculos).
+
 ### F5 — Roster y contenido nuevo
 
 - Alias de slot que reutilice recursos originales.

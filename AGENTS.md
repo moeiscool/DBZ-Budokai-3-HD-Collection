@@ -229,7 +229,7 @@ Herramienta: `analyze_awo_b1.py` (estructura AWO B1, en dbz1).
 |---|---|---|---|
 | Swap nativo B3→B3 | ✅ FUNCIONA | sw_goten_nativo, sw_vegeta424 | bin #AMB completo en slot ajeno |
 | Inyección (template + posiciones PS2) | ✅ FUNCIONA (reconocible) | **cell_npm4** (umbral binario 0.8) | cuerpo PS2 + extremidades/cabeza HD |
-| Port completo (topología PS2) | ❌ NO RENDERIZA | geometría + draw CORRECTOS (1 strip draw, VB+IB verbatim); falta el **bind/skinning** | Ver 3.4.5 y 3.4.10 |
+| Port completo (topología PS2) | ❌ NO RENDERIZA | geometría + draw CORRECTOS (1 strip draw, VB+IB verbatim); bind/skin/huesos/IB/UV **verificados idénticos** al nativo (2026-09-30) → causa NO es el skin | Ver 3.4.5 y 3.4.10 |
 | Swap de cabeza HD→HD | ◑ parcial | goku_armadura v3 | z-fighting, pausado |
 
 ### 3.4.2 HECHOS VALIDADOS (cómo renderiza el guest)
@@ -308,11 +308,12 @@ gobierna**). Ver §3.4.9.
 
 1. Vía A práctica: reactivar/refinar `cell_npm4`; extender a los 16 AWGs
    auxiliares (`port_ps2_b3_inject_aux.py`, ver §10).
-2. Vía B: el bloqueo es el **bind/skin** (`M_bind` real que el renderer no
-   expone): RE de `sub_82087F58` o capturar la paleta en el frame de BIND/T-pose.
-   La paleta se decodificó (`[T.xyz][qA.x][qB.xyz][qA.y][qC.xyz][qA.z]`,
-   `model=R(qA)·pos+T`; `bone`@byte16 = índice DIRECTO a la paleta; `weight`@off3
-   = blend intra-hueso). El eslabón que falta es el mapeo hueso→slot (σ).
+2. Vía B: **corregido 2026-09-30** — el bind/skin/huesos/IB/UV/ejes del port son
+   **idénticos** al nativo válido (oráculo `bind_oracle.py`), luego el bloqueo NO
+   es el skin. Nuevo foco: **el VB que llega al GPU** (copia del port truncada por
+   `g(0x2C)`/`g(0x34)`) o la interpretación de `pos`/`nrm`. El mapeo hueso→slot (σ)
+   de la paleta solo importaría si el VB fuese correcto y aún así fallara.
+   Consulta `SESION_DRAW_SEMANTICS_2026-09-11.md` §21.
 3. `vb2` (layout B) para cara/piernas.
 
 ### 3.4.7 REFERENCIAS
@@ -326,6 +327,10 @@ gobierna**). Ver §3.4.9.
 - Instrumento canónico Vía B: `awo_tools/awg_vertex_buffer.py` (`info`/`permute`/
   `roundtrip`/`grow`/`selftest`; `bind_worlds()`/`bone_labels()`/
   `window_from_model()`; API `load().vertices/.indices/.emit()`).
+- Oráculo del port (2026-09-30): `awo_tools/bind_oracle.py` (compara estructura,
+  `world`, bounds y posiciones model-space de dos bins) + `bind_oracle_bones.py`
+  (error por hueso). Esperan el **#AMB completo descomprimido** (`xbdecompress`),
+  no un #AWO aislado.
 - Herramientas fase: `phase_c_descriptors.py`, `phase_c_arms_targets.py`,
   `phase_c_meshgroup.py`, `phase_b_*.py`, `afs_extract_hd.py`.
 - Pipeline en `mod center hd/ports/` (`port_ps2_b3_extract/geometry/draw/pack/
@@ -383,6 +388,17 @@ launcher). Detalle: `docs/07_ports/SESION_DRAW_SEMANTICS_2026-09-11.md` §20.
 - **Vía B — bloqueo = `M_bind`**: `world` (ejes) da un T-pose correcto pero no es
   el bind exacto del skin; la paleta = transform aplicada a `pos` (bone-local).
   Para retomar: RE de `sub_82087F58` o capturar la paleta en BIND/T-pose.
+- **🔴 CORRECCIÓN 2026-09-30 (oráculo offline)**: comparando `cell_native`
+  (renderiza bien) vs `cell_win2` (port) **descomprimidos**, el **bind (`world`) es
+  IDÉNTICO** (diff 0.0), el **`bone` @+16 IDÉNTICO** (0/2948), el **`uv` @+40
+  IDÉNTICO**, el IB/huesos iguales, **sin permutación de ejes**, y los bounds
+  model-space casi idénticos. Solo cambian `pos`/`nrm` (máx 0.78 u). ⇒ **el port
+  es estructuralmente correcto; el bind/skin/huesos NO son la causa.** Si en juego
+  explota, la causa está en cómo el renderer interpreta `pos`/`nrm` o en el
+  **VB servido al GPU** (verificar que la copia GPU == `[vb0, ib)` del bin del
+  PORT y que `n`/`n_ib` son los del port). Refuta la hipótesis "causa raíz = skin
+  `(pos,bone)`" de §10. Herramientas: `awo_tools/bind_oracle.py` +
+  `bind_oracle_bones.py`; detalle en `SESION_DRAW_SEMANTICS_2026-09-11.md` §21.
 - **SWAP HD↔HD (entrega)**: `mod center hd/swap_b3.py` + `catalog_b3.cat` (183),
   mid-insert virtual. En el launcher: pestaña "Cambio de modelo". Guardia
   origen==destino en `src/launcher/mod_pipeline.cpp`.
