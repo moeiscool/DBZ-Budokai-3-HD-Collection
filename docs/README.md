@@ -35,6 +35,7 @@
 | [ANALISIS_ESCALADO_RENDIMIENTO_2026-09-14](ANALISIS_ESCALADO_RENDIMIENTO_2026-09-14.md) | Escalado/rendimiento: FSR1/CAS sí; FSR3/DLSS no viable a corto plazo |
 | [VIABILIDAD_UPSCALING_TEMPORAL_2026-09-29](VIABILIDAD_UPSCALING_TEMPORAL_2026-09-29.md) | **DLSS/DLAA/FSR3/Frame Gen**: viabilidad real tras analizar `reblue` y `LostOdysseyRecomp`; qué adoptamos (DRED, gamecontrollerdb) y qué no |
 | [07_ports/TEXTURAS_HD_RUNTIME_UPSCALE](07_ports/TEXTURAS_HD_RUNTIME_UPSCALE.md) | **Texturas HD en runtime (APARCADO)**: capa exterior D3D12, evidencia de por qué el override del bin no sirve y cómo retomarlo |
+| [07_ports/UNIVERSAL_MODDER_2026-09-30](07_ports/UNIVERSAL_MODDER_2026-09-30.md) | **universal-modder (evaluación)**: qué es, qué se reutiliza (método de RE con Ghidra/IDA/RenderDoc vía MCP + oráculos) y su aplicación al bloqueo del bind/skin de la Vía B |
 | [01_estructura](01_estructura/ARBOL.md) | Árbol completo del proyecto, qué es cada carpeta |
 | [01_estructura/ESTADO.md](01_estructura/ESTADO.md) | Estado actual, qué funciona, qué falla |
 | [01_estructura/HISTORICO_AGENTS.md](01_estructura/HISTORICO_AGENTS.md) | Historial verbatim de sesiones hasta 2026-09-02 (solo bajo demanda) |

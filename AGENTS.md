@@ -61,6 +61,9 @@ lógica de región/mods, y runtime.
   tabla §3.0.
 - **Plan rector / dictámenes**: `HOJA_DE_RUTA_2026_09.md` (activa),
   `HOJA_DE_RUTA_ACELERADA.md`, `RE_MASTER_2026_09.md`, `DICTAMEN_GPT6_ASTRA.md`.
+- **Herramientas externas / método**: `07_ports/UNIVERSAL_MODDER_2026-09-30.md`
+  (evaluación de `rehan-remade/universal-modder`: RE con Ghidra/IDA/RenderDoc vía
+  MCP + oráculos; aplicable al bind/skin de la Vía B).
 
 ## 3. ESTADO ACTUAL (RESUMEN EJECUTIVO)
 
