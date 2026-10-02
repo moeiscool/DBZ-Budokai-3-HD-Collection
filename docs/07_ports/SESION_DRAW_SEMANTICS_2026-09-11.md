@@ -838,6 +838,28 @@ verificar **en juego** que el VB copiado al GPU coincide byte a byte con
 captura el *layout* de vertex-fetch, no los bytes). El backup previo
 (`%TEMP%\opencode\draw_evidence\`) **ya no existe** (limpieza).
 
+### Verificaciones offline ADICIONALES (2026-09-30, todas negativas)
+
+Se añadieron y ejecutaron más sondas; **ninguna** explica el render deforme,
+reforzando que la causa es runtime:
+- **Espacio de `pos`** (`space_probe.py`): el port está en **bone-local**
+  correctamente (`world·pos` err 0.71 = forma PS2; `pos` crudo err 6.02). No es un
+  error de espacio.
+- **Conectividad** (`topology_check.py`): aristas idénticas → sin triángulos
+  cruzados.
+- **Campos de tamaño** (`awg_fields.py`): `+0x2C`/`+0x34` idénticos.
+- **`dbz3_vfetch.log`** (cvar `dbz3_drawlog`, presente en la DLL): captura el
+  **layout** del vertex-fetch del shader, NO los bytes del VB → **no** distingue
+  port de nativo (mismo shader). Sirve para RE del shader, no para este fin.
+
+⇒ **CONCLUSIÓN FINAL (offline agotado)**: bind, huesos, UV, ejes, conectividad,
+campos y espacio del port son **correctos e idénticos** al nativo. El fallo es
+**exclusivamente runtime**. Único paso que queda: **re-instrumentar
+`command_processor.cpp`** para volcar los **bytes del VB servido al GPU** en la
+corrida del port y compararlos con `[vb0, ib)` del bin del port. Si coincide, el
+problema está en la interpretación `pos`/`nrm` del shader; si no coincide, el
+runtime sirve el VB equivocado.
+
 ### Notas
 - El análisis offline NO sustituye a la verificación en juego (regla del
   oráculo: "works in the fake host ≠ works in the game").
