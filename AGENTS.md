@@ -1,12 +1,14 @@
 # DBZ Budokai 3 HD Collection — Contexto del proyecto (operativo)
 
 > Documento de contexto para agentes/AI. **Compactado 2026-09-26** (117 KB → ~60 KB)
-> al publicar la **v1.2.9**; **actualizado 2026-09-30** para la **v1.3.0**. El
+> al publicar la **v1.2.9**; **actualizado 2026-09-30** para la **v1.3.0** y
+> **2026-10-03** (RE skinning Vía B + handoff a Claude). El
 > relato detallado verbatim vive en
 > `docs/01_estructura/HISTORICO_AGENTS.md` (hasta 2026-09-02) y
 > `docs/01_estructura/HISTORICO_RELEASES.md` (releases 1.1.3→1.2.9, investigación
 > del port PS2→B3 y detalle del launcher). Este documento es la referencia
-> OPERATIVA: estado actual, constraints de ingeniería y comandos.
+> OPERATIVA: estado actual, constraints de ingeniería y comandos. El **estado vivo
+> y el protocolo con Claude** están en `MEMORY.md` (raíz) + `docs/MIGRACION_CLAUDE.md`.
 
 ---
 
@@ -64,6 +66,10 @@ lógica de región/mods, y runtime.
 - **Herramientas externas / método**: `07_ports/UNIVERSAL_MODDER_2026-09-30.md`
   (evaluación de `rehan-remade/universal-modder`: RE con Ghidra/IDA/RenderDoc vía
   MCP + oráculos; aplicable al bind/skin de la Vía B).
+- **Memoria viva / handoff a Claude**: `MEMORY.md` (raíz; estado vivo + trampas +
+  protocolo) y `docs/MIGRACION_CLAUDE.md` (migración temporal a Claude: Claude
+  devuelve los cambios como **un único `.md` de handback**, nunca push; ver §0 de
+  MEMORY.md).
 
 ## 3. ESTADO ACTUAL (RESUMEN EJECUTIVO)
 
@@ -308,12 +314,14 @@ gobierna**). Ver §3.4.9.
 
 1. Vía A práctica: reactivar/refinar `cell_npm4`; extender a los 16 AWGs
    auxiliares (`port_ps2_b3_inject_aux.py`, ver §10).
-2. Vía B: **corregido 2026-09-30 / confirmado 2026-10-01** — el
-   bind/skin/huesos/IB/UV/ejes del port son **idénticos** al nativo válido
-   (oráculo `bind_oracle.py`) **y el GPU recibe el VB del port byte a byte**
-   (`vbdump_vs_bin.py`, §22). El bloqueo NO son los datos: está en el **shader de
-   skinning** (`pos`/`nrm`+paleta). Si se retoma, RE del shader de skinning.
-   Consulta `SESION_DRAW_SEMANTICS_2026-09-11.md` §21-§22.
+2. Vía B: **CORREGIDO 2026-10-03 (§24)** — el bloqueo **NO es el shader**: B3 HD
+   **no hace skinning en GPU** (ningún VS indexa constantes; sin `memexport`; el
+   VS del cuerpo = transform rígida con una matriz `c0..c3` idéntica en los ~33
+   chunks). El skinning es **CPU-side (Xenon)**. Los datos están bien (bind
+   idéntico §21 y VB verbatim §22). **Próximo paso = RE de la rutina CPU de
+   skinning** en el código recompilado (`generated/`/`generated_eu/`): qué
+   espacio/orden de vértices espera el guest. Consulta
+   `SESION_DRAW_SEMANTICS_2026-09-11.md` §21-§22 y **§24**.
 3. `vb2` (layout B) para cara/piernas.
 
 ### 3.4.7 REFERENCIAS
