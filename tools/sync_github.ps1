@@ -111,6 +111,18 @@ try {
 }
 
 Write-Output ""
+Write-Output "=== Lint pre-release (publish_check) ==="
+$check = Join-Path $PSScriptRoot "publish_check.ps1"
+if (Test-Path -LiteralPath $check) {
+    & powershell -ExecutionPolicy Bypass -File $check -Repo "github"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "publish_check: HAY FALLOS (revisar antes de subir a GitHub)"
+    }
+} else {
+    Write-Warning "publish_check.ps1 no encontrado; se omite el lint"
+}
+
+Write-Output ""
 Write-Output "Recordatorio:"
 Write-Output "  - patches/ del SDK se actualiza MANUALMENTE (github/patches/README.md)"
 Write-Output "  - mods/ se mantiene vacia en github/ (los mods reales no se suben)"

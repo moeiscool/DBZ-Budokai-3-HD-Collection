@@ -793,6 +793,14 @@ ver; patches/ es manual).
   `tools/xbcompress.exe`/`xbdecompress.exe` SÍ (excepción `!tools/*.exe`).
 - Commit + push manuales. Si el push https cuelga: `git config --global
   credential.helper "!gh auth git-credential"`.
+- **🔴 Lint pre-subida**: `tools/publish_check.ps1` (`-Repo github`, o ruta
+  absoluta a cualquier repo git) — reimplementación adaptada de `um publish check`
+  (universal-modder). Recorre los ficheros **rastreados** y da **FAIL** si hay
+  ficheros de juego verbatim (`.bin/.afs/.awo/.iso/.xex/...`), artefactos de build
+  (`.exe/.dll/.zip`) o **secretos** (claves API, `.env`), y **WARN** por huellas de
+  decompilador (`FUN_xxxx`/`sub_XXXX`), rutas personales absolutas o falta de
+  README. `sync_github.ps1` lo corre al final; exit 1 = fallo. Adoptado del
+  Bloque C de `docs/07_ports/UNIVERSAL_MODDER_2026-09-30.md`.
 
 ## 10. PORT DE MODELOS — PIPELINE
 
