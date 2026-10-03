@@ -407,6 +407,21 @@ launcher). Detalle: `docs/07_ports/SESION_DRAW_SEMANTICS_2026-09-11.md` §20.
   La causa del render deforme está **exclusivamente en el shader de skinning**
   (`pos`/`nrm`+paleta), no en los datos. Herramientas:
   `awo_tools/vbdump_info.py` + `vbdump_vs_bin.py`; detalle en §22.
+- **🔴 VÍA A `cell_win2` — defecto brazo/cabeza = INHERENTE (2026-10-03)**: en el
+  select el port Vía A renderiza un Cell **coherente** pero con **planos grises
+  facetados localizados** en brazo derecho y cuña gris en la cresta de la cabeza
+  (`cell_native` = perfecto). Oráculo offline (render de CADA AWG con la matriz
+  bind del hueso correcto: manos `world[23]/[30]`, cara `world[40]`): los 16 AWGs
+  aux caen **en los sockets correctos** y se superponen **casi exactamente** al
+  nativo en bind-pose → **el defecto NO se reproduce en estático**. Diff campo a
+  campo: `pos`/`nrm` difieren (Vía A proyecta la malla HD sobre la superficie PS2;
+  forma/silueta no coinciden 100 %), `uv`/`weight`/`bone`/`marker`/`IB`/header/
+  ejes/bind **idénticos**. **NO hay bug de rotación de normales** (aplicar `inv(R)`
+  a las del port las ALEJA del nativo). ⇒ El artefacto gris es consecuencia del
+  **sombreado de geometría aproximada**, se acentúa en animación; **no** se arregla
+  retocando normales. Vías reales: (a) refinar inyección (umbrales/`--bone-aware`/
+  `--normal-only` por zona) o (b) desbloquear Vía B (§22). Detalle:
+  `SESION_DRAW_SEMANTICS_2026-09-11.md` §23.
 - **SWAP HD↔HD (entrega)**: `mod center hd/swap_b3.py` + `catalog_b3.cat` (183),
   mid-insert virtual. En el launcher: pestaña "Cambio de modelo". Guardia
   origen==destino en `src/launcher/mod_pipeline.cpp`.
@@ -812,6 +827,11 @@ ver; patches/ es manual).
 - **Exportadores OBJ** (feedback sin abrir el juego): `awo_tools/awg_to_obj_b3.py`
   (bins completos), `awg0_export.py` (AWG0 con autodetección A/C),
   `awg_cara_export.py`. Chequear bounds/NaN.
+- **🔧 FIX DE NORMALES Vía A (2026-10-03)**: `awo_tools/awg_normal_fix.py`
+  (`<port.bin> <native.bin> <out.bin>`) copia el campo `nrm` de TODOS los AWGs del
+  nativo HD al bin del port (deja `pos`/`uv`/`IB` del port). Elimina el sombreado
+  gris facetado del brazo/cabeza (§23). Mod de prueba `cell_nfix` (slot 327).
+  Comparador: `awo_tools/awg_diff.py` (diff campo a campo de dos bins).
 - `awo_tools/analyze_bin_hd.py` está **DESACTUALIZADO** (layout PS3) — no usarlo.
 
 ## 11. HISTORIAL

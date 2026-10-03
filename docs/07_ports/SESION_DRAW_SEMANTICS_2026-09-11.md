@@ -911,3 +911,100 @@ y el `dbz3_drawlog` ayudan. El port de datos ya está demostrado correcto.
 - Analizadores: `awo_tools/vbdump_info.py`, `awo_tools/vbdump_vs_bin.py`.
 - Coste: 2 builds de `rexgpu-xenos` (instrumentada + revertida).
 
+
+
+---
+
+## §23 — Localización del defecto visual de la Vía A (`cell_win2`) — 2026-10-03
+
+Contexto: en la sesión del Bloque A se observó que `cell_win2` (Vía A: inyección
+NPM en cuerpo + 16 AWGs auxiliares) renderiza un Cell **coherente** pero con
+**defectos localizados**: el **brazo derecho** aparece con planos grises
+facetados (cáscara "metálica" desconectada) y la **cabeza** (cresta) tiene una
+**cuña gris** intrusa. El `cell_native` (swap nativo) renderiza perfecto.
+
+### Metodología (oráculo offline, numpy+PIL)
+Se renderizó en el espacio de modelo cada AWG por separado
+(`render_aux.py`), aplicando a cada AWG auxiliar la **matriz bind del hueso del
+cuerpo** que le corresponde por label:
+
+| AWG | label (nativo) | hueso cuerpo | socket |
+|---|---|---|---|
+| 1-5 | `CEL_L01/L02/L04/L05/L10_LHAND` | 23 (`CEL_L00_LHAND`) | mano izq |
+| 6-10 | `CEL_L01/L02/L04/L05/L10_RHAND` | 30 (`CEL_L00_RHAND`) | mano der |
+| 11-16 | `XCEL_L01/L18/L09/L04/L05/L06_FACE` | 40 (`XCEL_L00_FACE`) | cara |
+
+Resultado: los AWGs auxiliares del port caen **en los sockets correctos** y la
+geometría se **superpone casi exactamente** al nativo (overlay verde/rojo). **NO
+reproducen** la "cáscara" del defecto en bind-pose. El defecto no se reproduce
+offline en pose estática.
+
+### Comparación campo a campo (native.bin vs win2.bin, ambos 715872 B)
+
+| Campo | AWG0 (cuerpo) | AWG aux manos (1-10) | AWG aux cara (11-16) |
+|---|---|---|---|
+| `pos` | difiere (mean 0.149, max 0.797) | difiere (RMS 0.13-0.21) | idéntica (0.000) |
+| `nrm` | difiere (dot 0.686, 307 verts opuestos) | difiere (dot 0.70-0.81) | difiere (dot 0.87-0.95) |
+| `uv` | idéntico | idéntico | idéntico |
+| `weight`/`bone`/`marker` | idénticos | idénticos | idénticos |
+| `IB` | idéntico | idéntico | idéntico |
+| header/axes/bind | idénticos | idénticos | idénticos |
+
+**No hay bug de rotación de normales**: se comprobó que port y nativo usan **la
+misma convención** (aplicar `inv(R)` a las del port las aleja del nativo, no las
+acerca). La diferencia de normales es **consecuencia legítima** de que la
+geometría (`pos`) difiere.
+
+### Conclusión
+El defecto del brazo/cabeza en `cell_win2` es **inherente a la Vía A** (inyección
+aproximada: el `pos` de la malla HD se proyecta sobre la superficie PS2, cuya
+forma/silueta no coincide 100 %). En **bind-pose** la geometría es casi idéntica;
+el artefacto gris aparece por **sombreado** (normales y silueta aproximadas) y se
+acentúa en **animación**. **No es un bug puntual de un campo** del bin.
+
+⇒ Para mejorar brazo/cabeza hay dos vías reales: (a) **refinar la inyección Vía A**
+(umbrales / `--bone-aware` / `--normal-only` por zona), o (b) **desbloquear la
+Vía B** (RE del shader de skinning, §22). La "cáscara gris" NO se arregla
+retocando normales a mano.
+
+### Herramientas nuevas (en `%TEMP%\opencode\viab\`, no versionadas)
+`render_mesh.py` (cuerpo con skinning), `render_aux.py` (todos los AWGs con bind
+del hueso correcto), `render_hand_overlay.py` (overlay nativo/port de un AWG),
+`awg_fielddiff.py` (diff por campo), `awg_nrm.py`/`awg_nrm_geo.py` (normales),
+`nrm_convention2.py`/`nrm_rotation_bug.py` (convención de normales),
+`awg0_region_diff.py` (diff AWG0 por hueso).
+### §23.1 — Prueba en runtime: `cell_nfix` (2026-10-03)
+
+Hipótesis derivada de §23: si el artefacto gris del brazo/cabeza es **sombreado**
+por normales aproximadas, sustituir el campo `nrm` de TODOS los AWGs del port por
+las normales del **nativo HD** (dejando `pos`/`uv`/`IB` del port) debería eliminar
+la cáscara gris.
+
+**Construcción** (`mk_nfix.py`): copia `nrm` (offset +20..+32, layout ventana) del
+nativo a `cell_win2` → `cell_nfix`. Verificado offline: `nrm_dot` vs nativo = 1.000
+en los 16 AWGs aux y 0.960 en AWG0 (bytes idénticos; el 0.96 es artefacto de
+vértices degenerados en la métrica). `pos`/`uv`/`IB` sin cambios.
+
+**Montaje**: mod `cell_nfix` como único activo (slot 327), LZX `/N:2048`, mid-insert
+virtual (123104 B > `to_read`). Corrida real (`tools/long_run.ps1`) a 60,0 fps,
+0 errores.
+
+**Resultado**: en la **demo 3D de attract** (batalla), el **Cell del mod renderiza
+completo y limpio** — cuerpo moteado verde, bandas naranjas, cresta de la cabeza,
+brazo extendido con carga de ki — **SIN la cáscara gris facetada** que mostraba
+`cell_win2` en el select (`shots\n_12.png`). Captura: `shots\nfix_08.png`.
+
+**Caveat honesto**: la captura limpia es de la **demo de batalla** (pose distinta);
+no se pudo volver a capturar el select estático para comparación 1:1 (la
+navegación por teclado `press_key.ps1` / Return es poco fiable: cicla
+título↔opening↔demo sin entrar al menú). Por tanto la prueba es **cualitativa**
+(un Cell animado limpio es incompatible con la hipótesis "defecto de geometría
+explosionada") pero **no** un A/B cuantitativo en el mismo frame.
+
+**Conclusión operativa**: inyectar las normales HD nativas sobre `pos` PS2 **es una
+mejora real y de bajo coste** para la Vía A (sin tocar geometría/IB/uv ni el
+shader). Encaja con §23 (el defecto era sombreado). Queda como línea de trabajo
+para refinar la Vía A, no como entrega (la entrega sigue siendo el swap nativo).
+
+**Artefactos**: `%TEMP%\opencode\viab\mk_nfix.py`, `win2_nfix.bin`,
+`diff2.py`; capturas `%TEMP%\opencode\shots\nfix_0*.png` (destaca `nfix_08.png`).
