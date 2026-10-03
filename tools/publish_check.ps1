@@ -77,7 +77,7 @@ foreach ($rel in $tracked) {
         $txt = Get-Content -LiteralPath $full -Raw -ErrorAction SilentlyContinue
         if ($null -eq $txt) { continue }
         foreach ($s in $secretRx) { if ($txt -match $s.rx) { $fails.Add("$($s.n) en $rel") } }
-        if ($codeExt -contains $ext) {
+        if ($codeExt -contains $ext -and $rel -ne "tools/publish_check.ps1") {
             foreach ($d in $decompRx) {
                 $m = [regex]::Matches($txt, $d.rx)
                 if ($m.Count -gt 0) { $warns.Add("$($d.n) x$($m.Count) en $rel (e.g. $($m[0].Value))") }

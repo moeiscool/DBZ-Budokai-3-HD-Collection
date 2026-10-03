@@ -425,6 +425,24 @@ launcher). Detalle: `docs/07_ports/SESION_DRAW_SEMANTICS_2026-09-11.md` §20.
 - **SWAP HD↔HD (entrega)**: `mod center hd/swap_b3.py` + `catalog_b3.cat` (183),
   mid-insert virtual. En el launcher: pestaña "Cambio de modelo". Guardia
   origen==destino en `src/launcher/mod_pipeline.cpp`.
+- **🔴🔴 RE DEL SKINNING — B3 HD NO HACE SKINNING EN GPU (2026-10-03)**: se
+  instrumentó `rexgpu-xenos` (`command_processor.cpp`, **YA REVERTIDA**) con
+  captura por draw (marker `dbz3_paldump.on`, log `dbz3_paldump.log`: hash de
+  shader + `c0..c63` + vf0). Resultados **duros**:
+  1. **Ningún vertex shader indexa constantes dinámicamente** (no `a0`/`arl`/`lc`)
+     y **ningún shader usa `memexport`/`alloc export`** ⇒ no hay paleta en GPU.
+  2. El VS del cuerpo es **una transformación rígida**: `vfetch` de `vf0` (pos/
+     nrm/uv) y `mad/mul` contra **una sola matriz 4×4 en `c0..c3`**.
+  3. **TODOS** los draws del cuerpo en una escena usan el mismo shader
+     `FDF960B5D7869030`, `indx_offset=0`, y **`c0..c3` IDÉNTICOS** en los ~33
+     chunks (counts 3..1995) ⇒ los vértices llegan **ya en world-space**.
+  ⇒ **El skinning es CPU-side (Xenon)**: el guest lee bind-pose, aplica matrices
+  de hueso y escribe world-space; el VS solo proyecta. **Esto REFUTA la
+  hipótesis "causa = shader de skinning"** (§3.4.6/§10 y §22). El bloqueo real
+  es **en qué espacio/orden espera el guest los vértices del bin para su rutina
+  de skinning**. Próximo paso: RE de la rutina CPU de skinning en el código
+  recompilado (no del shader). Detalle: `SESION_DRAW_SEMANTICS_2026-09-11.md`
+  §24. Artefactos RE borrados; DLL canónica restaurada (6360064 B).
 
 ## 4. COMANDOS ÚTILES
 

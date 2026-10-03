@@ -1008,3 +1008,85 @@ para refinar la Vía A, no como entrega (la entrega sigue siendo el swap nativo)
 
 **Artefactos**: `%TEMP%\opencode\viab\mk_nfix.py`, `win2_nfix.bin`,
 `diff2.py`; capturas `%TEMP%\opencode\shots\nfix_0*.png` (destaca `nfix_08.png`).
+
+---
+
+## §24 — RE DEL SHADER DE SKINNING (Vía B) — 2026-10-03
+
+### Hallazgo DECISIVO: B3 HD NO hace skinning en el GPU (ni VS ni memexport)
+
+Se instrumentó `rexgpu-xenos` (d3d12, `command_processor.cpp`) con una captura
+por draw gated por marker `dbz3_paldump.on` (escribe `dbz3_paldump.log`):
+`shader hash + indx_offset + count + c0..c63` de las constantes float del VS.
+
+1. **Dump de ucode** (`dump_shaders`): 30 `.ucode.vert` + 54 `.ucode.frag`.
+   - **NINGÚN vertex shader usa índice dinámico de constantes** (no aparecen
+     `a0`/`arl`/`c[a0+..]`/`lc` en ningún disasm). Sin paleta indexada.
+   - **NINGÚN shader (vert ni frag) usa `memexport`/`alloc export`.**
+   - Los VS son **transformaciones rígidas**: `vfetch_full` de `vf0` (pos, nrm,
+     uv) y `mad/mul` contra **una sola matriz 4×4** en `c0..c3`.
+2. **Captura por draw** (656 MB, escena 3D alcanzada con foco real):
+   - **TODOS los draws de cuerpo (count 360..1995, p.ej. 1995) usan
+     `shader=FDF960B5D7869030`**, `indx_offset=0`.
+   - Sus constantes: `c0..c3` = **una única matriz de mundo/vista** (4 filas),
+     idéntica para los 1995 vértices; `c8..c11` = identidad/traslación de objeto.
+     **No hay matriz por-hueso ni índice de hueso en ninguna parte.**
+
+### Consecuencia (reescribe la hipótesis de §22)
+
+- El skinning de B3 HD es **CPU-side (Xenon)**: el guest lee los vértices en
+  bind-pose, aplica las matrices de hueso y **escribe un VB en world-space**; el
+  VS solo aplica la transform rígida final (c0..c3). Es el modelo
+  "procedural synthesis / real-time skinning" del Xenon (patente MS
+  20050099417), coherente con Ars Technica.
+- Por tanto, la deformación del port **no puede ser "el shader"** por sí sola:
+  el shader es genérico y no conoce huesos. El defecto nace en la **entrada del
+  skinning CPU** (bind-pose local + matriz de hueso del guest) o en la
+  **reconstrucción del VB world-space**.
+- Esto **refina** §22: aunque el bin→GPU es verbatim, el GPU **no** ve bind-pose
+  local como asumíamos, sino **world-space pre-skinneado**. La cadena crítica es
+  `[vértices bind-pose del bin] → [rutina de skinning del guest] → [VB world]`.
+
+### Implicación para Vía B / Vía A
+
+- La pregunta correcta pasa a ser: **¿en qué espacio/orden espera el guest los
+  vértices del bin para su rutina de skinning?** Si espera bind-pose local por
+  hueso (y nosotros metemos otra cosa), el resultado se deforma aunque "el bind
+  sea idéntico".
+- Vía B viable = hacer que los vértices del port estén en el **mismo espacio
+  bind-pose por hueso** que el nativo, no solo con la misma escala/silueta.
+- Herramientas: `rex/cvar` no; la captura vive en `command_processor.cpp`
+  (`dbz3_paldump_enabled`/`dbz3_paldump_draw`, marker `dbz3_paldump.on`,
+  env `DBZ3_LOG_PAL=1`). **REVERTIR tras la RE** (§7 AGENTS: la DLL canónica no
+  lleva instrumentación).
+
+### Confirmación (2ª corrida, 730 MB): la matriz NO cambia por draw
+
+Capturados 25 draws consecutivos del cuerpo (`FDF960B5`, counts 3..1212):
+`c0=1.44853 0 -0.00012 -0.00012` y `c3=0.0145 -33.4771 49.0088 50.008`
+**idénticos en TODOS**. Es decir, los "33 chunks" del cuerpo se dibujan con
+**una única matriz rígida**. ⇒ los vértices de cada chunk llegan **ya en
+world-space**: el skinning ocurre **antes** del VS (CPU Xenon), y el VS aplica
+solo la vista/proyección.
+
+### Conclusión RE (Vía B) — qué hacer con esto
+
+1. **El shader no es el culpable.** No hay paleta en GPU: buscar "arreglar el
+   shader de skinning" es un callejón (refuta §3.4.6/§10 Vía B "RE del shader").
+2. El bloqueo real es **el skinning CPU-side del guest**: cómo transforma los
+   vértices bind-pose del bin a world-space usando las matrices de hueso.
+3. **Vía B correcta** = reproducir el **espacio bind-pose exacto por hueso** que
+   el guest consume (no basta "bind world idéntico" a nivel de fichero). Hay que
+   localizar en el código recompilado la rutina que lee los vértices del bin y
+   aplica las matrices de hueso, y verificar en qué espacio/orden los espera.
+4. Alternativa de medida: capturar el **VB final world-space** en el draw del
+   cuerpo (no el bin) para comparar port vs nativo en el mismo frame/pose. La
+   instrumentación actual (`dbz3_paldump_draw` con `VF0`) no engancha ese fetch
+   (el cuerpo no usa `GetVertexFetch(0)`); habría que enganchar el fetch real
+   (`vf0` del VS ⇒ índice de fetch constant) para volcar el buffer servido.
+
+### Artefactos
+
+- `%TEMP%\opencode\shaderdump\shader_FDF960B5D7869030.ucode.vert` (VS del cuerpo).
+- `out\build\win-amd64-release\dbz3_paldump.log` (656 MB, borrar).
+- `out\build\win-amd64-release\dbz3_paldump.on` (marker, borrar).
