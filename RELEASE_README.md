@@ -134,8 +134,8 @@ entradas concretas del AFS, así que cada mod pesa solo ~100 KB.
   IA) **sin tocar los ficheros del juego ni su memoria**.
 - **Música** (`og_music`): reemplaza los AFS de audio por región.
 - **Personajes nuevos** (v1.4.0, experimental, versión USA): casillas propias en
-  el select sin sustituir a nadie. Descargas opcionales en la release:
-  - `DBZ3HD-1.4.0-Personajes.zip` — Janemba, Androide 19, Zarbon, Dodoria,
+  el select sin sustituir a nadie. Descargas opcionales:
+  - `DBZ3HD-1.4.0-Personajes.zip` (Google Drive: https://drive.google.com/file/d/1zpwuuU7ITKZlC43nsTbp6s2wceBcwO85/view?usp=sharing) — Janemba, Androide 19, Zarbon, Dodoria,
     Guldo, Jeice y Burter. Copia su carpeta `mods` junto a `dbz3.exe`.
   - `DBZ3HD-1.4.0-Kit-Modding.zip` — herramientas para crear e importar
     personajes (requiere Python 3.11+; ejecuta `instalar_requisitos.bat` una vez).

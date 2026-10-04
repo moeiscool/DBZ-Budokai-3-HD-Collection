@@ -97,7 +97,7 @@ En la página de [**Releases**](../../releases/latest):
 |---|---|
 | `DBZ-Budokai-3-HD-Collection-v1.4.0.zip` | **El juego para Windows** (obligatorio). |
 | `DBZ-Budokai-3-HD-Collection-v1.4.0-linux-amd64.tar.gz` | El juego para Linux (Vulkan), si está publicado. |
-| `DBZ3HD-1.4.0-Personajes.zip` | Opcional: los 7 personajes nuevos. |
+| [`DBZ3HD-1.4.0-Personajes.zip`](https://drive.google.com/file/d/1zpwuuU7ITKZlC43nsTbp6s2wceBcwO85/view?usp=sharing) | Opcional: los 7 personajes nuevos (**se descarga desde [Google Drive](https://drive.google.com/file/d/1zpwuuU7ITKZlC43nsTbp6s2wceBcwO85/view?usp=sharing)**). |
 | `DBZ3HD-1.4.0-Kit-Modding.zip` | Opcional: herramientas para crear e importar personajes. |
 
 ### Windows
@@ -185,7 +185,7 @@ Dodoria, Guldo, Jeice y Burter**. Zarbon y Dodoria traen los golpes, combos y
 gritos de su versión de Budokai 1.
 
 1. Cierra el juego.
-2. Descarga el ZIP desde [Releases](../../releases/latest) y copia su carpeta
+2. Descarga el ZIP desde [Google Drive](https://drive.google.com/file/d/1zpwuuU7ITKZlC43nsTbp6s2wceBcwO85/view?usp=sharing) y copia su carpeta
    `mods` junto a `dbz3.exe` (si Windows pregunta, acepta combinar carpetas: no
    se borra nada tuyo).
 3. Abre `dbz3.exe`, mira la pestaña **Personajes nuevos** y pulsa **JUGAR**.

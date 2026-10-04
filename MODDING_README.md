@@ -51,9 +51,9 @@ Para instalar un mod:
 
 La pestaña **Personajes nuevos** del launcher añade personajes en casillas
 propias del select, sin sustituir a nadie (experimental; versión USA y datos en
-carpeta). En la página de la release hay dos descargas opcionales:
+carpeta). Hay dos descargas opcionales:
 
-- **`DBZ3HD-1.4.0-Personajes.zip`** — Janemba, Androide 19, Zarbon, Dodoria,
+- **`DBZ3HD-1.4.0-Personajes.zip`** ([Google Drive](https://drive.google.com/file/d/1zpwuuU7ITKZlC43nsTbp6s2wceBcwO85/view?usp=sharing)) — Janemba, Androide 19, Zarbon, Dodoria,
   Guldo, Jeice y Burter, listos para jugar. Copia la carpeta `mods` del ZIP
   junto a `dbz3.exe` (acepta combinar carpetas), abre el launcher y pulsa
   **JUGAR**. Para quitar uno, desmárcalo en **Personajes nuevos → Instalados**.
