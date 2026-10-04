@@ -142,7 +142,8 @@ grep -q 'REXGLUE_DBZ3_VULKAN_PRESENT_FIX' "$vulkan_presenter"
 # The v0.10.0 release header misses the virtual dispatch point used by the
 # dual-region app. Keep the override valid so EU images select their mappings.
 app_header="$(dirname "$header")/../rex_app.h"
-if ! grep -q 'REXGLUE_DUAL_IMAGE_RESOLVER' "$app_header"; then
+# The dbz3 SDK overlay (patches/rexglue-sdk) already declares it: never add it twice.
+if ! grep -q 'REXGLUE_DUAL_IMAGE_RESOLVER\|ResolveImageInfo' "$app_header"; then
 python3 - "$app_header" <<'PY'
 from pathlib import Path
 import sys
@@ -172,4 +173,4 @@ if member_marker not in text:
     path.write_text(path.read_text().replace(needle, replacement, 1))
 PY
 fi
-grep -q 'REXGLUE_DUAL_IMAGE_RESOLVER' "$app_header"
+grep -q 'REXGLUE_DUAL_IMAGE_RESOLVER\|ResolveImageInfo' "$app_header"
