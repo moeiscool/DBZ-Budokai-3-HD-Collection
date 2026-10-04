@@ -103,6 +103,11 @@ IDS = {e["id"]: e for e in DB["ids"]}
 ALL_IDS = list(DB["free_ids"]) + list(DB.get("extra_ids", []))
 LZX = b"\x0f\xf5\x12\xee"
 SELECT_ENTRY = 2027            # data_usi: texturas del select (#AZT)
+# El juego lee data_usi (ingles USA) o, con otro idioma, data_eng/spn/fra/ger/ita: las
+# cinco tienen la misma estructura (2709 entradas, mismas texturas del select y catalogo).
+# Todo lo que se escribe en data_usi se repite en ellas (sin esto, en espanol las casillas
+# nuevas salian sin icono y el juego se cerraba al pasar por ellas).
+DATA_LANGS = ("eng", "spn", "fra", "ger", "ita")
 SELECT_POSES = (3881, 3882)    # data_cmn: poses del select (#ACM, una por ID; #CSK codigo = ID)
 ICON_TEX = 11                  # textura 1024x1024 del marco de la rueda (45 % libre)
 FONT = "C:/Windows/Fonts/comicbd.ttf"
@@ -395,6 +400,20 @@ def azt_append(b, items):
     out += b"\0" * ((-len(out)) % 0x10)
     struct.pack_into(">II", out, z + 0x10, n + len(new), new_idx)
     return out, list(range(n, n + len(new)))
+
+
+def azt_template(b, tpl, w, h):
+    """Textura del #AZT con DDS sin comprimir de w x h: tpl si cuadra, si no la primera que
+    cuadre (los rotulos nativos cambian de ancho segun el idioma). None si no hay."""
+    z = b.find(b"#AZT")
+    n, idx = struct.unpack(">II", b[z + 0x10:z + 0x18])
+
+    def fits(t):
+        to = struct.unpack(">I", b[z + idx + 4 * t:z + idx + 4 * t + 4])[0]
+        tdo = struct.unpack(">I", b[z + to + 0x14:z + to + 0x18])[0]
+        hdr = b[z + tdo:z + tdo + 128]
+        return struct.unpack("<II", hdr[12:20]) == (h, w) and struct.unpack("<I", hdr[84:88])[0] == 0
+    return next((t for t in [tpl] + list(range(n)) if fits(t)), None)
 
 
 class Packer:
@@ -1228,14 +1247,16 @@ class Capsules:
         return ["habilidades = %d" % fid, "habilidades_ataques = %s" % toml_list(attacks),
                 "habilidades_transformaciones = %s" % toml_list(trans)]
 
-    def finish(self, out_dir, work):
-        """Bancos de nombres, nombres en los menus y registros del catalogo."""
-        for fid, b in self.banks:
-            write_entry(out_dir, "data_usi.afs", fid, b, work)
-        if self._names:
-            for e in (capsulas.NAMES_SHORT, capsulas.NAMES_LONG):
-                write_entry(out_dir, "data_usi.afs", e,
-                            capsulas.extend_bank(self.usi.entry(e), self._names), work)
+    def finish(self, out_dir, work, data_langs=()):
+        """Bancos de nombres, nombres en los menus y registros del catalogo.
+        data_langs: [(nombre del afs, Afs)] de los otros idiomas, que reciben lo mismo."""
+        for afs_name, afs in [("data_usi.afs", self.usi)] + list(data_langs):
+            for fid, b in self.banks:
+                write_entry(out_dir, afs_name, fid, b, work)
+            if self._names:
+                for e in (capsulas.NAMES_SHORT, capsulas.NAMES_LONG):
+                    write_entry(out_dir, afs_name, e,
+                                capsulas.extend_bank(afs.entry(e), self._names), work)
         out = []
         for nid, rec, nm in self.new:
             out += ["[[capsula]]", "# %s" % nm, "id = %d" % nid, 'registro = "%s"' % rec.hex()]
@@ -1275,6 +1296,7 @@ def build(a):
         texs = azt_textures(sel)
         icon_tex = texs[ICON_TEX]
         icon_img = azt_read(sel, icon_tex)
+        icon_orig = icon_img.copy()
         k = icon_tex["hd"][0] / icon_tex["logical"][0]
         icons = Packer(icon_tex, 56, 56, free_regions(icon_tex))
         name_items = []
@@ -1400,7 +1422,9 @@ def build(a):
             for n_ in notes:
                 log("   %s: %s" % (name, n_))
             anm = []
-            if anm_bins:
+            # pose del select desde su moveset; pose_select = false la deja en la del donante
+            # (el reposo de Gohan del Futuro, port de Shin Budokai, cerraba el juego en el select)
+            if anm_bins and c.get("pose_select", True):
                 poses.append((cid, anm_bins[0]))
             for ab in anm_bins:
                 write_entry(out_dir, "data_cmn.afs", next_fid, ab, work)
@@ -1512,6 +1536,33 @@ def build(a):
         for i, t in enumerate(name_idx):   # textura real de cada rotulo
             toml = [ln.replace("[@%d," % i, "[%d," % t) if ln.startswith("rotulo") else ln for ln in toml]
         write_entry(out_dir, "data_usi.afs", SELECT_ENTRY, bytes(sel), work)
+        data_langs = []
+        drawn = (icon_img != icon_orig).any(-1)
+        for lk in DATA_LANGS:
+            path = os.path.join(us, "data_%s.afs" % lk)
+            if not os.path.isfile(path):
+                continue
+            la = Afs(path, work)
+            s2 = bytearray(la.entry(SELECT_ENTRY))
+            t2 = azt_textures(s2)
+            if len(t2) != len(texs) or t2[ICON_TEX]["size"] != icon_tex["size"]:
+                log("aviso: data_%s.afs: texturas del select distintas, idioma sin casillas nuevas" % lk)
+                continue
+            img2 = azt_read(s2, t2[ICON_TEX])
+            img2[drawn] = icon_img[drawn]
+            azt_write(s2, t2[ICON_TEX], img2)
+            items2 = [(im, lg, hd, azt_template(s2, tp, im.shape[1], im.shape[0]))
+                      for im, lg, hd, tp in name_items]
+            if any(it[3] is None for it in items2):
+                log("aviso: data_%s.afs: sin plantilla para los rotulos, idioma sin casillas nuevas" % lk)
+                continue
+            s2, idx2 = azt_append(s2, items2)
+            if idx2 != name_idx:
+                log("aviso: data_%s.afs: rotulos en otras texturas, idioma sin casillas nuevas" % lk)
+                continue
+            write_entry(out_dir, "data_%s.afs" % lk, SELECT_ENTRY, bytes(s2), work)
+            data_langs.append(("data_%s.afs" % lk, la))
+        log("idiomas del select: usi + %s" % " ".join(n[5:8] for n, _ in data_langs))
         try:
             acm, csk = select_poses(cmn, poses)
             if acm:
@@ -1520,7 +1571,7 @@ def build(a):
                 log("poses del select propias: IDs %s" % [c for c, _ in poses])
         except Exception as e:  # noqa: BLE001
             log("aviso: poses del select de los donantes (%s)" % e)
-        toml += caps.finish(out_dir, work)
+        toml += caps.finish(out_dir, work, data_langs)
         open(os.path.join(out_dir, "roster.toml"), "w", encoding="utf-8").write("\n".join(toml))
         open(os.path.join(out_dir, "manifest.txt"), "w", encoding="utf-8").write(
             "Personajes nuevos (generado por roster_build.py)\n" + "\n".join(manifest) + "\n")

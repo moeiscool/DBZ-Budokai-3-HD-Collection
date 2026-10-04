@@ -9,7 +9,9 @@
       The tools behind the launcher's modding tabs (new characters, importer,
       capsules, voices/yells, textures, model swap): mod center hd/ + awo_tools/ (only
       the modules they import), the XDK LZX tools, the community reference lists the
-      capsule importer reads, docs and a one-click requirements installer.
+      capsule importer reads, docs and a one-click requirements installer. Also the
+      DBZ3 HD Mod Kit window (mod center hd/modkit_gui.py, opened with DBZ3_ModKit.bat at
+      the kit root) plus the standalone modder tools it exposes (KIT_EXTRA_TOOLS).
 
 Usage:  python tools/make_modpacks.py [--version 1.4.0]
 """
@@ -27,8 +29,17 @@ OUT = os.path.join(ROOT, "release_packs")
 CHARACTERS = ["cut_janemba", "cut_android19", "cut_zarbon", "cut_dodoria", "cut_guldo", "cut_jeice",
               "cut_burter"]
 KIT_ENTRIES = ["roster_build", "importar", "swap_b3", "texture_b3", "texture_dump_import", "texture_pack",
-               "capsulas", "gritos", "voces", "iso", "model_render"]
+               "capsulas", "gritos", "voces", "iso", "model_render",
+               "modkit_gui"]      # DBZ3 HD Mod Kit: the no-console window over all of these
+# Standalone modder tools the Mod Kit window also exposes (advanced mode > Tools), with the
+# local modules they import (kit_modules follows them).
+KIT_EXTRA_TOOLS = ["name_banner", "portrait_hd", "extract_azt_afs", "awg_to_obj_b3", "awg0_export",
+                   "awg_cara_export", "swap_matrix", "texture_upscale_b3", "psp_amo", "sb_amm", "csk_edit",
+                   "acm_parse"]
 KIT_DATA = ["catalog_b3.cat", "roster_db.json"]
+KIT_ROOT_FILES = ["LEEME_KIT.txt", "requirements.txt", "instalar_requisitos.bat", "DBZ3_ModKit.bat"]
+KIT_FORMAT_DOCS = ["CAPSULAS_B3.md", "MAPA_ROSTER_HD.md", "ACM_FORMAT.md", "AMO_AWO.md", "BIN_LAYOUT.md",
+                   "STAGES_FORMAT.md"]
 XDK = os.path.join(ROOT, "mod center", "Xbox 360 Compression - Decompression tool from the XBOX Development Kit")
 RES = os.path.join(ROOT, "modding resources")
 RES_FILES = ["Budokai_3_Capsules_IDs.txt", "Dragon Ball Z Infinite World Capsule List.xlsx",
@@ -47,7 +58,7 @@ def kit_modules():
             if os.path.exists(p):
                 return p
         return None
-    seen, todo = set(), [find(e) for e in KIT_ENTRIES]
+    seen, todo = set(), [find(e) for e in KIT_ENTRIES + KIT_EXTRA_TOOLS]
     while todo:
         p = todo.pop()
         if not p or p in seen:
@@ -118,7 +129,13 @@ def kit_pack(ver, stage):
         src = os.path.join(ROOT, "docs", "02_mods", f)
         if os.path.exists(src):
             shutil.copyfile(src, os.path.join(docs, f))
-    for f in ("LEEME_KIT.txt", "requirements.txt", "instalar_requisitos.bat"):
+    formats = os.path.join(docs, "formatos")      # the Mod Kit's Help tab lists them
+    os.makedirs(formats)
+    for f in KIT_FORMAT_DOCS:
+        src = os.path.join(ROOT, "docs", "03_formatos", f)
+        if os.path.exists(src):
+            shutil.copyfile(src, os.path.join(formats, f))
+    for f in KIT_ROOT_FILES:
         shutil.copyfile(os.path.join(ROOT, "tools", "modpacks", f), os.path.join(stage, f))
     shutil.copyfile(os.path.join(ROOT, "tools", "modpacks", "LEEME_PS2_GAMES.txt"),
                     os.path.join(stage, "ps2_games", "LEEME.txt"))

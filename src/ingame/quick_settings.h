@@ -13,4 +13,7 @@ namespace dbz3::ingame {
 // open_full_settings: opens the full launcher dialog (the F4 settings).
 void ConfigureQuickMenu(rex::ui::QuickMenuConfig& menu, std::function<void()> open_full_settings);
 
+// Rebuilds the texts if the language changed since (the launcher sets it before Play).
+void RefreshQuickMenuLanguage(rex::ui::QuickMenuConfig& menu, std::function<void()> open_full_settings);
+
 }  // namespace dbz3::ingame

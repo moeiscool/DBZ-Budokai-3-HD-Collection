@@ -60,6 +60,9 @@ Item Number(const char* label, const char* cvar, double min, double max, double 
 
 // After any change: forward the dbz3_* values onto the SDK cvars (they apply
 // live) and save them where the launcher keeps them.
+// Language the menu texts were built in (the launcher can change it after startup).
+int32_t g_menu_language = -1;
+
 void ApplyAndSave() {
   if (g_video_touched.exchange(false) && dbz3::settings::QualityPreset() != "manual") {
     dbz3::settings::SetQualityPreset("manual");
@@ -73,19 +76,25 @@ void ApplyAndSave() {
 
 void ConfigureQuickMenu(rex::ui::QuickMenuConfig& menu, std::function<void()> open_full_settings) {
   namespace T = dbz3::i18n;
-  T::SetLanguage(dbz3::settings::Language());
+  g_menu_language = dbz3::settings::Language();
+  T::SetLanguage(g_menu_language);
 
-  for (const char* name : kVideoCvars) {
-    rex::cvar::RegisterChangeCallback(name, [](std::string_view, std::string_view) {
-      if (rex::ui::QuickMenuDialog::IsOpen()) g_video_touched.store(true);
+  // Once: the menu is rebuilt when the language changes (RefreshQuickMenuLanguage).
+  static bool callbacks_registered = false;
+  if (!callbacks_registered) {
+    callbacks_registered = true;
+    for (const char* name : kVideoCvars) {
+      rex::cvar::RegisterChangeCallback(name, [](std::string_view, std::string_view) {
+        if (rex::ui::QuickMenuDialog::IsOpen()) g_video_touched.store(true);
+      });
+    }
+    // F3 and the menu's "Show FPS" are the same switch.
+    rex::cvar::RegisterChangeCallback("debug_overlay", [](std::string_view, std::string_view value) {
+      const bool on = value == "true" || value == "1";
+      const std::string want = on ? "true" : "false";
+      if (rex::cvar::GetFlagByName("dbz3_show_fps") != want) rex::cvar::SetFlagByName("dbz3_show_fps", want);
     });
   }
-  // F3 and the menu's "Show FPS" are the same switch.
-  rex::cvar::RegisterChangeCallback("debug_overlay", [](std::string_view, std::string_view value) {
-    const bool on = value == "true" || value == "1";
-    const std::string want = on ? "true" : "false";
-    if (rex::cvar::GetFlagByName("dbz3_show_fps") != want) rex::cvar::SetFlagByName("dbz3_show_fps", want);
-  });
 
   menu.title = T::T("AJUSTES RAPIDOS", "QUICK SETTINGS");
   menu.subtitle = "DRAGON BALL Z  BUDOKAI 3  HD";
@@ -214,6 +223,24 @@ void ConfigureQuickMenu(rex::ui::QuickMenuConfig& menu, std::function<void()> op
     screen.items.push_back(std::move(full));
   }
   REXLOG_INFO("dbz3: quick settings menu ready (F1 / {})", rex::cvar::GetFlagByName("quick_menu_buttons"));
+}
+
+void RefreshQuickMenuLanguage(rex::ui::QuickMenuConfig& menu, std::function<void()> open_full_settings) {
+  if (dbz3::settings::Language() == g_menu_language) return;
+  rex::ui::QuickMenuConfig fresh;
+  ConfigureQuickMenu(fresh, std::move(open_full_settings));
+  // Everything but the callbacks (can_open is the caller, still running).
+  menu.title = std::move(fresh.title);
+  menu.sections = std::move(fresh.sections);
+  menu.quick_toggle_label = std::move(fresh.quick_toggle_label);
+  menu.quick_toggle_cvar = std::move(fresh.quick_toggle_cvar);
+  menu.subtitle = std::move(fresh.subtitle);
+  menu.text_change = std::move(fresh.text_change);
+  menu.text_close = std::move(fresh.text_close);
+  menu.text_saved = std::move(fresh.text_saved);
+  menu.text_restart = std::move(fresh.text_restart);
+  menu.text_on = std::move(fresh.text_on);
+  menu.text_off = std::move(fresh.text_off);
 }
 
 }  // namespace dbz3::ingame

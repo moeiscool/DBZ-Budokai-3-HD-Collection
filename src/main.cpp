@@ -264,7 +264,12 @@ public:
     void OnConfigureQuickMenu(rex::ui::QuickMenuConfig& menu) override {
         dbz3::ingame::ConfigureQuickMenu(menu, [this]() { OpenFullSettings(); });
         // Only over the game: the pre-game launcher has all of this already.
-        menu.can_open = [this]() { return launched_.load(std::memory_order_acquire) && !launcher_dialog_; };
+        menu.can_open = [this, &menu]() {
+            if (!launched_.load(std::memory_order_acquire) || launcher_dialog_) return false;
+            // The language may have changed in the launcher after the menu was built.
+            dbz3::ingame::RefreshQuickMenuLanguage(menu, [this]() { OpenFullSettings(); });
+            return true;
+        };
     }
 
     // The launcher dialog over the game (F4 and the quick menu's "All settings").

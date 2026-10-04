@@ -70,7 +70,11 @@ bool ApplySave100(std::string& message) {
   char stamp[32] = {};
   const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   std::tm tm{};
+#ifdef _WIN32
   localtime_s(&tm, &now);
+#else
+  localtime_r(&now, &tm);
+#endif
   std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tm);
   const auto dest = BackupRoot() / stamp;
   bool any = false;
