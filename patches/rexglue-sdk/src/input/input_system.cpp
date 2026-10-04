@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 
 #include <rex/dbg.h>
 #include <rex/input/device_assignment.h>
@@ -89,6 +90,9 @@ void InputSystem::SetDeviceAssignment(std::unique_ptr<DeviceAssignment> assignme
 }
 
 void InputSystem::RefreshDevices() {
+  // The guest polls from its threads and the quick menu from the UI thread:
+  // device refreshes must not run at the same time (heap corruption, v1.4.0).
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   std::vector<DeviceInfo> seen;
   std::vector<InputDriver*> owners;
   std::vector<DeviceInfo> enumerated;
@@ -197,6 +201,9 @@ const DeviceInfo* InputSystem::DeviceInfoFor(DeviceId id) const {
 X_RESULT InputSystem::GetCapabilities(uint32_t user_index, uint32_t flags,
                                       X_INPUT_CAPABILITIES* out_caps) {
   SCOPE_profile_cpu_f("hid");
+  // The guest polls from its threads and the quick menu from the UI thread:
+  // device refreshes must not run at the same time (heap corruption, v1.4.0).
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!out_caps || !assignment_) {
     return X_ERROR_DEVICE_NOT_CONNECTED;
   }
@@ -224,6 +231,83 @@ X_RESULT InputSystem::GetCapabilities(uint32_t user_index, uint32_t flags,
 
 X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
   SCOPE_profile_cpu_f("hid");
+
+  // A dialog owns the controller.
+  if (ui_input_blockers_.load() > 0) {
+    if (out_state) {
+      std::memset(out_state, 0, sizeof(*out_state));
+    }
+    return X_ERROR_SUCCESS;
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  X_RESULT result = GetStateForUI(user_index, out_state);
+
+  if (result == X_ERROR_SUCCESS && out_state && user_index < kMaxGuestUsers) {
+    // The UI toggle combo is for the emulator, keep it from the guest.
+    const uint16_t combo = ui_toggle_combo_.load(std::memory_order_relaxed);
+    const bool combo_held =
+        combo && (static_cast<uint16_t>(out_state->gamepad.buttons) & combo) == combo;
+    if (combo_held && !ui_toggle_combo_held_[user_index] && ui_toggle_callback_) {
+      consumed_buttons_[user_index] |= combo;
+      ui_toggle_callback_();
+    }
+    ui_toggle_combo_held_[user_index] = combo_held;
+
+    if (consumed_buttons_[user_index] != 0) {
+      const uint16_t buttons = out_state->gamepad.buttons;
+      // Each button leaves the mask once the player lets go of it.
+      consumed_buttons_[user_index] &= buttons;
+      out_state->gamepad.buttons =
+          static_cast<uint16_t>(buttons & ~consumed_buttons_[user_index]);
+    }
+  }
+  return result;
+}
+
+void InputSystem::AddUIInputBlocker() {
+  ui_input_blockers_.fetch_add(1);
+}
+
+void InputSystem::RemoveUIInputBlocker() {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  X_INPUT_STATE state = {};
+  const uint16_t combo = ui_toggle_combo_.load(std::memory_order_relaxed);
+  for (uint32_t user_index = 0; user_index < kMaxGuestUsers; user_index++) {
+    if (GetStateForUI(user_index, &state) == X_ERROR_SUCCESS) {
+      const uint16_t buttons = state.gamepad.buttons;
+      consumed_buttons_[user_index] |= buttons;
+      // A toggle combo that closed the dialog must not open it again.
+      ui_toggle_combo_held_[user_index] = combo && (buttons & combo) == combo;
+    }
+  }
+  // Keystrokes queued while the dialog had the controllers belong to it.
+  for (size_t i = 0; i < devices_.size() && i < device_owners_.size(); ++i) {
+    X_INPUT_KEYSTROKE discarded = {};
+    for (int j = 0; j < 256; ++j) {
+      if (device_owners_[i]->GetDeviceKeystroke(devices_[i].id, 0, &discarded) !=
+          X_ERROR_SUCCESS) {
+        break;
+      }
+    }
+  }
+  ui_input_blockers_.fetch_sub(1);
+}
+
+void InputSystem::SetUIToggleCombo(uint16_t buttons, std::function<void()> callback) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ui_toggle_callback_ = std::move(callback);
+  ui_toggle_combo_held_ = {};
+  ui_toggle_combo_.store(buttons, std::memory_order_relaxed);
+}
+
+void InputSystem::SetUIToggleComboButtons(uint16_t buttons) {
+  ui_toggle_combo_.store(buttons, std::memory_order_relaxed);
+}
+
+X_RESULT InputSystem::GetStateForUI(uint32_t user_index, X_INPUT_STATE* out_state) {
+  SCOPE_profile_cpu_f("hid");
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!assignment_) {
     return X_ERROR_DEVICE_NOT_CONNECTED;
   }
@@ -278,6 +362,9 @@ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
 
 X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration) {
   SCOPE_profile_cpu_f("hid");
+  // The guest polls from its threads and the quick menu from the UI thread:
+  // device refreshes must not run at the same time (heap corruption, v1.4.0).
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!assignment_) {
     return X_ERROR_DEVICE_NOT_CONNECTED;
   }
@@ -326,6 +413,13 @@ X_RESULT InputSystem::SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration
 X_RESULT InputSystem::GetKeystroke(uint32_t user_index, uint32_t flags,
                                    X_INPUT_KEYSTROKE* out_keystroke) {
   SCOPE_profile_cpu_f("hid");
+  // The guest polls from its threads and the quick menu from the UI thread:
+  // device refreshes must not run at the same time (heap corruption, v1.4.0).
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  // A dialog owns the controller: the guest sees no keystrokes meanwhile.
+  if (ui_input_blockers_.load() > 0) {
+    return X_ERROR_EMPTY;
+  }
   if (!assignment_) {
     return X_ERROR_DEVICE_NOT_CONNECTED;
   }

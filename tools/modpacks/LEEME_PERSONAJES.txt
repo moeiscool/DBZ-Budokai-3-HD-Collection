@@ -1,0 +1,32 @@
+DBZ BUDOKAI 3 HD COLLECTION - PACK DE PERSONAJES NUEVOS (v1.4.0)
+=================================================================
+
+Siete personajes NUEVOS en casillas propias de la rueda del select (no sustituyen a
+nadie): Janemba, Androide 19, Zarbon (con Monster Form), Dodoria, Guldo, Jeice y Burter.
+Zarbon y Dodoria traen ademas los golpes, combos y gritos de su version de Budokai 1.
+
+NECESITAS: la version 1.4.0 (o superior) de DBZ Budokai 3 HD Collection, con los datos
+del juego en una CARPETA (en modo ISO los mods no se aplican).
+
+INSTALAR (3 pasos)
+1. Cierra el juego.
+2. Copia la carpeta "mods" de este ZIP junto a dbz3.exe (si te pregunta, acepta
+   combinar carpetas: no se borra nada tuyo).
+3. Abre dbz3.exe, mira la pestana "Personajes nuevos" (veras los 7 marcados) y pulsa
+   JUGAR. Ya estan en la rueda del select.
+
+QUITAR UN PERSONAJE
+- En el launcher, pestana "Personajes nuevos" > "Instalados": desmarca su casilla y
+  pulsa JUGAR. Para borrarlo del todo, quita su carpeta "cut_..." de mods.
+- Tus partidas guardadas no se tocan en ningun caso.
+
+NOTAS
+- Son personajes experimentales: alguna tecnica con agarre de Budokai 1 sale como un
+  golpe normal, y algun efecto puede no ser perfecto.
+- La carpeta "_roster" es el resultado ya montado de estos 7. Si ademas tienes el Kit de
+  modding instalado, el launcher la vuelve a montar sola cuando cambias algo.
+
+----------------------------------------------------------------------------------
+ENGLISH (short): copy "mods" next to dbz3.exe (v1.4.0+, game data as a folder), open
+dbz3.exe, check the "New characters" tab and press PLAY. To remove one, untick it under
+"Installed". Saves are never touched.

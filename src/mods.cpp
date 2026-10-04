@@ -116,6 +116,26 @@ void InferTypeAndCount(const std::filesystem::path& dir, ModInfo& info) {
     }
   }
   info.file_count = count;
+  std::error_code ec2;
+  if (std::filesystem::exists(dir / "personaje.toml", ec2)) {
+    if (info.type.empty()) info.type = "personaje";
+    if (info.display_name.empty()) {      // nombre del personaje (nombre = "...")
+      std::ifstream pt(dir / "personaje.toml");
+      std::string ln;
+      while (std::getline(pt, ln)) {
+        const auto eq = ln.find('=');
+        if (eq == std::string::npos || ln.compare(0, 6, "nombre") != 0) continue;
+        std::string v = ln.substr(eq + 1);
+        v.erase(0, v.find_first_not_of(" \t\""));
+        v.erase(v.find_last_not_of(" \t\"\r") + 1);
+        info.display_name = v;
+        break;
+      }
+    }
+  }
+  if (info.type.empty() && std::filesystem::exists(dir / "roster.toml", ec2)) {
+    info.type = "generado";
+  }
   if (info.type.empty()) {
     if (has_audio) info.type = "audio";
     else if (has_data) info.type = "data";
@@ -275,6 +295,8 @@ const char* ModTypeLabel(const std::string& type) {
   if (type == "audio") return "audio";
   if (type == "moveset") return "moveset";
   if (type == "data") return "data";
+  if (type == "personaje") return "character";
+  if (type == "generado") return "generated";
   return "other";
 }
 
@@ -283,6 +305,8 @@ int ModTypeColor(const std::string& type) {
   if (type == "audio") return 0x4FC3F7;                          // light blue
   if (type == "moveset") return 0x81C784;                        // green
   if (type == "data") return 0xCFD8DC;                           // gray-blue
+  if (type == "personaje") return 0xCE93D8;                      // purple
+  if (type == "generado") return 0x90A4AE;                       // slate
   return -1;  // dim gray
 }
 

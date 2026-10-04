@@ -22,9 +22,50 @@ emulator. Native Linux builds use Vulkan and SDL3.
 | Platform | Windows / Linux |
 | Engine | Xbox 360 (ReXGlue SDK) |
 | Genre | 3D fighting |
-| Version | v1.2.9 |
+| Version | v1.4.0 |
 
 Copyright (c) 2026 **NovaPowers**. Released under the MIT License (see `LICENSE`).
+
+**[⬇ Download the latest version](../../releases/latest)** ·
+[What's new (CHANGELOG)](CHANGELOG.md) · [How to install](#how-to-install-step-by-step) ·
+[Mods and new characters](#mods-and-new-characters)
+
+---
+
+## What's new in v1.4.0
+
+- **In-game quick menu**: press **F1** or **Back + Start** on the controller and
+  change picture, sound or display settings without leaving the fight. Changes
+  apply instantly and are saved automatically.
+- **More FPS with FSR**: the game can render below your resolution and let FSR
+  upscale it, for smoother play on modest PCs.
+- **New FPS counter (F3)**: game FPS and display FPS, with a frame-time graph.
+- **Redesigned launcher**: new look, opens in **under a second** (it used to
+  take ~30 s) and can be driven entirely **with a controller**.
+- **New characters** in their own select-screen cells, replacing nobody:
+  Janemba, Android 19, Zarbon, Dodoria, Guldo, Jeice and Burter (optional pack).
+- **Character importer** from Budokai 1, Budokai 2, Infinite World and community
+  models, all from the launcher.
+
+Full list in the [CHANGELOG](CHANGELOG.md).
+
+---
+
+## Screenshots
+
+<!--
+TODO(screenshots v1.4.0): save the screenshots as .jpg in docs/screenshots/ (.png is
+in .gitignore and publish_check flags it as FAIL), then remove this comment.
+
+![Launcher v1.4.0](docs/screenshots/launcher_inicio.jpg)
+![New characters tab with the importer](docs/screenshots/launcher_personajes_nuevos.jpg)
+![In-game quick menu (F1 / Back + Start)](docs/screenshots/menu_rapido.jpg)
+![FPS counter (F3)](docs/screenshots/fps_f3.jpg)
+![Character select with the new characters](docs/screenshots/select_personajes_nuevos.jpg)
+![A fight with a new character](docs/screenshots/combate_personaje_nuevo.jpg)
+-->
+
+*Screenshots coming soon.*
 
 ---
 
@@ -47,72 +88,61 @@ rights holder of Dragon Ball.
 
 ---
 
-## How to play
+## How to install (step by step)
 
-### Platform downloads
+### What to download
 
-- **Windows:** `DBZ-Budokai-3-HD-Collection-v1.2.9.zip`
-- **Linux amd64:** `DBZ-Budokai-3-HD-Collection-v1.2.9-linux-amd64.tar.gz` (Vulkan)
+From the [**Releases**](../../releases/latest) page:
 
-The Linux package includes `dbz3` and `librexgpu-xenos.so`, but not the game or
-its assets. Extract the tarball, place your legally obtained `default.xex` and
-`us/` or `eu/` folder next to `dbz3`, then run `./dbz3`. See
-[`docs/LINUX.md`](docs/LINUX.md) for dependencies and local builds.
+| File | What it is |
+|---|---|
+| `DBZ-Budokai-3-HD-Collection-v1.4.0.zip` | **The game for Windows** (required). |
+| `DBZ-Budokai-3-HD-Collection-v1.4.0-linux-amd64.tar.gz` | The game for Linux (Vulkan), when published. |
+| `DBZ3HD-1.4.0-Personajes.zip` | Optional: the 7 new characters. |
+| `DBZ3HD-1.4.0-Kit-Modding.zip` | Optional: tools to create and import characters. |
 
-There are two ways to provide the game data: the extracted folder or the ISO
-directly. Both are detected automatically, nothing to configure.
+### Windows
 
-**Option A — the extracted folder (if you want mods)**
+1. **Extract** `DBZ-Budokai-3-HD-Collection-v1.4.0.zip` into a folder, for
+   example `C:\Games\DBZ3\`.
+2. **Add the data from your copy of the game**, in one of two ways:
+   - **Easiest — the ISO**: drop the game's `.iso` next to `dbz3.exe`. Nothing
+     to extract. (Mods and new characters need the next option.)
+   - **The extracted folder** (needed for mods): put the `DBZ3\` folder exactly
+     as it comes off the disc next to `dbz3.exe`, or `default.xex` + the `us\`
+     (or `eu\`) folder.
+3. **Open `dbz3.exe`**. The launcher checks what you have and tells you what is
+   missing, if anything. You can also point it at your data with the folder or
+   ISO buttons.
+4. Pick region, language, video and sound, then press **PLAY** (or **START** on
+   the controller).
 
-1. Download the ZIP from **Releases** and extract it anywhere.
-2. Put `default.xex` and the `us\` (or `eu\`) folder next to `dbz3.exe`. Both
-   layouts below work:
+> If something goes wrong, the launcher shows you where the log is (`logs\`).
+> Attach it when you open an issue.
 
-   ```
-   C:\Games\DBZ3\                C:\Games\DBZ3\
-   ├── dbz3.exe                   ├── dbz3.exe
-   ├── default.xex                └── assets\
-   └── us\ (and/or eu\)               ├── default.xex
-                                     └── us\ (and/or eu\)
-   ```
+### Linux
 
-   **A straight disc dump works too** (with the `DBZ3\` folder and its
-   executable not renamed): the launcher finds the Budokai 3 executable itself.
+The package includes `dbz3` and `librexgpu-xenos.so`, but not the game. Extract
+the tarball, place your legally obtained `default.xex` and `us/` or `eu/` next
+to `dbz3`, then run `./dbz3`. See [`docs/LINUX.md`](docs/LINUX.md) for
+dependencies and local builds.
 
-   ```
-   C:\Rom\Budokai HD Collection\
-   ├── dbz3.exe
-   └── DBZ3\                      ← exactly as it comes off your ISO
-       ├── yae3_xenon.xex
-       └── us\ (and/or eu\)
-   ```
+### Valid file layouts
 
-3. Run `dbz3.exe`. The launcher checks what's there and tells you if something
-   is missing. You can locate your game folder with "Select game data folder...".
-4. Choose **Region**, **Language**, **Video** and **Audio**, then press **Play**.
+```
+C:\Games\DBZ3\                 C:\Games\DBZ3\                 C:\Games\DBZ3\
+├── dbz3.exe                   ├── dbz3.exe                   ├── dbz3.exe
+├── default.xex                └── assets\                    └── DBZ3\            ← straight off the disc
+└── us\ (and/or eu\)               ├── default.xex                ├── yae3_xenon.xex
+                                   └── us\ (and/or eu\)           └── us\ (and/or eu\)
+```
 
-**Option B — the ISO directly (play without extracting anything)**
+No need to rename the executable: the launcher finds it by **size and
+checksum**. If you drop the HD Collection menu instead of the Budokai 3
+executable, it tells you and blocks PLAY. The full original ISO (with the menu
+at the root) works too: the launcher takes the Budokai 3 executable from inside.
 
-Drop the game's `.iso` next to `dbz3.exe` (or use "Select ISO..." in the
-launcher). The launcher detects it, pulls the Budokai 3 executable out of the
-disc (`DBZ3\yae3_xenon.xex`, a few MB) and mounts the rest straight from the
-image: no need to extract or copy the AFS files. The region is detected on its
-own from the disc's executable.
-
-> Works with the full original ISO (the one that has the HD Collection menu at
-> the disc root): the launcher takes the Budokai 3 executable from inside the
-> disc, not the menu.
-
-> Mods need the extracted folder (option A). In disc mode you play the game as
-> it comes on the ISO.
-
-> **A single `dbz3.exe`**: since v1.1.0 there are no variants. One universal
-> executable (baseline SSSE3 runtime) that runs on any x64 CPU (Core 2 2006
-> onwards), with the USA and EU recompilations inside and auto-detection of the
-> executable you provide (by size + checksum, whatever it is called and
-> wherever it is).
-
-### Which game files you need (option A)
+### Which game files you need (extracted folder)
 
 Only the executable and your region's data, not the whole ISO:
 
@@ -122,11 +152,165 @@ Only the executable and your region's data, not the whole ISO:
   `lang_usa.afs`, `opening.sfd`, `Ending00.sfd`, `Ending01.sfd`.
 - **EU/PAL**: the same files into `eu\`.
 
-Everything can live next to `dbz3.exe` or inside `assets\` (with `default.xex`).
-You can verify the files against `baserom.md`.
+You can verify them against `baserom.md`. To extract them from your legal ISO,
+use a tool such as `extract-xiso` (reads the Xbox 360 FATX filesystem).
 
-To extract them from your legal ISO, use a tool such as `extract-xiso` (reads
-the FATX filesystem of the Xbox 360).
+---
+
+## Quick controls
+
+| Key / button | What it does |
+|---|---|
+| **F1** or **Back + Start** | In-game quick menu (picture, sound & pad, display). Can be switched to L3 + R3 or keyboard only. |
+| **F3** | FPS counter (game and display). |
+| **F4** | All settings (the launcher, over the game). |
+| **LB / RB** or **Ctrl + Tab** | Switch launcher tabs. |
+| **START** | PLAY from the launcher. |
+
+The launcher's hint bar shows keys or buttons (Xbox, PlayStation or Switch)
+depending on what you used last.
+
+---
+
+## Mods and new characters
+
+> Mods need the game data as a **folder** (ISO mode plays the game as it is).
+> New characters also need the **USA version**.
+
+### Character pack (`DBZ3HD-1.4.0-Personajes.zip`)
+
+Seven **new** characters in their own cells of the character-select wheel
+(they replace nobody): **Janemba, Android 19, Zarbon (with his transformation),
+Dodoria, Guldo, Jeice and Burter**. Zarbon and Dodoria bring the moves, combos
+and yells of their Budokai 1 version.
+
+1. Close the game.
+2. Download the ZIP from [Releases](../../releases/latest) and copy its `mods`
+   folder next to `dbz3.exe` (if Windows asks, merge the folders: nothing of
+   yours is deleted).
+3. Open `dbz3.exe`, check the **New characters** tab and press **PLAY**.
+
+To remove one, untick it under **New characters → Installed**. Your saves are
+never touched.
+
+### Modding kit (`DBZ3HD-1.4.0-Kit-Modding.zip`)
+
+The tools behind the launcher's modding tabs: create and **import characters**
+(Budokai 1, Budokai 2, Infinite World and community models), custom capsules,
+voices and yells, textures and model swap.
+
+1. Install [Python 3.11 or newer](https://www.python.org/downloads/) and tick
+   *Add python.exe to PATH*.
+2. Copy the whole ZIP content into the game folder (`mod center hd` and
+   `awo_tools` must end up next to `dbz3.exe`).
+3. Double-click `instalar_requisitos.bat` (only once).
+4. Open `dbz3.exe` → **New characters → Import a character from another game**:
+   pick the game, search the character, check the name (you see live how it will
+   look on the select screen) and press **Import**.
+
+To import from other games, use **your own copies** in the `ps2_games` folder
+(read its `LEEME.txt`). Super Dragon Ball Heroes and Shin Budokai 1/2 are
+detected but still in development.
+
+### Other mods
+
+Mods live in `mods\<name>\` and replace AFS entries through an overlay, without
+touching the original AFS files:
+
+```
+mods/<mod>/us/data_cmn.afs/<entry>/geom.bin   # override of one AFS entry
+mods/<mod>/manifest.txt                       # metadata (name, author...)
+mods/<mod>/.disabled                          # if present, the mod is OFF
+```
+
+They are managed from the launcher (**Mods**, **Textures**, **Model Swap** and
+**New characters** tabs) or with the tools in `mod center hd/`. Guides in
+[`docs/02_mods/`](docs/02_mods/) and the capsule format in
+[`docs/03_formatos/CAPSULAS_B3.md`](docs/03_formatos/CAPSULAS_B3.md).
+
+**Model swaps in any direction (virtual mid-insert).** A B3→B3 swap is a
+per-entry override (~100 KB) served even when the binary is **larger** than the
+original slot: the runtime presents the game a consistent AFS table and
+translates the reads. That is how, for example, putting Goten into Krillin's
+slot works.
+
+**New select-screen cells.** Since v1.4.0 the runtime can also **append**
+entries after the last one of an AFS, and the executable extends the select
+wheel with new cells. The builder `mod center hd/roster_build.py` turns
+`personaje.toml` folders into the generated mod `mods/_roster` (icons, name
+banners, portraits, health-bar face, capsules and yells), and the launcher
+rebuilds it automatically when you press PLAY.
+
+---
+
+## Features
+
+**One universal executable**
+
+- A single `dbz3.exe` (baseline SSSE3 runtime) that runs on any x64 CPU (Core 2
+  2006 onwards), with no variants.
+- **USA/EU dual core** with both recompilations inside and **executable
+  auto-detection** by size and checksum.
+- **Disc (ISO) mode**: play straight from the `.iso` without extracting anything.
+
+**Video and performance**
+
+- **FSR 1 / CAS**, **FXAA** and dither; internal resolution, MSAA and
+  anisotropic filtering. **Applied live**, no restart.
+- **More FPS with FSR** (Quality / Balanced / Performance / Ultra performance):
+  renders below your resolution and FSR upscales it.
+- **FPS panel (F3)** with game FPS, display FPS and a frame-time graph.
+- **VRR** and a real **frame cap**; **per-GPU quality presets**.
+- **Texture enhancement (experimental)** at runtime and **texture packs**.
+
+**Audio and controls**
+
+- Real **master volume** and **Mute**, applied on the fly.
+- **Gamepad (XInput / SDL)** or keyboard, with remappable keys, deadzone, rumble
+  and Xbox, PlayStation and Switch button names.
+- When you leave the window: **mute** and/or **dim** (optional).
+
+**Launcher**
+
+- New design with cards and icons, a big **PLAY** button and **startup in under
+  a second**.
+- **Controller navigation** with a device-aware hint bar.
+- **5 languages** (ES/EN/IT/DE/FR), clear messages when the executable is the
+  wrong one, one-click **Repair installation** and an update check.
+- **Portable, self-repairing** settings.
+
+**Mods**
+
+- **Per-entry AFS override** with **virtual mid-insert** and **appended
+  entries** (new characters).
+- **New characters** with icon, name banner, portraits and health-bar face
+  rendered from the model itself, with a live preview in the launcher.
+- **Importer** for Budokai 1, Budokai 2, Infinite World and community models
+  (`.amb`, `.amo` + `.amt`).
+- Per-character **capsules**, own **yells and voices** and **extra costumes**
+  for existing characters (`traje.toml`).
+- **B3↔B3 model swap** (183-character catalog) and **textures** (PNG).
+
+**Diagnostics (optional)**
+
+- Dev tab: I/O and performance logging and GPU diagnostic knobs. All **off by
+  default**.
+
+---
+
+## Status
+
+| Technique | Status |
+|---|---|
+| Native B3→B3 swap (~100 KB override) | Works in any direction (bins > or < slot) |
+| B3 HD texture mod | Works (per-entry override) |
+| 2+ simultaneous model/texture mods | Works (virtual mid-insert) |
+| Music mod (og_music) | Works |
+| Play from the ISO (disc mode) | Works (base game; mods need the folder) |
+| USA/EU dual core (single binary) | Works (validated in-game) |
+| New characters in their own cells | Works, experimental (USA version) |
+| B1 / B2 / IW → B3 character ports | Works, experimental (importer) |
+| Shin Budokai 1/2 and Super Dragon Ball Heroes | In development |
 
 ---
 
@@ -135,21 +319,22 @@ the FATX filesystem of the Xbox 360).
 ```
 DBZ-Budokai-3-HD-Collection/
 ├── default.xex               # NOT included. Game executable (USA or EU)
-├── us/                       # NOT included. USA region data
-├── eu/                       # NOT included. EU/PAL region data
+├── us/  eu/                  # NOT included. Data of each region
 ├── src/                      # Recompiler + launcher + mod system
 │   ├── main.cpp              #   entry point, window, crash handler
 │   ├── mods.cpp              #   mod system (AFS overlay)
-│   ├── launcher/             #   launcher UI + model pipeline
-│   └── ingame/               #   in-game menu
+│   ├── roster_ext.cpp        #   new characters (template, capsules, yells)
+│   ├── select_ext.cpp        #   extended select wheel
+│   ├── launcher/             #   launcher UI (ui_kit) + mod pipeline
+│   └── ingame/               #   in-game menu and quick menu (quick_settings)
 ├── generated/                # NOT included. Code derived from your .xex
-├── mod center hd/            # Python modding tools (ours)
-├── awo_tools/                # AWO/AWG format reverse-engineering tools
-├── patches/                  # ReXGlue SDK patches (see its README)
+├── mod center hd/            # Python modding tools (roster_build, importar...)
+├── awo_tools/                # Format converters and RE (AWO/AWG, PS2→HD, B1)
+├── patches/                  # ReXGlue SDK overlay (see its README)
 ├── mods/                     # User mods (empty)
-├── tools/                    # xbcompress/xbdecompress + utilities
+├── tools/                    # Release, modpack and utility scripts
 ├── docs/                     # Full documentation
-├── CMakeLists.txt            # Build
+├── CHANGELOG.md              # What's new per version
 ├── baserom.md                # Required game files + how to extract them
 └── LICENSE                   # MIT (NovaPowers)
 ```
@@ -159,58 +344,25 @@ DBZ-Budokai-3-HD-Collection/
 ## USA / EU regions
 
 The USA (`yae3_xenon.xex`) and EU (`yae3_xenon_eu.xex`) executables are
-different builds, not two copies of the same thing, and the dual core includes
-the recompilation of each one. The launcher identifies which one you placed by
-checksum and uses the matching code; if they don't match, it warns you and
-blocks Play so you don't end up with a cryptic crash.
-
-The file does not have to be named `default.xex` nor sit at the root: the
-launcher finds it by **size + checksum** (typical names are `yae3_xenon.xex` /
-`yae3_xenon_eu.xex`) and prepares it by itself. If you drop the HD Collection
-menu instead of the Budokai 3 executable, it tells you and blocks Play.
+different builds and the dual core includes the recompilation of each one. The
+launcher identifies which one you placed by checksum and uses the matching
+code; if they don't match, it warns you and blocks PLAY.
 
 The data region (the `us\` or `eu\` folder) and the language are chosen in the
-launcher and don't depend on the executable. Saves are shared between regions.
-
----
-
-## Mods
-
-Mods live in `mods\<name>\` (the folder ships empty) and replace AFS entries
-through an overlay, without touching the original AFS files:
-
-```
-mods/<mod>/us/data_cmn.afs/<entry>/geom.bin   # override of one AFS entry
-mods/<mod>/manifest.txt                       # metadata (name, author...)
-mods/<mod>/.disabled                          # if present, the mod is OFF
-```
-
-They are managed visually from the launcher (**Mods**, **Textures** and
-**Model Swap** tabs) or with the tools in `mod center hd/`. Guides in
-`docs/02_mods/`.
-
-### Model swaps in any direction (virtual mid-insert)
-
-A B3→B3 swap is a per-entry override (~100 KB) that is served on the target
-slot even when the binary is larger than the original slot: the runtime
-presents the game a consistent AFS table (the entry grows in place and the
-following ones shift) and translates the reads. That is how, for example,
-placing Goten into Krillin's slot works.
-
-This requires the **ReXGlue SDK patch** included in `patches/` (see
-`patches/README.md`).
+launcher. Saves are shared between regions. The v1.4.0 new characters only
+apply with the **USA** executable and data.
 
 ---
 
 ## Building from source
 
-You need a C++23 compiler, CMake ≥ 3.25 and the
-[ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) (`REXSDK_DIR` or a
-`rexglue/` folder next to the project).
+You need a C++23 compiler (LLVM clang on Windows), CMake ≥ 3.25 and the
+[ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) **v0.10.0** with our
+overlay applied.
 
-> Apply the runtime patches first (`patches/`) onto your copy of the SDK, as
-> explained in `patches/README.md`, and rebuild the runtime. Without them,
-> swaps with binaries larger than the slot do not work.
+> Copy `patches/rexglue-sdk/.` over a clean checkout of the SDK's `v0.10.0` tag
+> (see `patches/README.md`) and build the runtime. Without the overlay, large
+> swaps, new characters and the quick menu do not work.
 
 ```
 git clone --recurse-submodules https://github.com/novapowers0/DBZ-Budokai-3-HD-Collection.git
@@ -227,91 +379,25 @@ out\build\win-amd64-release\dbz3.exe
 ```
 
 The recompiled code (`generated/`) is derived from your `.xex` and never
-uploaded (see `generated/README.md` and `.gitignore`). The release package
-layout is assembled by `tools/make_release.ps1`.
-
----
-
-## Status
-
-| Technique | Status |
-|---|---|
-| Native B3→B3 swap (~100 KB override) | Works in any direction (bins > or < slot) |
-| B3 HD texture mod | Works (per-entry override, ~118 KB) |
-| 2+ simultaneous model/texture mods | Works (virtual mid-insert) |
-| Music mod (og_music) | Works |
-| Play from the ISO (disc mode) | Works (base game; mods need the folder) |
-| USA/EU dual core (single binary) | Works (validated in-game) |
-| PS2→HD port | In research; requires a full rebuild |
-| IW→B3 character ports | Dropped (Janemba failed, archived) |
-
----
-
-## Features
-
-**One universal executable**
-
-- A single `dbz3.exe` (baseline SSSE3 runtime) that runs on any x64 CPU (Core 2
-  2006 onwards), with no variants.
-- **USA/EU dual core** with both recompilations inside and **executable
-  auto-detection** by size and checksum: no need to rename it or keep it at the
-  root.
-- **Disc (ISO) mode**: play straight from the `.iso` without extracting
-  anything, including the full original ISO with the HD Collection menu.
-
-**Video and performance**
-
-- **FSR 1 / CAS**, **FXAA** and dither; internal resolution, MSAA and
-  anisotropic filtering.
-- **VRR** and a real **frame cap** (0 = uncapped).
-- **Per-GPU quality presets**: the Automatic mode detects your GPU and picks the
-  profile; no preset raises the internal scale (1x is recommended).
-- **Texture enhancement (experimental)**: upscales the game's textures at
-  runtime (Sharp x2 / Very sharp x3) without touching the game files, with a
-  **clean HUD**.
-- **Cost warning** when you raise the internal scale and a **"Back to native
-  (1x)"** button.
-
-**Audio and controls**
-
-- Real **master volume** and **Mute**, applied on the fly.
-- **Gamepad (XInput)** or keyboard, with remappable keys, deadzone, rumble and
-  mouse sensitivity.
-- When you leave the window: **mute** and/or **dim** (optional).
-
-**Launcher**
-
-- Tabbed UI, an **always-visible source selector** (folder or ISO) and a
-  **Play** button that warns you if something is missing instead of failing
-  silently.
-- **5 languages** (ES/EN/IT/DE/FR) and **clear messages** when the executable is
-  not the right one (HD Collection menu, DBZ1 executable, unknown dump).
-- **Portable, self-repairing settings**: if the folder is not writable,
-  `Documents/dbz3` is used; if `dbz3_user.toml` gets damaged, it is repaired
-  automatically or a `.bak` copy is kept.
-- **Update check** on startup (can be disabled).
-
-**Mods**
-
-- **Per-entry AFS override** (without touching the original AFS files) with
-  **virtual mid-insert**: works even when the model is larger than the slot.
-- **Native B3↔B3 model swap**: 183-character catalog, search, preview and in any
-  direction.
-- **Textures**: extract to PNG, edit and rebuild the mod; music and whole files
-  can be replaced too.
-- Mod center with search, enable/disable all, typed badges and ZIP install.
-
-**Diagnostics (optional)**
-
-- Dev tab: FPS counter, I/O and performance logging and GPU diagnostic knobs.
-  All **off by default**.
+uploaded (see `generated/README.md` and `.gitignore`). The release package is
+assembled by `tools/make_release.ps1` and the modpacks by
+`tools/make_modpacks.py`.
 
 ---
 
 ## Credits
 
-- [ReXGlue](https://github.com/rexglue/rexglue-sdk) — recompilation tools.
-- [WistfulHopes/DBZ1](https://github.com/WistfulHopes/DBZ1) — SDK API
-  reference (reference only; not a base or a code copy).
-- Budokai modding community — reference tools and models.
+- [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) — static recompilation
+  tools and runtime (derived from [Xenia](https://xenia.jp)).
+- [DBZ Burst Limit Recompiled](https://github.com/iExplosiveRage/DBZ-Burst-Limit-Recompiled)
+  by **iExplosiveRage** — inspiration and source of the SDK improvements adapted
+  in v1.4.0 (controller quick menu, FPS panel, live video settings, FSR below
+  native resolution), taken from the `burstlimit` branch of
+  [iExplosiveRage/rexglue-sdk](https://github.com/iExplosiveRage/rexglue-sdk).
+- [WistfulHopes/DBZ1](https://github.com/WistfulHopes/DBZ1) — SDK API reference
+  (reference only; not a base or a code copy).
+- The Budokai modding community — tools, reference lists and the models and
+  Infinite World ports the character pack is based on.
+- [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) —
+  controller mappings (`gamecontrollerdb.txt`).
 - **NovaPowers** — author of the launcher, the mod system and the tools.

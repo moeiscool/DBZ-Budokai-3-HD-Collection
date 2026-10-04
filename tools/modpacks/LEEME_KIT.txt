@@ -1,0 +1,41 @@
+DBZ BUDOKAI 3 HD COLLECTION - KIT DE MODDING (v1.4.0)
+=====================================================
+
+Las herramientas que hay detras de las pestanas de modding del launcher: crear e
+importar personajes nuevos (Budokai 1, Budokai 2, Infinite World y modelos de la
+comunidad), capsulas propias, voces y gritos, texturas y cambio de modelo.
+Todo se usa DESDE EL LAUNCHER: no hace falta abrir ninguna consola.
+
+QUE NECESITAS
+- DBZ Budokai 3 HD Collection v1.4.0 o superior, con los datos del juego en una CARPETA.
+- Python 3.11 o superior (gratis: https://www.python.org/downloads/). Al instalarlo,
+  marca la casilla "Add python.exe to PATH".
+
+INSTALAR (4 pasos)
+1. Cierra el juego.
+2. Copia TODO el contenido de este ZIP en la carpeta del juego (donde estan dbz3.exe y
+   la carpeta us). Deben quedar "mod center hd" y "awo_tools" junto a dbz3.exe.
+3. Haz doble clic en "instalar_requisitos.bat" (instala numpy, Pillow y scipy, las
+   librerias que usan las herramientas; solo hace falta una vez).
+4. Abre dbz3.exe: las pestanas "Personajes nuevos", "Texturas" y "Cambio de modelo" ya
+   funcionan.
+
+IMPORTAR PERSONAJES DE OTROS JUEGOS
+- Pon TUS copias de los juegos de PS2 en la carpeta "ps2_games" (lee ps2_games\LEEME.txt).
+- En el launcher: "Personajes nuevos" > "Importar personaje de otro juego": elige el juego,
+  busca el personaje, revisa el nombre y pulsa Importar. Se anade al pulsar JUGAR.
+- Los modelos de la comunidad (.amb o .amo + .amt) se buscan en "modding resources".
+
+CONTENIDO
+- mod center hd\   herramientas (roster_build, importar, capsulas, voces, gritos, texturas...)
+                   y tools\ (compresion LZX de Xbox 360)
+- awo_tools\       conversores de formatos (PS2 -> HD, Budokai 1, alturas...)
+- modding resources\  listas de la comunidad (capsulas, IDs, voces) que usa el importador
+- docs\            guias (como hacer mods, texturas, cambio de modelo)
+
+No incluye archivos de ningun juego: usa siempre los de tus copias.
+
+----------------------------------------------------------------------------------
+ENGLISH (short): copy everything next to dbz3.exe (v1.4.0+), install Python 3.11+, run
+instalar_requisitos.bat once, then use the launcher's "New characters" / "Textures" /
+"Model Swap" tabs. Put your own PS2 game copies in ps2_games to import characters.

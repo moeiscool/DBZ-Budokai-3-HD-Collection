@@ -96,6 +96,13 @@ size_t AfsGetVirtualTable(const std::filesystem::path& host_path,
 const std::vector<uint8_t>* AfsGetVirtualTableFast(const std::filesystem::path& host_path,
                                                    bool& out_any_growth);
 
+// Size the guest must see for an AFS container: the physical size, or -- when the
+// virtual mid-insert layout grows (data_cmn.afs with mods) -- the virtual end of
+// the last entry. Without it, a large growth pushes the last entries past the
+// physical EOF and the guest never gets their bytes (garbage LZX -> crash in the
+// guest decompressor at boot, data_cmn entries 3983+).
+uint64_t AfsVirtualSize(const std::filesystem::path& host_path, uint64_t physical_size);
+
 // Translate a virtual file offset (as the guest sees it) to the physical offset
 // inside the real AFS file, using the virtual mid-insert layout. Returns the
 // entry index or -1 if the offset is not inside any entry (table region /

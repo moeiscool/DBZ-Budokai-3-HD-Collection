@@ -6,9 +6,13 @@
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include <rex/logging.h>
+#include <rex/ui/immediate_drawer.h>
+#include <rex/input/input_system.h>
+#include <rex/runtime.h>
 
 #include "settings.h"
 #include "i18n.h"
+#include "ui_kit.h"
 #include "update_check.h"
 #include "../region.h"
 
@@ -23,6 +27,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <cctype>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,31 +38,33 @@ namespace dbz3::launcher {
 
 namespace {
 
-// DBZ-inspired palette.
-constexpr ImVec4 kDragonOrange(0.96f, 0.54f, 0.10f, 1.0f);
-constexpr ImVec4 kDragonOrangeDim(0.70f, 0.40f, 0.08f, 1.0f);
-constexpr ImVec4 kPanelBg(0.10f, 0.11f, 0.13f, 1.0f);
-constexpr ImVec4 kPanelBgAlt(0.14f, 0.15f, 0.18f, 1.0f);
-constexpr ImVec4 kTextMain(0.92f, 0.92f, 0.94f, 1.0f);
-constexpr ImVec4 kTextDim(0.55f, 0.57f, 0.62f, 1.0f);
+namespace ui = dbz3::launcher::ui;
+
+// DBZ palette (defined in ui_kit.h; these names are the ones the tabs use).
+constexpr ImVec4 kDragonOrange = ui::kAccent;
+constexpr ImVec4 kDragonOrangeDim = ui::kAccentDim;
+constexpr ImVec4 kPanelBg = ui::kBg;
+constexpr ImVec4 kPanelBgAlt = ui::kCard;
+constexpr ImVec4 kTextMain = ui::kText;
+constexpr ImVec4 kTextDim = ui::kTextDim;
 
 // Component colors, named so the same meaning always looks the same.
-constexpr ImVec4 kBorder(0.25f, 0.25f, 0.30f, 1.0f);
-constexpr ImVec4 kFrameBg(0.16f, 0.17f, 0.20f, 1.0f);
-constexpr ImVec4 kFrameBgHovered(0.22f, 0.23f, 0.27f, 1.0f);
-constexpr ImVec4 kFrameBgActive(0.28f, 0.29f, 0.33f, 1.0f);
-constexpr ImVec4 kRowBg(0.18f, 0.19f, 0.22f, 1.0f);
-constexpr ImVec4 kTabBg(0.13f, 0.14f, 0.17f, 1.0f);
-constexpr ImVec4 kOk(0.45f, 0.85f, 0.45f, 1.0f);
-constexpr ImVec4 kOkSoft(0.55f, 0.85f, 0.55f, 1.0f);
-constexpr ImVec4 kWarn(1.00f, 0.75f, 0.35f, 1.0f);
-constexpr ImVec4 kError(1.00f, 0.45f, 0.35f, 1.0f);
+constexpr ImVec4 kBorder = ui::kLine;
+constexpr ImVec4 kFrameBg = ui::kFrame;
+constexpr ImVec4 kFrameBgHovered = ui::kFrameHover;
+constexpr ImVec4 kFrameBgActive = ui::kFrameActive;
+constexpr ImVec4 kRowBg = ui::kCardHeader;
+constexpr ImVec4 kTabBg = ui::kCard;
+constexpr ImVec4 kOk = ui::kOk;
+constexpr ImVec4 kOkSoft(0.55f, 0.85f, 0.60f, 1.0f);
+constexpr ImVec4 kWarn = ui::kWarn;
+constexpr ImVec4 kError = ui::kError;
 constexpr ImVec4 kInfo(0.55f, 0.78f, 0.98f, 1.0f);
 constexpr ImVec4 kGold(1.00f, 0.72f, 0.30f, 1.0f);
-constexpr ImVec4 kSrcActive(0.42f, 0.31f, 0.15f, 1.0f);
-constexpr ImVec4 kPlayIdle(0.16f, 0.62f, 0.28f, 1.0f);
-constexpr ImVec4 kPlayHovered(0.22f, 0.74f, 0.36f, 1.0f);
-constexpr ImVec4 kPlayActive(0.11f, 0.50f, 0.22f, 1.0f);
+constexpr ImVec4 kSrcActive(0.96f, 0.55f, 0.11f, 0.30f);
+constexpr ImVec4 kPlayIdle(0.93f, 0.47f, 0.07f, 1.0f);
+constexpr ImVec4 kPlayHovered(1.00f, 0.58f, 0.16f, 1.0f);
+constexpr ImVec4 kPlayActive(0.80f, 0.38f, 0.04f, 1.0f);
 
 // Double slider with named min/max (avoids rvalue-address issues with clang).
 bool SliderD(const char* label, double* value, double min, double max, const char* fmt) {
@@ -70,16 +79,12 @@ const char* ModTypeLabelText(const std::string& type) {
   if (type == "audio") return i18n::T("audio", "audio");
   if (type == "moveset") return i18n::T("moveset", "moveset");
   if (type == "data") return i18n::T("datos", "data");
+  if (type == "personaje") return i18n::T("personaje", "character");
+  if (type == "generado") return i18n::T("automatico", "automatic");
   return i18n::T("otro", "other");
 }
 
-void PushSectionHeader(const char* title) {
-  ImGui::TextColored(kDragonOrange, "%s", title);
-  ImGui::PushStyleColor(ImGuiCol_Separator, kDragonOrangeDim);
-  ImGui::Separator();
-  ImGui::PopStyleColor();
-  ImGui::Spacing();
-}
+void PushSectionHeader(const char* title) { ui::SectionTitle(title); }
 
 // Case-insensitive ASCII substring test, used by the search boxes in the Mods
 // and Model Swap tabs. Empty needle matches everything.
@@ -204,7 +209,7 @@ const char* ButtonGlyph(const std::string& set, const char* suffix) {
 // footer (config summary + Reset/Save + PLAY). Keeps the primary action on
 // screen on every tab and removes the window-level scrollbar that pushed PLAY
 // below the fold.
-constexpr float kFooterHeight = 76.0f;
+constexpr float kFooterHeight = 96.0f;
 
 // Display name for an Xbox language id (1=EN, 3=DE, 4=FR, 5=ES, 6=IT), used in
 // the footer summary. ASCII-safe so it renders with the base font.
@@ -399,24 +404,29 @@ bool PickFile(std::string& out, const char* filter_desc, const char* filter_ext,
 
 void LauncherDialog::ApplyTheme() {
   ImGuiStyle& style = ImGui::GetStyle();
-  style.WindowRounding = 8.0f;
-  style.FrameRounding = 6.0f;
-  style.GrabRounding = 6.0f;
-  style.ChildRounding = 6.0f;
-  style.TabRounding = 6.0f;
-  style.PopupRounding = 8.0f;
-  style.ScrollbarRounding = 6.0f;
-  style.GrabMinSize = 12.0f;
+  style.WindowRounding = 10.0f;
+  style.FrameRounding = 7.0f;
+  style.GrabRounding = 7.0f;
+  style.ChildRounding = 10.0f;
+  style.TabRounding = 8.0f;
+  style.PopupRounding = 10.0f;
+  style.ScrollbarRounding = 8.0f;
+  style.GrabMinSize = 14.0f;
   style.WindowBorderSize = 0.0f;
+  style.ChildBorderSize = 0.0f;
+  style.PopupBorderSize = 1.0f;
   style.FrameBorderSize = 0.0f;
-  style.TabBarBorderSize = 1.0f;
-  style.TabBarOverlineSize = 2.0f;
-  style.WindowPadding = ImVec2(12, 8);
-  style.FramePadding = ImVec2(7, 4);
-  style.ItemSpacing = ImVec2(7, 4);
-  style.ItemInnerSpacing = ImVec2(6, 4);
-  style.CellPadding = ImVec2(6, 2);
-  style.ScrollbarSize = 10.0f;
+  style.TabBarBorderSize = 0.0f;
+  style.TabBarOverlineSize = 0.0f;
+  style.TabBorderSize = 0.0f;
+  style.WindowPadding = ImVec2(20, 14);
+  style.FramePadding = ImVec2(9, 5);
+  style.ItemSpacing = ImVec2(10, 7);
+  style.ItemInnerSpacing = ImVec2(8, 6);
+  style.CellPadding = ImVec2(8, 5);
+  style.ScrollbarSize = 12.0f;
+  style.SeparatorTextBorderSize = 1.0f;
+  style.SeparatorTextPadding = ImVec2(0, 6);
   style.Colors[ImGuiCol_WindowBg] = kPanelBg;
   style.Colors[ImGuiCol_ChildBg] = kPanelBgAlt;
   style.Colors[ImGuiCol_PopupBg] = kPanelBgAlt;
@@ -468,6 +478,10 @@ void LauncherDialog::OnClose() {
   // close the dialog (Play button or window X) without pressing "Save settings".
   // The Play button also saves explicitly; this guarantees nothing is ever lost.
   dbz3::settings::SaveUserSettings();
+  // Over a running game (F4) the changes apply right away (v1.4.0: live options).
+  if (in_game_) {
+    dbz3::settings::ApplyRuntimeSettingsToSdk(true);
+  }
 }
 
 void LauncherDialog::RefreshAssets() {
@@ -502,6 +516,11 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   // updated every frame so changing the "Language" combo re-translates the whole
   // launcher immediately.
   i18n::SetLanguage(dbz3::settings::Language());
+  PollController(io);
+  // Ctrl+Tab / Ctrl+Shift+Tab switch tabs from the keyboard.
+  if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Tab, false)) {
+    tab_request_ = (tab_index_ + (io.KeyShift ? 9 : 1)) % 10;
+  }
 
   // One-shot repair (--dbz3_repair=true / REX_DBZ3_REPAIR=1): run once, show the
   // report and clear the flag so it never triggers again. The footer button runs
@@ -521,21 +540,52 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
   ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
 
+  const ui::Fonts& fonts = ui::GetFonts();
+  ui::FontScope body_font(fonts.body);
   ImGui::Begin("##launcher", nullptr,
                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
                    ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
 
-  // Header banner.
-  ImGui::PushStyleColor(ImGuiCol_Text, kDragonOrange);
-  ImGui::SetWindowFontScale(1.3f);
-  ImGui::Text("DRAGON BALL Z: BUDOKAI 3");
-  ImGui::SetWindowFontScale(1.0f);
-  ImGui::PopStyleColor();
-  ImGui::TextColored(kTextDim, "Recompiled with ReXGlue  -  HD Collection (PAL)");
-  ImGui::PushStyleColor(ImGuiCol_Separator, kDragonOrangeDim);
-  ImGui::Separator();
-  ImGui::PopStyleColor();
-  ImGui::Spacing();
+  // Header: the game's name on the left, version and updates on the right, over
+  // a thin accent gradient so the window reads as a game launcher at a glance.
+  {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 wp = ImGui::GetWindowPos();
+    const float ww = ImGui::GetWindowWidth();
+    dl->AddRectFilledMultiColor(wp, ImVec2(wp.x + ww, wp.y + 86.0f),
+                                ImGui::GetColorU32(ImVec4(0.96f, 0.55f, 0.11f, 0.20f)),
+                                ImGui::GetColorU32(ImVec4(0.27f, 0.56f, 0.98f, 0.10f)),
+                                ImGui::GetColorU32(ImVec4(0.27f, 0.56f, 0.98f, 0.0f)),
+                                ImGui::GetColorU32(ImVec4(0.96f, 0.55f, 0.11f, 0.0f)));
+    dl->AddRectFilled(ImVec2(wp.x, wp.y + 86.0f), ImVec2(wp.x + ww, wp.y + 88.0f),
+                      ImGui::GetColorU32(kDragonOrange));
+  }
+  ImGui::BeginGroup();
+  {
+    ui::FontScope f(fonts.bold);
+    ImGui::TextColored(kDragonOrange, "%s", "DRAGON BALL Z");
+  }
+  {
+    ui::FontScope f(fonts.title);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 6.0f);
+    ImGui::TextUnformatted("BUDOKAI 3");
+  }
+  ImGui::SameLine(0.0f, 14.0f);
+  ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 12.0f);
+  ui::Pill(nullptr, "HD Collection  -  ReXGlue", ui::kBlue);
+  {
+    const std::string cur = dbz3::launcher::CurrentVersionLabel();
+    if (!cur.empty()) {
+      ImGui::SameLine(0.0f, 8.0f);
+      ui::Pill(nullptr, ("v" + cur).c_str(), kTextDim);
+    }
+  }
+  ImGui::EndGroup();
+  // Right side of the header: update state. Placed with an absolute position
+  // (not SameLine: that would inherit the tall title's text baseline).
+  ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - 380.0f, 38.0f));
+  ImGui::BeginGroup();
+  if (fonts.sm) ImGui::PushFont(fonts.sm);
 
   // --- Update check (GitHub releases, Dusk-style) -----------------------------
   // Started once; the HTTPS request runs on a background thread so the UI never
@@ -548,11 +598,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
     // what build they are running), next to the state of the check and a manual
     // re-check button.
     const std::string cur_label = dbz3::launcher::CurrentVersionLabel();
-    if (!cur_label.empty()) {
-      ImGui::TextDisabled(i18n::T("Version instalada: v%s", "Installed version: v%s"),
-                          cur_label.c_str());
-      ImGui::SameLine();
-    }
+    (void)cur_label;  // shown as a pill next to the title
     switch (dbz3::launcher::GetUpdateState()) {
     case dbz3::launcher::UpdateState::kChecking:
       ImGui::TextDisabled("%s", i18n::T("Buscando actualizaciones...",
@@ -586,6 +632,9 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
       break;
     }
   }
+  if (fonts.sm) ImGui::PopFont();
+  ImGui::EndGroup();
+  ImGui::SetCursorPosY(98.0f);
 
   // --- Mixed installs (exe vs runtime DLLs) ---------------------------------
   // Updating by copying only some of the files over an old folder leaves a build
@@ -616,7 +665,6 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
     }
   }
 
-  ImGui::Separator();
 
   // --- Game data validation banner (P1) -------------------------------------
   // Detects a missing/misplaced asset source BEFORE the user hits Play (which
@@ -654,19 +702,24 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   const bool assets_ready = assets_.assets_ready;
 
   if (assets_ready) {
-    ImGui::PushStyleColor(ImGuiCol_Text, kOk);
-    if (iso_mode) {
-      const std::filesystem::path iso = dbz3::settings::IsoPath();
-      ImGui::Text(i18n::T("[OK] Disco: %s", "[OK] Disc: %s"), iso.filename().string().c_str());
-    } else {
-      ImGui::Text(i18n::T("[OK] Datos del juego en: %s", "[OK] Game data at: %s"),
-                  game_root.string().c_str());
+    ui::Pill(ICON_OK, iso_mode ? i18n::T("Disco listo", "Disc ready")
+                               : i18n::T("Datos del juego listos", "Game data ready"),
+             kOk);
+    ImGui::SameLine(0.0f, 10.0f);
+    {
+      ui::FontScope f(fonts.sm);
+      ImGui::AlignTextToFramePadding();
+      if (iso_mode) {
+        const std::filesystem::path iso = dbz3::settings::IsoPath();
+        ImGui::TextColored(kTextDim, "%s", iso.filename().string().c_str());
+      } else {
+        ImGui::TextColored(kTextDim, "%s", game_root.string().c_str());
+      }
+      if (sel_region != "us") {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%s %s)", i18n::T("region", "region"), sel_region.c_str());
+      }
     }
-    if (sel_region != "us") {
-      ImGui::SameLine();
-      ImGui::TextDisabled("(%s %s)", i18n::T("region", "region"), sel_region.c_str());
-    }
-    ImGui::PopStyleColor();
     if (iso_mode) {
       // ISO mode reads the game data straight off the disc; the per-entry AFS
       // override hooks are wired to host files, so mods need the extracted
@@ -787,11 +840,17 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   // a disc image (.iso) at ANY time -- not only when assets are missing. The
   // active source is highlighted; clicking either one opens its picker, and
   // picking a source switches the game drive over in-place (no restart needed).
+  if (assets_ready) {
+    // Everything is fine: the source switch sits on the same row, at the right.
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 20.0f - 190.0f - 150.0f - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 6.0f);
+  }
   const bool src_folder = !iso_mode;
   if (src_folder) {
     ImGui::PushStyleColor(ImGuiCol_Button, kSrcActive);
   }
-  if (ImGui::Button(i18n::T("Carpeta extraida", "Extracted folder"), ImVec2(170, 0))) {
+  if (ui::IconButton(ICON_FOLDER, i18n::T("Carpeta extraida", "Extracted folder"), ImVec2(190, 0))) {
     std::string picked;
     if (PickFolder(picked, game_root.string())) {
       if (dbz3::settings::IsValidGameDataDir(picked)) {
@@ -843,7 +902,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   if (!src_folder) {
     ImGui::PushStyleColor(ImGuiCol_Button, kSrcActive);
   }
-  if (ImGui::Button(i18n::T("ISO (.iso)", "ISO (.iso)"), ImVec2(120, 0))) {
+  if (ui::IconButton(ICON_DISC, i18n::T("Imagen ISO", "ISO image"), ImVec2(150, 0))) {
     std::string picked;
     if (PickFile(picked, i18n::T("Imagen de disco Xbox 360 (.iso)", "Xbox 360 disc image (.iso)"),
                  "*.iso", game_root.string())) {
@@ -875,13 +934,15 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
                 "Play directly from the disc image without extracting anything. "
                 "Requires the Budokai 3 HD .iso."));
   }
-  ImGui::SameLine();
-  ImGui::TextDisabled(
-      i18n::T("Elige de donde leer los datos del juego: una carpeta ya extraida o "
-              "el ISO del disco.",
-              "Choose where the game data comes from: an already-extracted folder "
-              "or the disc ISO."));
-  ImGui::Separator();
+  if (!assets_ready) {
+    ImGui::SameLine();
+    ui::FontScope f(fonts.sm);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled(
+        "%s", i18n::T("Origen de los datos del juego: una carpeta ya extraida o el ISO del disco.",
+                      "Where the game data comes from: an already-extracted folder or the disc ISO."));
+  }
+  ImGui::Spacing();
 
   // Settings-file health notice. An older build could leave dbz3_user.toml with
   // an unescaped Windows path, which made the WHOLE file fail to parse and
@@ -906,42 +967,85 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
                                "to start clean."));
   }
 
-  // Tab bar.
-  if (ImGui::BeginTabBar("##launcher_tabs")) {
-    if (ImGui::BeginTabItem(i18n::T("Video", "Video"))) {
+  // Tab bar: icon + name, bigger targets, semibold.
+  auto tab_label = [](const char* icon, const char* name, const char* id) {
+    static std::string buf[12];
+    static int slot = 0;
+    std::string& out = buf[slot++ % 12];
+    out = std::string(icon) + "  " + name + "###" + id;
+    return out.c_str();
+  };
+  // Tab items are laid out and drawn as each BeginTabItem runs, so their style
+  // is pushed around that call only (the tab contents keep the normal style).
+  int tab_counter = 0;
+  const int tab_request = tab_request_;
+  tab_request_ = -1;
+  auto begin_tab = [&](const char* label, ImGuiTabItemFlags flags = 0) {
+    const int index = tab_counter++;
+    if (index == tab_request) flags |= ImGuiTabItemFlags_SetSelected;
+    if (fonts.bold) ImGui::PushFont(fonts.bold);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14, 8));
+    ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, kFrameBgHovered);
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, ui::kAccentSoft);
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, kDragonOrange);
+    const bool open = ImGui::BeginTabItem(label, nullptr, flags);
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar();
+    if (fonts.bold) ImGui::PopFont();
+    if (open) {
+      ImGui::Dummy(ImVec2(0.0f, 4.0f));
+      tab_index_ = index;
+    }
+    return open;
+  };
+  ImGui::PushStyleVar(ImGuiStyleVar_TabBarOverlineSize, 3.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_TabBarBorderSize, 1.0f);
+  const bool tabs_open = ImGui::BeginTabBar("##launcher_tabs");
+  ImGui::PopStyleVar(2);
+  if (tabs_open) {
+    if (begin_tab(tab_label(ICON_VIDEO, i18n::T("Video", "Video"), "tab_video"))) {
       DrawVideoTab();
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem(i18n::T("Escalado", "Upscaling"))) {
+    if (begin_tab(tab_label(ICON_UPSCALE, i18n::T("Escalado", "Upscaling"), "tab_upscale"))) {
       DrawUpscaleTab();
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem(i18n::T("Audio", "Audio"))) {
+    if (begin_tab(tab_label(ICON_AUDIO, i18n::T("Audio", "Audio"), "tab_audio"))) {
       DrawAudioTab();
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem(i18n::T("Controles", "Input"))) {
+    if (begin_tab(tab_label(ICON_INPUT, i18n::T("Controles", "Input"), "tab_input"))) {
       DrawInputTab();
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem(i18n::T("Mods", "Mods"))) {
+    const int want_tab = request_tab_;
+    request_tab_ = 0;
+    if (begin_tab(tab_label(ICON_MODS, i18n::T("Mods", "Mods"), "tab_mods"),
+                            want_tab == 1 ? ImGuiTabItemFlags_SetSelected : 0)) {
       DrawModsTab();
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem(i18n::T("Mods nativos", "Native mods"))) {
+    if (begin_tab(tab_label(ICON_NATIVE, i18n::T("Mods nativos", "Native mods"), "tab_native"))) {
       DrawNativeModsTab();
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem(i18n::T("Cambio de modelo", "Model Swap"))) {
+    if (begin_tab(tab_label(ICON_SWAP, i18n::T("Cambio de modelo", "Model Swap"), "tab_swap"))) {
       DrawModelSwapTab();
       ImGui::EndTabItem();
     }
 
-    if (ImGui::BeginTabItem(i18n::T("Texturas", "Textures"))) {
+    if (begin_tab(tab_label(ICON_TEXTURES, i18n::T("Texturas", "Textures"), "tab_tex"))) {
       DrawTexturesTab();
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem(i18n::T("Desarrollo", "Dev"))) {
+    if (begin_tab(tab_label(ICON_CHARS, i18n::T("Personajes nuevos", "New characters"), "tab_chars"),
+                            want_tab == 2 ? ImGuiTabItemFlags_SetSelected : 0)) {
+      DrawNewCharactersTab();
+      ImGui::EndTabItem();
+    }
+    if (begin_tab(tab_label(ICON_DEV, i18n::T("Desarrollo", "Dev"), "tab_dev"))) {
       DrawDevTab();
       ImGui::EndTabItem();
     }
@@ -954,8 +1058,19 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   // Primary action zone (big green PLAY, high contrast, never below the fold),
   // a one-line summary of what will launch, and the asset region picker (a
   // game-data choice, moved here from the Mods tab so it is always on screen).
-  ImGui::TextColored(kTextDim, i18n::T("Inicio: %s - %s - %dx - %s - %s",
-                             "Launch: %s - %s - %dx - %s - %s"),
+  // Footer band (slightly lighter than the window, separated by a hairline).
+  {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 wp = ImGui::GetWindowPos();
+    const ImVec2 ws = ImGui::GetWindowSize();
+    const float top = ImGui::GetCursorScreenPos().y - 6.0f;
+    dl->AddRectFilled(ImVec2(wp.x, top), ImVec2(wp.x + ws.x, wp.y + ws.y), ImGui::GetColorU32(ui::kCard));
+    dl->AddLine(ImVec2(wp.x, top), ImVec2(wp.x + ws.x, top), ImGui::GetColorU32(kBorder));
+  }
+  if (fonts.sm) ImGui::PushFont(fonts.sm);
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextColored(kTextDim, i18n::T("Se jugara con:  %s  |  %s  |  %dx  |  %s  |  %s",
+                             "Launching with:  %s  |  %s  |  %dx  |  %s  |  %s"),
                      iso_mode ? std::filesystem::path(dbz3::settings::IsoPath()).filename().string().c_str()
                               : (dbz3::settings::Region() == "eu"
                                      ? i18n::T("Europa (PAL)", "Europe (PAL)")
@@ -977,6 +1092,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
     dbz3::settings::SetRegion(region_vals[region_idx]);
   }
   ImGui::EndDisabled();
+  if (fonts.sm) ImGui::PopFont();
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("%s", iso_mode
         ? i18n::T("Region del disco (la elige el propio ISO).",
@@ -993,7 +1109,7 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kDragonOrangeDim);
   ImGui::PushStyleColor(ImGuiCol_ButtonActive, kDragonOrange);
   ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-  if (ImGui::Button(i18n::T("Restablecer valores", "Reset to defaults"), ImVec2(180, 0))) {
+  if (ui::IconButton(ICON_RESET, i18n::T("Restablecer", "Reset defaults"), ImVec2(170, 38))) {
     rex::cvar::SetFlagByName("dbz3_resolution_scale", "1");
     rex::cvar::SetFlagByName("dbz3_language", "1");
     rex::cvar::SetFlagByName("dbz3_region", "us");
@@ -1057,11 +1173,11 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
     InvalidateAssets();
   }
   ImGui::SameLine(0, 10);
-  if (ImGui::Button(i18n::T("Guardar ajustes", "Save settings"), ImVec2(180, 0))) {
+  if (ui::IconButton(ICON_SAVE, i18n::T("Guardar ajustes", "Save settings"), ImVec2(180, 38))) {
     dbz3::settings::SaveUserSettings();
   }
   ImGui::SameLine(0, 10);
-  if (ImGui::Button(i18n::T("Reparar instalacion", "Repair install"), ImVec2(180, 0))) {
+  if (ui::IconButton(ICON_REPAIR, i18n::T("Reparar instalacion", "Repair install"), ImVec2(200, 38))) {
     repair_report_ = dbz3::settings::RepairInstallation();
     repair_popup_ = true;
     InvalidateAssets();
@@ -1075,8 +1191,10 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   }
   ImGui::PopStyleVar();
   ImGui::PopStyleColor(3);
+  DrawInputHints();
   ImGui::SameLine();
-  ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 16.0f - 300.0f);
+  ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 20.0f - 320.0f);
+  ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 30.0f);
   // PLAY is gated on the assets being found: pressing it with no game data
   // would crash before the guest even starts (P1). The banner above offers the
   // folder picker to fix it.
@@ -1084,13 +1202,28 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
   ImGui::PushStyleColor(ImGuiCol_Button, kPlayIdle);
   ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kPlayHovered);
   ImGui::PushStyleColor(ImGuiCol_ButtonActive, kPlayActive);
-  if (ImGui::Button("PLAY", ImVec2(300, 42)) ||
-      (assets_ready && ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+  if (fonts.h2) ImGui::PushFont(fonts.h2);
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
+  const std::string play_label = std::string(ICON_PLAY) + "   " + i18n::T("JUGAR", "PLAY") + "###play";
+  const bool play_pressed = ImGui::Button(play_label.c_str(), ImVec2(320, 62));
+  ImGui::PopStyleVar();
+  if (fonts.h2) ImGui::PopFont();
+  const bool pad_play = pad_play_;
+  pad_play_ = false;
+  if (play_pressed || (assets_ready && (pad_play || ImGui::IsKeyPressed(ImGuiKey_Enter, false)))) {
     dbz3::settings::SaveUserSettings();
     dbz3::settings::ApplyUserSettingsToSdk();
     dbz3::settings::ApplyRuntimeSettingsToSdk(true);
     dbz3::settings::ApplyWindowSizeToSdk();
     REXLOG_INFO("dbz3: launcher Play pressed, starting game");
+    // Personajes nuevos: regenerar el mod combinado "_roster" si cambio algo
+    // (instantaneo si esta al dia; los mods no se aplican en modo ISO).
+    if (!dbz3::settings::IsIsoMode() && ModPipeline::HasCharacterSources()) {
+      mod_pipeline_.Wait();
+      mod_pipeline_.BuildRoster();
+      mod_pipeline_.Wait();
+      REXLOG_INFO("dbz3: personajes nuevos: {}", mod_pipeline_.Output());
+    }
     Close();
     if (on_play_) {
       on_play_();
@@ -1128,7 +1261,7 @@ void LauncherDialog::DrawVideoTab() {
   const float avail_x = ImGui::GetContentRegionAvail().x;
   const float col_w = (avail_x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
 
-  ImGui::BeginChild("##video_left", ImVec2(col_w, -kFooterHeight), false);
+  ImGui::BeginChild("##video_left", ImVec2(col_w, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
   {
     // Focus behaviour, first thing in the first tab: it is what a non-technical
     // user looks for ("what happens if I switch to Discord?"), and it is safe by
@@ -1138,25 +1271,21 @@ void LauncherDialog::DrawVideoTab() {
     if (ImGui::Checkbox(i18n::T("Silenciar el audio", "Mute audio"), &mute_unfocused)) {
       dbz3::settings::SetMuteUnfocused(mute_unfocused);
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Si pasas a otra ventana, el sonido se corta solo y vuelve al regresar. "
           "El juego sigue en marcha.",
           "If you switch to another window, the sound cuts out and comes back when "
           "you return. The game keeps running."));
-    }
     bool dim_unfocused = dbz3::settings::DimUnfocused();
     if (ImGui::Checkbox(i18n::T("Oscurecer la pantalla", "Dim the screen"),
                         &dim_unfocused)) {
       dbz3::settings::SetDimUnfocused(dim_unfocused);
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Mientras el juego esta detras, la imagen se oscurece y avisa de que "
           "sigue en marcha: se ve de un vistazo desde la barra de tareas.",
           "While the game is behind, the picture darkens and says it is still "
           "running: obvious at a glance from the taskbar."));
-    }
     ImGui::Spacing();
 
     PushSectionHeader(i18n::T("Calidad de imagen", "Image Quality"));
@@ -1195,15 +1324,15 @@ void LauncherDialog::DrawVideoTab() {
     for (int i = 0; i < 5; i++) {
       if (preset == preset_vals[i]) preset_idx = i;
     }
-    if (ImGui::Combo(i18n::T("Modo de calidad", "Quality mode"), &preset_idx, preset_items, 5)) {
+    ui::RowLabel(i18n::T("Modo de calidad", "Quality mode"));
+    if (ImGui::Combo("##DrawVideoTab_1", &preset_idx, preset_items, 5)) {
       dbz3::settings::SetQualityPreset(preset_vals[preset_idx]);
       // Apply immediately: named presets persist their values, "auto" detects
       // the GPU now, "manual" leaves the individual controls untouched.
       dbz3::settings::ApplyQualityPreset();
       dbz3::settings::SaveUserSettings();
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Elige que priorizar. Rendimiento = lo mas fluido en equipos modestos; "
           "Equilibrado = buena imagen con poco coste; Calidad = la mejor imagen "
           "sin disparar la GPU. Automatico detecta tu GPU y elige por ti. Ninguno "
@@ -1214,7 +1343,6 @@ void LauncherDialog::DrawVideoTab() {
           "maxing out the GPU. Automatic detects your GPU and picks for you. None "
           "raises the internal scale (supersampling is set separately, below). The "
           "controls below are only touched in Custom."));
-    }
     // Visibility for the preset: always show what it currently resolves to, so
     // "auto" isn't a black box (it applies in-memory and re-evaluates on boot).
     {
@@ -1237,7 +1365,8 @@ void LauncherDialog::DrawVideoTab() {
     int scale_idx = scale - 1;
     if (scale_idx < 0) scale_idx = 0;
     if (scale_idx > 3) scale_idx = 3;
-    if (ImGui::Combo(i18n::T("Escala de render interna", "Internal render scale"), &scale_idx,
+    ui::RowLabel(i18n::T("Escala de render interna", "Internal render scale"));
+    if (ImGui::Combo("##DrawVideoTab_2", &scale_idx,
                      scale_items, 4)) {
       dbz3::settings::SetResolutionScale(scale_idx + 1);
       // Persist immediately: the user often marks the scale and then launches (or
@@ -1245,8 +1374,7 @@ void LauncherDialog::DrawVideoTab() {
       // internal resolution is always applied on the next boot.
       dbz3::settings::SaveUserSettings();
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Supersampling del framebuffer de 720p: el juego renderiza de verdad a "
           "mayor resolucion y luego se reduce. Reduce muy bien el aliasing, pero "
           "multiplica el consumo de GPU y potencia (cada paso hacia arriba cuesta "
@@ -1255,7 +1383,6 @@ void LauncherDialog::DrawVideoTab() {
           "higher resolution and is then downscaled. It greatly reduces aliasing, "
           "but multiplies GPU load and power draw (each step up costs roughly "
           "twice as much). Start at 1x. Restart required."));
-    }
     // Aviso fuerte y accion de revertir: un usuario puede subir la escala sin
     // entender que ahi esta el coste real (no en las texturas HD). Se le da el
     // dato claro y el boton para volver a lo razonable en un clic.
@@ -1272,13 +1399,11 @@ void LauncherDialog::DrawVideoTab() {
         dbz3::settings::SetQualityPreset("manual");
         dbz3::settings::SaveUserSettings();
       }
-      if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", i18n::T(
+      ui::Tip(i18n::T(
             "Deja la escala interna en 1x (render nativo 720p). Es como mejor "
             "rinde y la calidad ya es alta gracias al escalado FSR/CAS.",
             "Sets the internal scale back to 1x (native 720p render). It performs "
             "best this way and quality is already high thanks to FSR/CAS."));
-      }
     }
 
     // HD textures (WIP): emulator-style internal filter. It upscales the game's
@@ -1297,16 +1422,16 @@ void LauncherDialog::DrawVideoTab() {
     int hdtex_idx = hdtex - 1;
     if (hdtex_idx < 0) hdtex_idx = 0;
     if (hdtex_idx > 2) hdtex_idx = 2;
-    if (ImGui::Combo(i18n::T("Mejora de texturas (experimental)",
-                             "Texture enhancement (experimental)"),
+    ui::RowLabel(i18n::T("Mejora de texturas (experimental)",
+                             "Texture enhancement (experimental)"));
+    if (ImGui::Combo("##DrawVideoTab_3",
                      &hdtex_idx, hdtex_items, 3)) {
       dbz3::settings::SetHdTextures(hdtex_idx + 1);
       // Persist immediately (same reason as the render scale: the user may just
       // launch or close without pressing "Save settings").
       dbz3::settings::SaveUserSettings();
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Aumenta la nitidez de las texturas del juego (caras, ropa, escenarios). "
           "Funciona con la GPU: sube bastante el consumo y el uso de VRAM. Empieza "
           "por \"Nitidas\"; si notas ralentizaciones, vuelve a Desactivado. "
@@ -1315,7 +1440,6 @@ void LauncherDialog::DrawVideoTab() {
           "GPU: noticeably raises power draw and VRAM usage. Start with \"Sharp\"; "
           "if you notice slowdowns, switch back to Off. Requires restarting the "
           "game."));
-    }
     if (dbz3::settings::HdTextures() > 1) {
       ImGui::TextColored(kDragonOrangeDim, "%s",
                          i18n::T("Experimental: mayor consumo de GPU y VRAM",
@@ -1340,15 +1464,13 @@ void LauncherDialog::DrawVideoTab() {
     if (ImGui::Checkbox(i18n::T("MSAA 2x nativo", "Native 2x MSAA"), &msaa)) {
       dbz3::settings::SetNative2xMsaa(msaa);
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Suaviza los bordes (menos dientes de sierra) con un coste moderado de "
           "GPU. Se nota sobre todo con la escala interna en 1x; si subes la escala, "
           "puedes quitarlo sin perder mucha calidad.",
           "Smooths edges (less aliasing) at a moderate GPU cost. It helps most with "
           "the internal scale at 1x; if you raise the scale, you can turn it off "
           "without losing much quality."));
-    }
 
     static const char* aniso_items[] = {"Off", "1x", "2x", "4x", "8x", "16x"};
     static const int aniso_values[] = {0, 1, 2, 3, 4, 5};
@@ -1357,37 +1479,18 @@ void LauncherDialog::DrawVideoTab() {
     for (int i = 0; i < 6; i++) {
       if (aniso == aniso_values[i]) aniso_idx = i;
     }
-    if (ImGui::Combo(i18n::T("Filtrado anisotropico", "Anisotropic filtering"), &aniso_idx,
+    ui::RowLabel(i18n::T("Filtrado anisotropico", "Anisotropic filtering"));
+    if (ImGui::Combo("##DrawVideoTab_4", &aniso_idx,
                      aniso_items, 6)) {
       dbz3::settings::SetAnisotropicOverride(aniso_values[aniso_idx]);
     }
 
-    PushSectionHeader(i18n::T("Idioma", "Language"));
-
-    static const char* lang_items[] = {"English", "Japanese", "German", "French", "Spanish", "Italian"};
-    static const int lang_ids[] = {1, 2, 3, 4, 5, 6};
-    int lang = dbz3::settings::Language();
-    int lang_idx = 0;
-    for (int i = 0; i < 6; i++) {
-      if (lang == lang_ids[i]) lang_idx = i;
-    }
-    if (ImGui::Combo(i18n::T("Idioma del launcher y del juego", "Launcher and game language"),
-                     &lang_idx, lang_items, 6)) {
-      dbz3::settings::SetLanguage(lang_ids[lang_idx]);
-    }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
-          "Traduce el launcher y el texto del juego a este idioma. "
-          "Se aplica en el proximo arranque.",
-          "Translates the launcher and the in-game text to this language. "
-          "Applies on the next launch."));
-    }
   }
   ImGui::EndChild();
 
   ImGui::SameLine();
 
-  ImGui::BeginChild("##video_right", ImVec2(0, -kFooterHeight), false);
+  ImGui::BeginChild("##video_right", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
   {
     PushSectionHeader(i18n::T("Pantalla", "Display"));
 
@@ -1398,47 +1501,43 @@ void LauncherDialog::DrawVideoTab() {
     std::string mode = dbz3::settings::FullscreenMode();
     if (mode == "borderless") mode_idx = 1;
     else if (mode == "exclusive") mode_idx = 2;
-    if (ImGui::Combo(i18n::T("Modo de pantalla", "Fullscreen mode"), &mode_idx, modes, 3)) {
+    ui::RowLabel(i18n::T("Modo de pantalla", "Fullscreen mode"));
+    if (ImGui::Combo("##DrawVideoTab_6", &mode_idx, modes, 3)) {
       dbz3::settings::SetFullscreenMode(mode_idx == 0 ? "windowed" : (mode_idx == 1 ? "borderless" : "exclusive"));
     }
 
     ImGui::TextDisabled(i18n::T("Velocidad del juego: fija a 60 FPS (sincronizada)",
                                 "Game speed: fixed 60 FPS (synchronized)"));
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "El ritmo del juego se sincroniza a 60 Hz (vblank del guest). "
           "No es configurable: sin esta sincronizacion el juego corre acelerado.",
           "The game logic is synchronized to 60 Hz (guest vblank). "
           "Not configurable: without it the game runs too fast."));
-    }
 
     int cap = dbz3::settings::FrameCap();
-    if (ImGui::SliderInt(i18n::T("Limite de fotogramas (FPS)", "Frame cap (FPS)"), &cap, 0, 240,
+    ui::RowLabel(i18n::T("Limite de fotogramas (FPS)", "Frame cap (FPS)"));
+    if (ImGui::SliderInt("##DrawVideoTab_7", &cap, 0, 240,
                          cap == 0 ? i18n::T("Sin limite", "Uncapped") : "%d FPS")) {
       dbz3::settings::SetFrameCap(dbz3::settings::SafeFrameCap(cap));
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Limita la velocidad de presentacion en pantalla, NO la velocidad "
           "del juego (esa es siempre 60). 60 = fluido; 30 = menos carga en "
           "GPUs integradas; 0 = sin limite.",
           "Limits the on-screen present rate, NOT the game speed (always 60). "
           "60 = smooth; 30 = less load on integrated GPUs; 0 = uncapped."));
-    }
 
     bool vrr = dbz3::settings::VrrEnabled();
     if (ImGui::Checkbox(i18n::T("Frecuencia variable (G-Sync/FreeSync)",
                                 "Variable refresh rate (G-Sync/FreeSync)"), &vrr)) {
       dbz3::settings::SetVrrEnabled(vrr);
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Sincroniza el monitor con cada fotograma para evitar saltos "
           "en pantallas de alta frecuencia. Si esta desactivado, el "
           "juego ajusta el ritmo solo para que se vea fluido a 60 Hz.",
           "Syncs the monitor to every frame for even pacing on high-refresh "
           "panels. If off, the game paces itself to look smooth at 60 Hz."));
-    }
 
     // Detected once (EnumDisplaySettingsW is a system call; no need to repeat
     // it every frame). Just informational in the UI.
@@ -1449,13 +1548,11 @@ void LauncherDialog::DrawVideoTab() {
     const int hz_int = static_cast<int>(cached_hz + 0.5);
     if (hz_int >= 30) {
       ImGui::TextDisabled(i18n::T("Monitor: %d Hz", "Monitor: %d Hz"), hz_int);
-      if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", i18n::T(
+      ui::Tip(i18n::T(
             "El launcher no depende del refresco del monitor. El "
             "juego se ve fluido a cualquier Hz.",
             "The launcher does not depend on the monitor refresh. "
             "The game looks smooth at any Hz."));
-      }
     } else {
       ImGui::TextDisabled(i18n::T("Monitor: no detectado (se asume 60 Hz).",
                                   "Monitor: not detected (assumed 60 Hz)."));
@@ -1469,29 +1566,47 @@ void LauncherDialog::DrawVideoTab() {
     for (int i = 0; i < 2; i++) {
       if (backend == backend_vals[i]) backend_idx = i;
     }
+    ui::RowLabel(i18n::T("Motor grafico", "Graphics backend"),
+                 i18n::T("API de render del host. Requiere reinicio.",
+                         "Host rendering API. Restart required."));
     if (ImGui::Combo("##gpu_backend", &backend_idx, backends, 2)) {
       dbz3::settings::SetGpuBackend(backend_vals[backend_idx]);
     }
-    ImGui::SameLine();
-    ImGui::TextColored(kTextDim, "%s", i18n::T("Motor grafico", "Graphics backend"));
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Vulkan es experimental: el combate 3D corre notablemente mas lento "
           "que D3D12 en hardware NVIDIA. Usa D3D12 salvo que necesites Vulkan "
           "por compatibilidad.",
           "Vulkan is experimental: 3D combat runs notably slower "
           "than D3D12 on NVIDIA hardware. Use D3D12 unless you need "
           "Vulkan for platform compatibility."));
+
+    ImGui::Spacing();
+    PushSectionHeader(i18n::T("Idioma", "Language"));
+
+    static const char* lang_items[] = {"English", "Japanese", "German", "French", "Spanish", "Italian"};
+    static const int lang_ids[] = {1, 2, 3, 4, 5, 6};
+    int lang = dbz3::settings::Language();
+    int lang_idx = 0;
+    for (int i = 0; i < 6; i++) {
+      if (lang == lang_ids[i]) lang_idx = i;
     }
-    ImGui::TextWrapped(i18n::T("API de render del host. Requiere reinicio.",
-                               "Host rendering API. Restart required."));
+    ui::RowLabel(i18n::T("Idioma del launcher y del juego", "Launcher and game language"));
+    if (ImGui::Combo("##DrawVideoTab_5",
+                     &lang_idx, lang_items, 6)) {
+      dbz3::settings::SetLanguage(lang_ids[lang_idx]);
+    }
+    ui::Tip(i18n::T(
+          "Traduce el launcher y el texto del juego a este idioma. "
+          "Se aplica en el proximo arranque.",
+          "Translates the launcher and the in-game text to this language. "
+          "Applies on the next launch."));
   }
   ImGui::EndChild();
 }
 
 
 void LauncherDialog::DrawUpscaleTab() {
-  ImGui::BeginChild("##upscale_settings", ImVec2(0, -kFooterHeight), false);
+  ImGui::BeginChild("##upscale_settings", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
 
   PushSectionHeader(i18n::T("Escalado", "Upscaling"));
 
@@ -1503,7 +1618,8 @@ void LauncherDialog::DrawUpscaleTab() {
   for (int i = 0; i < 3; i++) {
     if (eff == effect_values[i]) eff_idx = i;
   }
-  if (ImGui::Combo(i18n::T("Efecto", "Effect"), &eff_idx, effects, 3)) {
+  ui::RowLabel(i18n::T("Efecto", "Effect"));
+  if (ImGui::Combo("##DrawUpscaleTab_1", &eff_idx, effects, 3)) {
     dbz3::settings::SetPresentEffect(effect_values[eff_idx]);
     // Persist immediately so the chosen upscaling effect survives a launch/close
     // without the user pressing "Save settings".
@@ -1517,9 +1633,36 @@ void LauncherDialog::DrawUpscaleTab() {
         "FSR upscales the internal render to the display size.\n"
         "Best paired with a low internal scale (1x) on a 1080p+ display."));
     ImGui::Spacing();
+    {
+      const char* render_items[] = {i18n::T("Nativa (maxima calidad)", "Native (best quality)"),
+                                    i18n::T("Calidad", "Quality"), i18n::T("Equilibrado", "Balanced"),
+                                    i18n::T("Rendimiento", "Performance"),
+                                    i18n::T("Ultra rendimiento", "Ultra performance")};
+      static const char* render_vals[] = {"native", "quality", "balanced", "performance",
+                                          "ultra_performance"};
+      int render_idx = 0;
+      const std::string cur = dbz3::settings::FsrRender();
+      for (int i = 0; i < 5; i++) {
+        if (cur == render_vals[i]) render_idx = i;
+      }
+      ui::RowLabel(i18n::T("Mas FPS con FSR", "More FPS with FSR"),
+                   i18n::T("Renderiza por debajo de la escala interna y FSR la recupera.",
+                           "Renders below the internal scale and FSR brings it back up."));
+      if (ImGui::Combo("##DrawUpscaleTab_render", &render_idx, render_items, 5)) {
+        dbz3::settings::SetFsrRender(render_vals[render_idx]);
+        dbz3::settings::SaveUserSettings();
+      }
+      ui::Tip(i18n::T("Como en los juegos de PC: con escala interna 3x, Calidad renderiza a 2x y FSR "
+                      "reescala a 3x. Da FPS de verdad en equipos justos. Con 1x no hay nada por "
+                      "debajo, asi que no cambia nada.",
+                      "Like PC games: at a 3x internal scale, Quality renders at 2x and FSR scales "
+                      "it to 3x. Real FPS on modest PCs. At 1x there is nothing below, so nothing "
+                      "changes."));
+    }
     double sharp = dbz3::settings::FsrSharpness();
     ImGui::SetNextItemWidth(260);
-    if (SliderD(i18n::T("Nitidez RCAS", "RCAS sharpness"), &sharp, 0.0, 2.0, "%.2f")) {
+    ui::RowLabel(i18n::T("Nitidez RCAS", "RCAS sharpness"));
+    if (SliderD("##DrawUpscaleTab_2", &sharp, 0.0, 2.0, "%.2f")) {
       dbz3::settings::SetFsrSharpness(sharp);
       dbz3::settings::SaveUserSettings();
     }
@@ -1535,7 +1678,8 @@ void LauncherDialog::DrawUpscaleTab() {
     ImGui::Spacing();
     double sharp = dbz3::settings::CasSharpness();
     ImGui::SetNextItemWidth(260);
-    if (SliderD(i18n::T("Nitidez adicional", "Additional sharpness"), &sharp, 0.0,
+    ui::RowLabel(i18n::T("Nitidez adicional", "Additional sharpness"));
+    if (SliderD("##DrawUpscaleTab_3", &sharp, 0.0,
                 1.0, "%.2f")) {
       dbz3::settings::SetCasSharpness(sharp);
       dbz3::settings::SaveUserSettings();
@@ -1559,20 +1703,19 @@ void LauncherDialog::DrawUpscaleTab() {
   for (int i = 0; i < 3; i++) {
     if (fxaa == fxaa_vals[i]) fxaa_idx = i;
   }
-  if (ImGui::Combo(i18n::T("Suavizado de bordes (FXAA)", "Edge smoothing (FXAA)"),
+  ui::RowLabel(i18n::T("Suavizado de bordes (FXAA)", "Edge smoothing (FXAA)"));
+  if (ImGui::Combo("##DrawUpscaleTab_4",
                    &fxaa_idx, fxaa_items, 3)) {
     dbz3::settings::SetFxaa(fxaa_vals[fxaa_idx]);
     dbz3::settings::SaveUserSettings();
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Suaviza los bordes en el ultimo paso. Muy barato: ideal si subir la "
         "escala interna o el MSAA te cuesta demasiado rendimiento. Se combina "
         "con FSR/CAS.",
         "Smooths edges in the final step. Very cheap: ideal if raising the "
         "internal scale or MSAA costs you too much performance. Composes with "
         "FSR/CAS."));
-  }
 
   bool dither = dbz3::settings::PresentDither();
   if (ImGui::Checkbox(i18n::T("Tramado de color (dither)", "Color dithering"),
@@ -1580,24 +1723,24 @@ void LauncherDialog::DrawUpscaleTab() {
     dbz3::settings::SetPresentDither(dither);
     dbz3::settings::SaveUserSettings();
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Aplica tramado a la imagen final: menos bandas en los degradados, a "
         "cambio de un poco de ruido.",
         "Dithers the final image: fewer gradient bands, at the cost of a little "
         "noise."));
-  }
 
   ImGui::Spacing();
   ImGui::TextColored(kTextDim,
-                     i18n::T("El efecto elegido se aplica en el proximo arranque (requiere reinicio).",
-                             "The chosen effect applies on the next boot (restart required)."));
+                     i18n::T("Se aplica al momento. En partida tambien puedes cambiarlo con F1 o "
+                             "Back + Start en el mando.",
+                             "Applies right away. In game you can also change it with F1 or Back + "
+                             "Start on the controller."));
 
   ImGui::EndChild();
 }
 
 void LauncherDialog::DrawAudioTab() {
-  ImGui::BeginChild("##audio_settings", ImVec2(0, -kFooterHeight), false);
+  ImGui::BeginChild("##audio_settings", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
 
   PushSectionHeader(i18n::T("Volumen", "Volume"));
 
@@ -1606,7 +1749,8 @@ void LauncherDialog::DrawAudioTab() {
   // Both are applied to the running game as soon as they change, so the effect
   // is audible without pressing Play again.
   double master = dbz3::settings::MasterVolume();
-  if (SliderD(i18n::T("Volumen general", "Master volume"), & master, 0.0, 1.0, "%.2f")) {
+  ui::RowLabel(i18n::T("Volumen general", "Master volume"));
+  if (SliderD("##DrawAudioTab_1", & master, 0.0, 1.0, "%.2f")) {
     dbz3::settings::SetMasterVolume(master);
     dbz3::settings::ApplyRuntimeSettingsToSdk(false);
   }
@@ -1619,11 +1763,9 @@ void LauncherDialog::DrawAudioTab() {
     dbz3::settings::SetAudioMute(mute);
     dbz3::settings::ApplyRuntimeSettingsToSdk(false);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Silencia el juego por completo (equivale a volumen 0).",
         "Silences the game completely (same as volume 0)."));
-  }
 
   ImGui::Spacing();
   ImGui::TextWrapped(i18n::T(
@@ -1638,7 +1780,7 @@ void LauncherDialog::DrawAudioTab() {
 }
 
 void LauncherDialog::DrawInputTab() {
-  ImGui::BeginChild("##input_settings", ImVec2(0, -kFooterHeight), false);
+  ImGui::BeginChild("##input_settings", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
 
   PushSectionHeader(i18n::T("Mando", "Controller"));
 
@@ -1647,35 +1789,34 @@ void LauncherDialog::DrawInputTab() {
   static const char* backend_values[] = {"xinput", "sdl"};
   std::string backend = dbz3::settings::InputBackend();
   int backend_idx = backend == "sdl" ? 1 : 0;
-  if (ImGui::Combo(i18n::T("Backend del mando", "Controller backend"), &backend_idx,
+  ui::RowLabel(i18n::T("Backend del mando", "Controller backend"));
+  if (ImGui::Combo("##DrawInputTab_1", &backend_idx,
                    backend_items, 2)) {
     dbz3::settings::SetInputBackend(backend_values[backend_idx]);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "XInput = mandos de PC estandar, sin init extra. SDL = mandos genericos, "
         "pero puede colgar con RTSS/OBS. Requiere reinicio.",
         "XInput = standard PC pads, no extra init. SDL = generic pads, "
         "but may hang with RTSS/OBS. Restart to apply."));
-  }
 
   const char* glyph_items[] = {"Xbox", "PlayStation", "Switch"};
   static const char* glyph_values[] = {"xbox", "playstation", "switch"};
   std::string glyphs = dbz3::settings::InputGlyphs();
   int glyph_idx = glyphs == "playstation" ? 1 : (glyphs == "switch" ? 2 : 0);
-  if (ImGui::Combo(i18n::T("Tipo de mando", "Button labels"), &glyph_idx, glyph_items, 3)) {
+  ui::RowLabel(i18n::T("Tipo de mando", "Button labels"));
+  if (ImGui::Combo("##DrawInputTab_2", &glyph_idx, glyph_items, 3)) {
     dbz3::settings::SetInputGlyphs(glyph_values[glyph_idx]);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Cambia los nombres de los botones que se ven abajo (LT/L2/ZL, ...). "
         "Solo afecta a las etiquetas del launcher, no al mapeo del juego.",
         "Changes the button names shown below (LT/L2/ZL, ...). Only affects "
         "the launcher labels, not the game mapping."));
-  }
 
   double deadzone = dbz3::settings::Deadzone();
-  if (SliderD(i18n::T("Zona muerta de los sticks", "Analog stick deadzone"), &deadzone, 0.0, 0.9,
+  ui::RowLabel(i18n::T("Zona muerta de los sticks", "Analog stick deadzone"));
+  if (SliderD("##DrawInputTab_3", &deadzone, 0.0, 0.9,
               "%.2f")) {
     dbz3::settings::SetDeadzone(deadzone);
   }
@@ -1693,27 +1834,24 @@ void LauncherDialog::DrawInputTab() {
                               "Enable keyboard/mouse emulation"), &mnk)) {
     dbz3::settings::SetMnkMode(mnk);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Emula un mando con el teclado. Necesario para jugar sin pad. Usa las teclas de abajo.",
         "Emulates a controller with the keyboard. Required to play "
         "without a pad. Use the keybinds below."));
-  }
 
   bool mnk_mouse = dbz3::settings::MnkMouse();
   if (ImGui::Checkbox(i18n::T("Usar el raton para el stick derecho",
                               "Use mouse for the right stick"), &mnk_mouse)) {
     dbz3::settings::SetMnkMouse(mnk_mouse);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Mueve el stick derecho con el raton (ademas de las teclas rstick_*).",
         "Moves the right stick with the mouse (in addition to the rstick_* keys)."));
-  }
 
   if (dbz3::settings::MnkMouse()) {
     double sens = dbz3::settings::MnkSensitivity();
-    if (SliderD(i18n::T("Sensibilidad del raton", "Mouse sensitivity"), &sens, 0.1,
+    ui::RowLabel(i18n::T("Sensibilidad del raton", "Mouse sensitivity"));
+    if (SliderD("##DrawInputTab_4", &sens, 0.1,
                 5.0, "%.2f")) {
       dbz3::settings::SetMnkSensitivity(sens);
     }
@@ -1723,13 +1861,11 @@ void LauncherDialog::DrawInputTab() {
 
   ImGui::Spacing();
   ImGui::Text(i18n::T("Mapeo de teclas (MnK)", "Keyboard (MnK) mapping"));
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Los nombres de tecla siguen VirtualKey (p.ej. Space, W, Up, LMB, RMB, MMB). "
         "Coma = alternativas, Shift+/Ctrl+/Alt+ = modificadores. Vacio = sin asignar.",
         "Key names follow VirtualKey (e.g. Space, W, Up, LMB, RMB, MMB). "
         "Comma = alternatives, Shift+/Ctrl+/Alt+ = modifiers. Empty = unbound."));
-  }
 
   // Three-column grid so all 24 keybinds fit in the 720p window without
   // scrolling (compact one-screen layout).
@@ -1789,8 +1925,8 @@ void LauncherDialog::DrawInputTab() {
 }
 
 void LauncherDialog::DrawNativeModsTab() {
-  ImGui::BeginChild("##native_mods_settings", ImVec2(0, -kFooterHeight), true);
-  ImGui::SeparatorText(i18n::T("Mods nativos", "Native mods"));
+  ImGui::BeginChild("##native_mods_settings", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
+  ui::SectionTitle(i18n::T("Mods nativos", "Native mods"));
   ImGui::TextWrapped("%s", i18n::T(
       "Estos mods cambian el progreso o el comportamiento del juego. No sustituyen modelos, texturas ni archivos AFS.",
       "These mods change game progress or behavior. They do not replace models, textures, or AFS files."));
@@ -1842,10 +1978,15 @@ void LauncherDialog::DrawNativeModsTab() {
     ImGui::TextDisabled("[%s]", mod.scope.c_str());
     ImGui::TextWrapped("%s", mod.description.c_str());
     if (mod.state == dbz3::NativeModState::kReady) {
+      const bool avail = mod.id != "save_100" || dbz3::Save100Available();
+      if (!avail) ImGui::BeginDisabled();
       if (ImGui::Button(i18n::T("Aplicar", "Apply"))) {
-        native_mods_status_ = std::string(i18n::T(
-            "Este mod aun necesita validacion del formato del guardado.",
-            "This mod still needs save-format validation."));
+        dbz3::ApplySave100(native_mods_status_);
+      }
+      if (!avail) ImGui::EndDisabled();
+      ImGui::SameLine();
+      if (ImGui::Button(i18n::T("Restaurar mi partida", "Restore my save"))) {
+        dbz3::RestoreLastSaveBackup(native_mods_status_);
       }
     } else if (mod.state == dbz3::NativeModState::kNeedsResearch) {
       ImGui::BeginDisabled();
@@ -1878,7 +2019,7 @@ void LauncherDialog::DrawNativeModsTab() {
 }
 
 void LauncherDialog::DrawModsTab() {
-  ImGui::BeginChild("##mods_settings", ImVec2(0, -kFooterHeight), true);
+  ImGui::BeginChild("##mods_settings", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
 
   // Refresh the cached list when the async pipeline finishes: a swap/texture
   // build just wrote a new mod into mods/ and the "activates itself and shows up
@@ -1899,7 +2040,7 @@ void LauncherDialog::DrawModsTab() {
     mods_loaded_ = true;
   }
 
-  ImGui::SeparatorText(i18n::T("Centro de mods", "Mod center"));
+  ui::SectionTitle(i18n::T("Centro de mods", "Mod center"));
   ImGui::TextDisabled(i18n::T(
       "Sobrescriben entradas dentro de los .afs del juego (modelos, movesets, "
       "texturas) sin reempaquetar. Cada mod es una carpeta en 'mods/'.",
@@ -2205,7 +2346,7 @@ void LauncherDialog::DrawModsTab() {
     ImGui::TableSetupColumn(i18n::T("Mod", "Mod"), ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableSetupColumn(i18n::T("Tipo", "Type"), ImGuiTableColumnFlags_WidthFixed,
                             std::min(130.0f, table_w * 0.18f));
-    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 56.0f);
+    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 100.0f);
     ImGui::TableHeadersRow();
 
     for (const dbz3::ModInfo& mod : mods) {
@@ -2227,6 +2368,18 @@ void LauncherDialog::DrawModsTab() {
       ImVec4 title_col = mod.enabled ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f)
                                      : ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
       ImGui::TextColored(title_col, "%s", title.c_str());
+      if (mod.type == "generado") {
+        ImGui::TextDisabled("%s", i18n::T(
+            "Se crea solo con los personajes nuevos activos (pestana Personajes nuevos). "
+            "No hace falta tocarlo.",
+            "Built automatically from the enabled new characters (New characters tab). "
+            "No need to touch it."));
+      } else if (mod.type == "personaje") {
+        ImGui::TextDisabled("%s", i18n::T("Personaje nuevo: se edita en la pestana Personajes nuevos "
+                                          "(boton Editar de la derecha).",
+                                          "New character: edit it in the New characters tab "
+                                          "(Edit button on the right)."));
+      }
       if (!mod.description.empty()) {
         ImGui::TextDisabled("%s", mod.description.c_str());
       } else if (mod.source.empty() && mod.target.empty()) {
@@ -2300,6 +2453,21 @@ ImGui::TextDisabled(i18n::T("%d archivo%s", "%d file%s"), mod.file_count,
         ImGui::SetTooltip("%s", i18n::T("Editar descripcion / autor / version (manifest.txt)",
                                   "Edit description / author / version (manifest.txt)"));
       }
+      if (mod.type == "personaje") {
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.25f, 0.55f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.58f, 0.34f, 0.70f, 1.0f));
+        const bool go = ImGui::SmallButton((std::string(i18n::T("Editar", "Edit")) + "##char_" + mod.name).c_str());
+        ImGui::PopStyleColor(2);
+        if (go) {
+          nc_selected_ = mod.name;
+          request_tab_ = 2;
+        }
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("%s", i18n::T("Editar este personaje (icono, retratos, plaza, capsulas)",
+                                          "Edit this character (icon, portraits, slot, capsules)"));
+        }
+      }
     }
     ImGui::EndTable();
   }
@@ -2347,9 +2515,9 @@ ImGui::TextDisabled(i18n::T("%d archivo%s", "%d file%s"), mod.file_count,
 }
 
 void LauncherDialog::DrawModelSwapTab() {
-  ImGui::BeginChild("##model_swap", ImVec2(0, -kFooterHeight), true);
+  ImGui::BeginChild("##model_swap", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
 
-  ImGui::SeparatorText(i18n::T("Cambio de modelo B3 HD -> B3 HD", "Model swap B3 HD -> B3 HD"));
+  ui::SectionTitle(i18n::T("Cambio de modelo B3 HD -> B3 HD", "Model swap B3 HD -> B3 HD"));
   ImGui::TextDisabled(i18n::T(
       "Intercambia el bin #AMB completo de un personaje HD del "
       "B3 por el de otro (swap nativo). Genera el mod y lo activa.",
@@ -2402,7 +2570,7 @@ void LauncherDialog::DrawModelSwapTab() {
 
   // Source AFS: auto-detected by default; the user can point to a custom
   // data_cmn.afs if it lives elsewhere.
-  ImGui::SeparatorText(i18n::T("Archivo de modelos (data_cmn.afs)",
+  ui::SectionTitle(i18n::T("Archivo de modelos (data_cmn.afs)",
                                "Model file (data_cmn.afs)"));
   bool auto_afs = afs_path_auto_;
   if (ImGui::Checkbox(i18n::T("Usar la ruta automatica (us/data_cmn.afs)",
@@ -2523,10 +2691,1414 @@ void LauncherDialog::DrawModelSwapTab() {
   ImGui::EndChild();
 }
 
-void LauncherDialog::DrawTexturesTab() {
-  ImGui::BeginChild("##textures", ImVec2(0, -kFooterHeight), true);
+namespace {
 
-  ImGui::SeparatorText(i18n::T("Mod de texturas (B3 HD)", "Texture mod (B3 HD)"));
+// Donantes posibles: personajes con casilla propia en el select (los IDs 22-26 y 31
+// son los recortados de fabrica: los ocupan los personajes nuevos).
+struct DonorEntry {
+  int id;
+  const char* name;
+};
+constexpr DonorEntry kDonors[] = {
+    {0, "Goku"},           {1, "Goku (nino)"},      {2, "Gohan (nino)"},  {3, "Gohan (adolescente)"},
+    {4, "Gohan (adulto)"}, {5, "Gran Saiyaman"},    {6, "Goten"},         {7, "Vegeta"},
+    {8, "Trunks"},         {9, "Trunks (nino)"},    {10, "Krillin"},      {11, "Piccolo"},
+    {12, "Tenshinhan"},    {13, "Yamcha"},          {14, "Mr. Satan"},    {15, "Videl"},
+    {16, "Kaio-shin"},     {17, "Uub"},             {18, "Raditz"},       {19, "Nappa"},
+    {20, "Ginyu"},         {21, "Recoome"},         {27, "Freezer"},      {28, "Androide 16"},
+    {29, "Androide 17"},   {30, "Androide 18"},     {32, "Dr. Gero"},     {33, "Cell"},
+    {34, "Majin Buu"},     {35, "Super Buu"},       {36, "Kid Buu"},      {37, "Dabura"},
+    {38, "Cooler"},        {39, "Bardock"},         {40, "Broly"},        {41, "Omega Shenron"},
+    {42, "Saibaman"},      {43, "Cell Jr."},
+};
+constexpr int kDonorCount = int(sizeof(kDonors) / sizeof(kDonors[0]));
+
+// Plazas: los unicos IDs de personaje libres del juego (recortados de fabrica).
+struct FreeSlot {
+  int id;
+  const char* original;
+};
+// Plazas: los 6 IDs recortados de fabrica y los 20 IDs extra (44-63, vacios en todas
+// las tablas por personaje del juego; ver src/roster_ext.cpp).
+constexpr FreeSlot kFreeSlots[] = {
+    {22, "Guldo"},    {23, "Jeice"},    {24, "Burter"},   {25, "Zarbon"},   {26, "Dodoria"},
+    {31, "Androide 19"}, {44, "Extra 1"}, {45, "Extra 2"},  {46, "Extra 3"},  {47, "Extra 4"},
+    {48, "Extra 5"},  {49, "Extra 6"},  {50, "Extra 7"},  {51, "Extra 8"},  {52, "Extra 9"},
+    {53, "Extra 10"}, {54, "Extra 11"}, {55, "Extra 12"}, {56, "Extra 13"}, {57, "Extra 14"},
+    {58, "Extra 15"}, {59, "Extra 16"}, {60, "Extra 17"}, {61, "Extra 18"}, {62, "Extra 19"},
+    {63, "Extra 20"}};
+constexpr int kFreeSlotCount = int(sizeof(kFreeSlots) / sizeof(kFreeSlots[0]));
+
+// "(?)" con explicacion al pasar el raton.
+void Help(const char* text) {
+  ImGui::SameLine();
+  ImGui::TextDisabled("(?)");
+  if (ImGui::IsItemHovered()) {
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+  }
+}
+
+const char* CapsuleKindLabel(const std::string& k) {
+  if (k == "definitiva") return i18n::T("Definitiva", "Ultimate");
+  if (k == "transformacion") return i18n::T("Transformacion", "Transformation");
+  return i18n::T("Especial", "Special");
+}
+
+// [[capsula]] de un personaje.toml (nombre, tipo, forma), en orden.
+std::vector<std::array<std::string, 3>> TomlCapsules(const std::string& text) {
+  std::vector<std::array<std::string, 3>> out;
+  std::istringstream in(text);
+  std::string line;
+  bool in_cap = false;
+  while (std::getline(in, line)) {
+    std::string t = line;
+    t.erase(0, t.find_first_not_of(" \t"));
+    if (!t.empty() && t[0] == '[') {
+      in_cap = t.rfind("[[capsula]]", 0) == 0;
+      if (in_cap) out.push_back({"?", "especial", "1"});
+      continue;
+    }
+    if (!in_cap || out.empty()) continue;
+    const auto eq = t.find('=');
+    if (eq == std::string::npos) continue;
+    std::string k = t.substr(0, eq);
+    k.erase(k.find_last_not_of(" \t") + 1);
+    std::string v = t.substr(eq + 1);
+    v.erase(0, v.find_first_not_of(" \t\""));
+    v.erase(v.find_last_not_of(" \t\"\r") + 1);
+    if (k == "nombre") out.back()[0] = v;
+    if (k == "tipo") out.back()[1] = v;
+    if (k == "forma") out.back()[2] = v;
+  }
+  return out;
+}
+
+rex::ui::ImmediateDrawer* g_preview_drawer = nullptr;
+
+std::string ReadSmallFile(const std::filesystem::path& p) {
+  std::ifstream f(p, std::ios::binary);
+  std::stringstream ss;
+  ss << f.rdbuf();
+  return ss.str();
+}
+
+// Valor de "clave = ..." (texto, entero o lista) de un personaje.toml sencillo.
+std::string TomlValue(const std::string& text, const std::string& key) {
+  std::istringstream in(text);
+  std::string line;
+  while (std::getline(in, line)) {
+    const auto eq = line.find('=');
+    if (eq == std::string::npos) continue;
+    std::string k = line.substr(0, eq);
+    k.erase(k.find_last_not_of(" \t") + 1);
+    if (k != key) continue;
+    std::string v = line.substr(eq + 1);
+    v.erase(0, v.find_first_not_of(" \t\""));
+    v.erase(v.find_last_not_of(" \t\"\r") + 1);
+    return v;
+  }
+  return {};
+}
+
+int TomlInt(const std::string& text, const std::string& key, int def) {
+  const std::string v = TomlValue(text, key);
+  return v.empty() ? def : std::atoi(v.c_str());
+}
+
+// "[1.0, 0, 0.05, 12]" -> 4 floats (los que falten se quedan como estan).
+void TomlFloats(const std::string& text, const std::string& key, float (&out)[4]) {
+  std::string v = TomlValue(text, key);
+  for (char& ch : v) {
+    if (ch == '[' || ch == ']' || ch == ',') ch = ' ';
+  }
+  std::istringstream in(v);
+  for (float& f : out) {
+    float x;
+    if (!(in >> x)) break;
+    f = x;
+  }
+}
+
+int SourceIndex(const std::string& v) {
+  if (v == "imagen") return 1;
+  if (v == "terminado") return 2;
+  return 0;
+}
+
+const char* SourceName(int i) { return i == 1 ? "imagen" : i == 2 ? "terminado" : "modelo"; }
+
+const char* DonorName(int id) {
+  for (const auto& d : kDonors) {
+    if (d.id == id) return d.name;
+  }
+  return "?";
+}
+
+int DonorIndex(int id) {
+  for (int i = 0; i < kDonorCount; ++i) {
+    if (kDonors[i].id == id) return i;
+  }
+  return -1;
+}
+
+void DonorCombo(const char* label, int& idx, bool allow_default) {
+  const char* def = i18n::T("(la del donante)", "(the donor's)");
+  const char* preview = (idx >= 0 && idx < kDonorCount) ? kDonors[idx].name : def;
+  ImGui::SetNextItemWidth(260);
+  if (ImGui::BeginCombo(label, preview)) {
+    if (allow_default && ImGui::Selectable(def, idx < 0)) idx = -1;
+    for (int i = 0; i < kDonorCount; ++i) {
+      if (ImGui::Selectable(kDonors[i].name, idx == i)) idx = i;
+    }
+    ImGui::EndCombo();
+  }
+}
+
+std::string AdjArg(const float (&a)[4]) {
+  char buf[96];
+  std::snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f,%.1f", a[0], a[1], a[2], a[3]);
+  return buf;
+}
+
+// Name banner as it will look on the select wheel, redrawn on every keystroke.
+void LiveBanner(const char* name) {
+  ImGui::BeginGroup();
+  {
+    ui::FontScope f(ui::GetFonts().sm);
+    ImGui::TextColored(ui::kTextDim, "%s", i18n::T("Vista previa en directo", "Live preview"));
+  }
+  const ImVec2 p = ImGui::GetCursorScreenPos();
+  const ImVec2 size(300.0f, 46.0f);
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  dl->AddRectFilledMultiColor(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(23, 46, 102, 255),
+                              IM_COL32(12, 22, 52, 255), IM_COL32(12, 22, 52, 255),
+                              IM_COL32(23, 46, 102, 255));
+  dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(255, 255, 255, 40), 6.0f);
+  if (!ui::NameBanner(name, size.y, size.x)) {
+    ImGui::SetCursorScreenPos(ImVec2(p.x + 12.0f, p.y + 12.0f));
+    ImGui::TextUnformatted(name);
+  }
+  ImGui::EndGroup();
+}
+
+}  // namespace
+
+void SetPreviewDrawer(rex::ui::ImmediateDrawer* drawer) { g_preview_drawer = drawer; }
+
+namespace {
+std::function<void(std::function<void()>)> g_ui_defer;
+
+rex::input::InputSystem* LauncherInput() {
+  auto* runtime = rex::Runtime::instance();
+  return runtime ? static_cast<rex::input::InputSystem*>(runtime->input_system()) : nullptr;
+}
+}  // namespace
+
+void SetUiDefer(std::function<void(std::function<void()>)> defer) { g_ui_defer = std::move(defer); }
+
+LauncherDialog::~LauncherDialog() { SetInGame(false); }
+
+void LauncherDialog::SetInGame(bool in_game) {
+  in_game_ = in_game;
+  auto* input = LauncherInput();
+  if (!input) return;
+  if (in_game && !input_blocked_) {
+    input->AddUIInputBlocker();
+    input_blocked_ = true;
+  } else if (!in_game && input_blocked_) {
+    input->RemoveUIInputBlocker();
+    input_blocked_ = false;
+  }
+}
+
+void LauncherDialog::PollController(ImGuiIO& io) {
+  // Read the pads for the next frame (outside this paint).
+  if (g_ui_defer && !pad_->pending) {
+    pad_->pending = true;
+    g_ui_defer([pad = pad_]() {
+      PadShared next;
+      if (auto* input = LauncherInput()) {
+        for (uint32_t user = 0; user < rex::input::kMaxGuestUsers; ++user) {
+          rex::input::X_INPUT_STATE state = {};
+          if (input->GetStateForUI(user, &state) != 0) continue;  // X_ERROR_SUCCESS
+          next.buttons |= static_cast<uint16_t>(state.gamepad.buttons);
+          const int16_t lx = state.gamepad.thumb_lx, ly = state.gamepad.thumb_ly;
+          if (std::abs(int(lx)) + std::abs(int(ly)) > std::abs(int(next.lx)) + std::abs(int(next.ly))) {
+            next.lx = lx;
+            next.ly = ly;
+          }
+        }
+      }
+      next.valid = true;
+      *pad = next;  // pending back to false
+    });
+  }
+  // Keyboard or mouse used: show keys.
+  if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f || ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+      !io.InputQueueCharacters.empty()) {
+    pad_mode_ = false;
+  }
+  for (int k = ImGuiKey_Tab; k <= ImGuiKey_F12; ++k) {
+    if (ImGui::IsKeyPressed(static_cast<ImGuiKey>(k), false)) pad_mode_ = false;
+  }
+  if (!pad_->valid) return;
+  const uint16_t b = pad_->buttons;
+  const uint16_t pressed = b & ~pad_last_buttons_;
+  pad_last_buttons_ = b;
+  const int16_t kStick = 16000;
+  const bool stick = std::abs(int(pad_->lx)) > kStick || std::abs(int(pad_->ly)) > kStick;
+  if (pressed || stick) pad_mode_ = true;
+
+  io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+  io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+  auto key = [&](ImGuiKey k, uint16_t mask) { io.AddKeyEvent(k, (b & mask) != 0); };
+  key(ImGuiKey_GamepadDpadUp, 0x0001);
+  key(ImGuiKey_GamepadDpadDown, 0x0002);
+  key(ImGuiKey_GamepadDpadLeft, 0x0004);
+  key(ImGuiKey_GamepadDpadRight, 0x0008);
+  key(ImGuiKey_GamepadFaceDown, 0x1000);   // A: activate
+  key(ImGuiKey_GamepadFaceRight, 0x2000);  // B: back
+  key(ImGuiKey_GamepadFaceLeft, 0x4000);   // X
+  key(ImGuiKey_GamepadFaceUp, 0x8000);     // Y
+  auto axis = [&](ImGuiKey k, float v) { io.AddKeyAnalogEvent(k, v > 0.3f, std::max(0.0f, v)); };
+  axis(ImGuiKey_GamepadLStickUp, pad_->ly / 32767.0f);
+  axis(ImGuiKey_GamepadLStickDown, -pad_->ly / 32767.0f);
+  axis(ImGuiKey_GamepadLStickLeft, -pad_->lx / 32767.0f);
+  axis(ImGuiKey_GamepadLStickRight, pad_->lx / 32767.0f);
+  constexpr int kTabCount = 10;
+  if (pressed & 0x0100) tab_request_ = (tab_index_ + kTabCount - 1) % kTabCount;  // LB
+  if (pressed & 0x0200) tab_request_ = (tab_index_ + 1) % kTabCount;              // RB
+  if (pressed & 0x0010) pad_play_ = true;                                         // START
+}
+
+void LauncherDialog::DrawInputHints() {
+  // Keycaps for whatever was used last: the controller's buttons (in the chosen
+  // glyph set) or the keyboard's keys.
+  const std::string set = dbz3::settings::InputGlyphs();
+  const bool ps = set == "playstation", sw = set == "switch";
+  struct Hint {
+    const char* key;
+    const char* text;
+  };
+  std::vector<Hint> hints;
+  if (pad_mode_) {
+    hints = {{ps ? "Cross" : (sw ? "B" : "A"), i18n::T("Elegir", "Select")},
+             {ps ? "Circle" : (sw ? "A" : "B"), i18n::T("Atras", "Back")},
+             {ps ? "L1 / R1" : (sw ? "L / R" : "LB / RB"), i18n::T("Pestanas", "Tabs")},
+             {ps ? "OPTIONS" : (sw ? "+" : "START"), in_game_ ? i18n::T("Cerrar", "Close") : i18n::T("Jugar", "Play")}};
+  } else {
+    hints = {{"Tab", i18n::T("Moverse", "Move")},
+             {"Ctrl + Tab", i18n::T("Pestanas", "Tabs")},
+             {"Enter", in_game_ ? i18n::T("Cerrar", "Close") : i18n::T("Jugar", "Play")}};
+  }
+  const ui::Fonts& fonts = ui::GetFonts();
+  ui::FontScope f(fonts.sm);
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const float h = ImGui::GetFontSize() + 6.0f;
+  // Right-aligned on the summary row.
+  float width = 0.0f;
+  for (const auto& hint : hints) {
+    width += ImGui::CalcTextSize(hint.key).x + 14.0f + 6.0f + ImGui::CalcTextSize(hint.text).x + 18.0f;
+  }
+  // On the button row, between Repair and PLAY (38 px tall buttons).
+  ImGui::SameLine(0.0f, 28.0f);
+  ImVec2 p = ImGui::GetCursorScreenPos();
+  p.y += (38.0f - h) * 0.5f;
+  for (const auto& hint : hints) {
+    const ImVec2 ks = ImGui::CalcTextSize(hint.key);
+    const ImVec2 a(p.x, p.y), b(p.x + ks.x + 14.0f, p.y + h);
+    dl->AddRectFilled(a, b, ImGui::GetColorU32(pad_mode_ ? ui::kAccentDim : ui::kFrame), 5.0f);
+    dl->AddRect(a, b, ImGui::GetColorU32(ui::kLine), 5.0f);
+    dl->AddText(ImVec2(a.x + 7.0f, a.y + 3.0f), ImGui::GetColorU32(ui::kText), hint.key);
+    p.x = b.x + 6.0f;
+    dl->AddText(ImVec2(p.x, a.y + 3.0f), ImGui::GetColorU32(ui::kTextDim), hint.text);
+    p.x += ImGui::CalcTextSize(hint.text).x + 18.0f;
+  }
+  ImGui::Dummy(ImVec2(width, 38.0f));
+}
+
+const LauncherDialog::PreviewImage* LauncherDialog::Preview(const std::filesystem::path& rgba) {
+  std::error_code ec;
+  const auto stamp = std::filesystem::last_write_time(rgba, ec);
+  if (ec) return nullptr;
+  auto& img = previews_[rgba.string()];
+  if (img.tex && img.stamp == stamp) return &img;
+  if (!g_preview_drawer) return nullptr;
+  const std::string data = ReadSmallFile(rgba);
+  if (data.size() < 8) return nullptr;
+  uint32_t w = 0, h = 0;
+  std::memcpy(&w, data.data(), 4);
+  std::memcpy(&h, data.data() + 4, 4);
+  if (w == 0 || h == 0 || w > 4096 || h > 4096 || data.size() < 8 + size_t(w) * h * 4) return nullptr;
+  img.tex = g_preview_drawer->CreateTexture(w, h, rex::ui::ImmediateTextureFilter::kLinear, false,
+                                            reinterpret_cast<const uint8_t*>(data.data() + 8));
+  img.w = int(w);
+  img.h = int(h);
+  img.stamp = stamp;
+  return img.tex ? &img : nullptr;
+}
+
+void LauncherDialog::PreviewWidget(const std::filesystem::path& rgba, float scale) {
+  if (const PreviewImage* img = Preview(rgba)) {
+    ImGui::Image(reinterpret_cast<ImTextureID>(img->tex.get()), ImVec2(img->w * scale, img->h * scale));
+  } else {
+    ImGui::Dummy(ImVec2(84 * scale, 84 * scale));
+  }
+}
+
+std::map<std::string, int> LauncherDialog::AssignSlots() const {
+  // Igual que roster_build.assign_ids: primero las plazas pedidas (en orden de
+  // carpeta; si dos piden la misma gana la primera), luego la primera libre.
+  std::map<std::string, int> out;
+  std::vector<int> used;
+  auto taken = [&](int id) { return std::find(used.begin(), used.end(), id) != used.end(); };
+  for (const auto& cs : char_sources_) {
+    if (!cs.enabled) continue;
+    for (const auto& s : kFreeSlots) {
+      if (s.id == cs.req_id && !taken(s.id)) {
+        out[cs.folder] = s.id;
+        used.push_back(s.id);
+      }
+    }
+  }
+  for (const auto& cs : char_sources_) {
+    if (!cs.enabled || out.count(cs.folder)) continue;
+    out[cs.folder] = -1;
+    for (const auto& s : kFreeSlots) {
+      if (!taken(s.id)) {
+        out[cs.folder] = s.id;
+        used.push_back(s.id);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+void LauncherDialog::RunCharacterPreview(const std::string& mod, std::vector<std::string> args) {
+  if (mod_pipeline_.IsRunning()) {      // se lanza al terminar el trabajo actual
+    pending_preview_mod_ = mod;
+    pending_preview_ = std::move(args);
+    return;
+  }
+  mod_pipeline_.PreviewCharacter(mod, args);
+}
+
+void LauncherDialog::DrawSlotTable(const std::map<std::string, int>& slots) {
+  ui::SectionTitle(i18n::T("1. Plazas", "1. Slots"));
+  int used = 0;
+  for (const auto& [folder, id] : slots) used += id >= 0 ? 1 : 0;
+  ImGui::Text(i18n::T("%d de %d plazas ocupadas", "%d of %d slots taken"), used, kFreeSlotCount);
+  Help(i18n::T(
+      "Cada personaje nuevo necesita una plaza (un numero de personaje libre dentro del juego). "
+      "Hay 26: las 6 de los personajes que se quedaron fuera del juego original (Guldo, Jeice, "
+      "Burter, Zarbon, Dodoria y Androide 19) y 20 extra. Donde aparece en la rueda del select "
+      "se elige aparte (\"Casilla tras\").",
+      "Each new character needs a slot (a free character number inside the game). There are 26: "
+      "the 6 characters cut from the original game (Guldo, Jeice, Burter, Zarbon, Dodoria and "
+      "Android 19) and 20 extra ones. Where it shows up on the select wheel is chosen separately "
+      "(\"Cell after\")."));
+  ImGui::SameLine();
+  if (ImGui::SmallButton(slots_expanded_ ? i18n::T("Ocultar lista", "Hide list")
+                                         : i18n::T("Ver todas", "Show all"))) {
+    slots_expanded_ = !slots_expanded_;
+  }
+  if (slots_expanded_ &&
+      ImGui::BeginTable("##slots", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                                          ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY,
+                        ImVec2(0, 190))) {
+    ImGui::TableSetupColumn(i18n::T("Plaza", "Slot"), ImGuiTableColumnFlags_WidthFixed, 150.0f);
+    ImGui::TableSetupColumn(i18n::T("Estado", "Status"));
+    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+    ImGui::TableHeadersRow();
+    for (const auto& s : kFreeSlots) {
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      ImGui::Text("%d  %s", s.id, s.original);
+      ImGui::TableNextColumn();
+      const CharacterSource* owner = nullptr;
+      for (const auto& cs : char_sources_) {
+        auto it = slots.find(cs.folder);
+        if (it != slots.end() && it->second == s.id) owner = &cs;
+      }
+      if (owner) {
+        ImGui::TextColored(kGold, i18n::T("Ocupada: %s (carpeta %s)", "Taken: %s (folder %s)"),
+                           owner->name.empty() ? owner->folder.c_str() : owner->name.c_str(),
+                           owner->folder.c_str());
+      } else {
+        ImGui::TextColored(kOk, "%s", i18n::T("Libre", "Free"));
+      }
+      ImGui::TableNextColumn();
+      if (owner) {
+        ImGui::PushID(s.id);
+        if (ImGui::SmallButton(i18n::T("Editar", "Edit"))) nc_selected_ = owner->folder;
+        ImGui::PopID();
+      }
+    }
+    ImGui::EndTable();
+  }
+  // Conflictos: plaza pedida ocupada por otro, o sin plaza.
+  for (const auto& cs : char_sources_) {
+    if (!cs.enabled) continue;
+    auto it = slots.find(cs.folder);
+    const int got = it == slots.end() ? -1 : it->second;
+    if (got < 0) {
+      ImGui::TextColored(kError, i18n::T("%s no cabe: no quedan plazas (desactiva otro).",
+                                         "%s does not fit: no slots left (disable another)."),
+                         cs.folder.c_str());
+    } else if (cs.req_id >= 0 && cs.req_id != got) {
+      ImGui::TextColored(kWarn, i18n::T("%s pide la plaza %d (ocupada): usara la %d.",
+                                        "%s asks for slot %d (taken): it will use %d."),
+                         cs.folder.c_str(), cs.req_id, got);
+    }
+  }
+}
+
+void LauncherDialog::DrawCharacterEditor(CharacterSource& cs, const std::map<std::string, int>& slots) {
+  const auto dir = ModPipeline::ModsDir() / cs.folder;
+  const auto vista = dir / "ui" / "_vista";
+  if (ed_loaded_for_ != cs.folder) {
+    ed_loaded_for_ = cs.folder;
+    std::snprintf(ed_name_buf_, sizeof(ed_name_buf_), "%s", cs.name.c_str());
+    ed_import_buf_[0] = '\0';
+    std::error_code ec;
+    if (!std::filesystem::exists(vista / "icono.rgba", ec)) RunCharacterPreview(cs.folder, {});
+  }
+  ImGui::PushID(cs.folder.c_str());
+  ImGui::BeginChild("##editor", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+  ImGui::TextColored(kDragonOrange, "%s", cs.name.empty() ? cs.folder.c_str() : cs.name.c_str());
+  ImGui::SameLine();
+  if (cs.iw_port) {
+    ImGui::TextDisabled(i18n::T("(carpeta %s, moveset propio)", "(folder %s, own moveset)"), cs.folder.c_str());
+  } else {
+    ImGui::TextDisabled(i18n::T("(carpeta %s, moveset de %s)", "(folder %s, %s moveset)"), cs.folder.c_str(),
+                        DonorName(cs.donor));
+  }
+  ImGui::SameLine();
+  if (ImGui::SmallButton(i18n::T("Ver en Mods", "Show in Mods"))) {
+    std::snprintf(mods_search_buf_, sizeof(mods_search_buf_), "%s", cs.folder.c_str());
+    request_tab_ = 1;
+  }
+
+  // Vista previa: icono de la rueda, rotulo y retratos P1/P2 tal como se veran.
+  ImGui::BeginGroup();
+  PreviewWidget(vista / "icono.rgba", 1.25f);
+  PreviewWidget(vista / "rotulo.rgba", 0.66f);
+  ImGui::EndGroup();
+  ImGui::SameLine();
+  PreviewWidget(vista / "retrato_p1.rgba", 0.42f);
+  ImGui::SameLine();
+  PreviewWidget(vista / "retrato_p2.rgba", 0.42f);
+  ImGui::SameLine();
+  ImGui::BeginGroup();
+  ImGui::TextDisabled("%s", i18n::T("Barra de vida", "Health bar"));
+  PreviewWidget(vista / "hud.rgba", 0.75f);
+  ImGui::EndGroup();
+  Help(i18n::T("Cara pequena junto a la barra de vida en combate. Se genera del modelo, como las "
+               "del juego (una por forma). Para usar tu propia imagen, pon ui/hud.png (256x128) "
+               "en la carpeta del personaje.",
+               "Small face next to the health bar in battle. Generated from the model, like the "
+               "game's (one per form). To use your own image, put ui/hud.png (256x128) in the "
+               "character folder."));
+  if (!g_preview_drawer) {
+    ImGui::TextDisabled("%s", i18n::T("(vista previa no disponible: abre la carpeta ui/_vista)",
+                                      "(preview unavailable: open the ui/_vista folder)"));
+  }
+
+  const bool busy = mod_pipeline_.IsRunning();
+  // Nombre, plaza y posicion en la rueda.
+  ImGui::SetNextItemWidth(220);
+  ImGui::InputText(i18n::T("Nombre", "Name"), ed_name_buf_, sizeof(ed_name_buf_));
+  if (ImGui::IsItemDeactivatedAfterEdit() && ed_name_buf_[0] && cs.name != ed_name_buf_) {
+    cs.name = ed_name_buf_;
+    RunCharacterPreview(cs.folder, {"--nombre", cs.name, "--guardar", "--solo", "icono"});
+  }
+  ImGui::SameLine(0.0f, 18.0f);
+  LiveBanner(ed_name_buf_);
+  {
+    auto it = slots.find(cs.folder);
+    const int got = it == slots.end() ? -1 : it->second;
+    char cur[96];
+    if (cs.req_id < 0) {
+      std::snprintf(cur, sizeof(cur), i18n::T("Automatica (%d)", "Automatic (%d)"), got);
+    } else {
+      std::snprintf(cur, sizeof(cur), "%d", cs.req_id);
+    }
+    ImGui::SetNextItemWidth(220);
+    if (ImGui::BeginCombo(i18n::T("Plaza", "Slot"), cur)) {
+      if (ImGui::Selectable(i18n::T("Automatica (primera libre)", "Automatic (first free)"), cs.req_id < 0)) {
+        cs.req_id = -1;
+        RunCharacterPreview(cs.folder, {"--id", "-1", "--guardar", "--solo", "icono"});
+      }
+      for (const auto& s : kFreeSlots) {
+        std::string owner;
+        for (const auto& o : char_sources_) {
+          auto jt = slots.find(o.folder);
+          if (o.folder != cs.folder && jt != slots.end() && jt->second == s.id) owner = o.folder;
+        }
+        char label[128];
+        if (owner.empty()) {
+          std::snprintf(label, sizeof(label), i18n::T("%d (%s) - libre", "%d (%s) - free"), s.id, s.original);
+        } else {
+          std::snprintf(label, sizeof(label), i18n::T("%d (%s) - ocupada por %s", "%d (%s) - taken by %s"),
+                        s.id, s.original, owner.c_str());
+        }
+        if (ImGui::Selectable(label, cs.req_id == s.id)) {
+          cs.req_id = s.id;
+          RunCharacterPreview(cs.folder, {"--id", std::to_string(s.id), "--guardar", "--solo", "icono"});
+        }
+      }
+      ImGui::EndCombo();
+    }
+  }
+  int after_idx = cs.after >= 0 ? DonorIndex(cs.after) : -1;
+  const int before = after_idx;
+  DonorCombo(i18n::T("Casilla tras", "Cell after"), after_idx, true);
+  if (after_idx != before) {
+    cs.after = after_idx >= 0 ? kDonors[after_idx].id : -1;
+    RunCharacterPreview(cs.folder, {"--despues-de", std::to_string(cs.after), "--guardar", "--solo", "icono"});
+  }
+
+  // Port con imagenes propias (p.ej. Infinite World): conservarlas o generarlas desde el
+  // modelo 3D como el resto de Budokai 3 (cambia las dos fuentes de golpe).
+  if (cs.orig_icon_src >= 0) {
+    ui::SectionTitle(i18n::T("Imagenes originales del mod", "Mod's original images"));
+    ImGui::TextWrapped("%s", i18n::T(
+        "Este personaje trae sus propias imagenes (por ejemplo, las de un port de Infinite World). "
+        "Puedes conservarlas o generar el icono y los retratos desde su modelo 3D, con el estilo "
+        "del resto de Budokai 3.",
+        "This character ships its own images (for example, from an Infinite World port). Keep them, "
+        "or generate the icon and portraits from its 3D model in the style of the rest of Budokai 3."));
+    const bool keep = cs.icon_src == cs.orig_icon_src && cs.portrait_src == cs.orig_portrait_src;
+    const bool model = cs.icon_src == 0 && cs.portrait_src == 0;
+    if (ImGui::RadioButton(i18n::T("Conservar las originales", "Keep the originals"), keep && !model) && !keep) {
+      cs.icon_src = cs.orig_icon_src;
+      cs.portrait_src = cs.orig_portrait_src;
+      RunCharacterPreview(cs.folder, {"--imagenes", "originales", "--guardar"});
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton(i18n::T("Modelo 3D (estilo Budokai 3)", "3D model (Budokai 3 style)"), model) && !model) {
+      cs.icon_src = cs.portrait_src = 0;
+      RunCharacterPreview(cs.folder, {"--imagenes", "modelo", "--guardar"});
+    }
+    if (!keep && !model) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("%s", i18n::T("(personalizado abajo)", "(custom below)"));
+    }
+  }
+
+  // Icono y retratos: fuente + ajuste fino (se guarda y se regenera al soltar).
+  const char* sources[] = {i18n::T("Render del modelo", "Model render"),
+                           i18n::T("Arte propio", "Own art"),
+                           i18n::T("Imagen terminada", "Finished image")};
+  struct Part {
+    const char* title;
+    const char* key;      // icono | retrato
+    int* src;
+    float* adj;
+    float yaw_def;
+  } parts[] = {{i18n::T("Icono de la rueda", "Wheel icon"), "icono", &cs.icon_src, cs.icon_adj, 3.0f},
+               {i18n::T("Retratos P1/P2", "P1/P2 portraits"), "retrato", &cs.portrait_src, cs.portrait_adj,
+                35.0f}};
+  for (auto& p : parts) {
+    ui::SectionTitle(p.title);
+    ImGui::PushID(p.key);
+    const std::string key = p.key;
+    for (int i = 0; i < 3; ++i) {
+      if (i) ImGui::SameLine();
+      if (ImGui::RadioButton(sources[i], *p.src == i) && *p.src != i) {
+        *p.src = i;
+        RunCharacterPreview(cs.folder, {"--" + key + "-fuente", SourceName(i), "--guardar", "--solo", key});
+      }
+    }
+    bool edited = false;
+    ImGui::SetNextItemWidth(160);
+    ImGui::SliderFloat(i18n::T("Zoom", "Zoom"), &p.adj[0], 0.5f, 1.8f, "%.2f");
+    edited |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(130);
+    ImGui::SliderFloat(i18n::T("Horizontal", "Horizontal"), &p.adj[1], -0.4f, 0.4f, "%.2f");
+    edited |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(130);
+    ImGui::SliderFloat(i18n::T("Vertical", "Vertical"), &p.adj[2], -0.4f, 0.4f, "%.2f");
+    edited |= ImGui::IsItemDeactivatedAfterEdit();
+    if (*p.src == 0) {
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(130);
+      ImGui::SliderFloat(i18n::T("Giro", "Turn"), &p.adj[3], -80.0f, 80.0f, "%.0f");
+      edited |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton(i18n::T("Restablecer", "Reset"))) {
+      p.adj[0] = 1.0f;
+      p.adj[1] = p.adj[2] = 0.0f;
+      p.adj[3] = p.yaw_def;
+      edited = true;
+    }
+    if (edited) {
+      float a[4] = {p.adj[0], p.adj[1], p.adj[2], p.adj[3]};
+      RunCharacterPreview(cs.folder, {"--" + key + "-ajuste", AdjArg(a), "--guardar", "--solo", key});
+    }
+    ImGui::PopID();
+  }
+
+  // Capsulas (habilidades): las propias del personaje o las del donante.
+  ui::SectionTitle(i18n::T("Capsulas (habilidades)", "Capsules (skills)"));
+  if (cs.capsules.empty()) {
+    ImGui::TextWrapped(i18n::T(
+        "Usa las capsulas de su donante (%s): mismos ataques, con sus nombres. Anade capsulas "
+        "propias para darle nombres y una transformacion con su propia capsula.",
+        "Uses its donor's capsules (%s): same attacks, with their names. Add own capsules to "
+        "give it its own names and a transformation with its own capsule."),
+        DonorName(cs.donor));
+  } else {
+    ImGui::TextWrapped("%s", cs.iw_port
+        ? i18n::T("Port con moveset propio: sus especiales y su definitiva se ligan, en este orden, "
+                  "a estas capsulas. Su modo hiper (LT / L2) y el Dragon Rush funcionan como en "
+                  "Budokai 3.",
+                  "Port with its own moveset: its specials and ultimate are linked, in this order, "
+                  "to these capsules. Its hyper mode (LT / L2) and Dragon Rush work as in Budokai 3.")
+        : i18n::T("Capsulas propias: salen con su nombre en combate y en la lista de habilidades. "
+                  "Las especiales y definitivas sustituyen, en orden, a las del donante; una "
+                  "transformacion lleva su propia capsula.",
+                  "Own capsules: shown with their name in battle and in the skill list. Specials "
+                  "and ultimates replace the donor's in order; a transformation gets its own capsule."));
+  }
+  if (cs.iw_port) {
+    // port: traer las capsulas que pide su moveset (nombres del juego de origen si se conocen)
+    const char* games[] = {i18n::T("Detectar", "Detect"), "Infinite World", "Budokai 1", "Budokai 2",
+                           "Budokai 3"};
+    const char* game_ids[] = {"auto", "iw", "b1", "b2", "b3"};
+    ImGui::SetNextItemWidth(170);
+    ImGui::Combo("##cap_game", &ed_cap_game_, games, 5);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(busy);
+    if (ImGui::Button(i18n::T("Traer las capsulas de su juego", "Bring capsules from its game"))) {
+      mod_pipeline_.EditCapsules(cs.folder, {"--importar", game_ids[ed_cap_game_]});
+    }
+    ImGui::EndDisabled();
+    Help(i18n::T(
+        "Lee el moveset del port y crea una capsula por cada ataque que la pida (especiales, "
+        "definitiva, transformaciones), con el nombre de su juego cuando se conoce (Infinite "
+        "World: lista de capsulas de \"modding resources\"). Un port de Budokai 3 se queda con "
+        "las capsulas originales. Si ya tenia capsulas, se guarda una copia "
+        "(personaje.toml.antes_de_importar).",
+        "Reads the port's moveset and creates one capsule for each attack that needs one "
+        "(specials, ultimate, transformations), named as in its game when known (Infinite "
+        "World: capsule list in \"modding resources\"). A Budokai 3 port keeps the original "
+        "capsules. Existing capsules are backed up (personaje.toml.antes_de_importar)."));
+  }
+  for (size_t i = 0; i < cs.capsules.size(); ++i) {
+    const auto& cap = cs.capsules[i];
+    ImGui::PushID(int(i));
+    ImGui::BulletText("%s", cap.name.c_str());
+    ImGui::SameLine();
+    if (cap.kind == "transformacion") {
+      ImGui::TextDisabled(i18n::T("(%s, forma %d)", "(%s, form %d)"), CapsuleKindLabel(cap.kind), cap.form);
+    } else {
+      ImGui::TextDisabled("(%s)", CapsuleKindLabel(cap.kind));
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(busy || i == 0);
+    if (ImGui::SmallButton(i18n::T("Subir", "Up"))) {
+      mod_pipeline_.EditCapsules(cs.folder, {"--subir", std::to_string(i)});
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(busy);
+    if (ImGui::SmallButton(i18n::T("Quitar", "Remove"))) {
+      mod_pipeline_.EditCapsules(cs.folder, {"--quitar", std::to_string(i)});
+    }
+    ImGui::EndDisabled();
+    ImGui::PopID();
+  }
+  {
+    const char* kinds[] = {i18n::T("Especial", "Special"), i18n::T("Definitiva", "Ultimate"),
+                           i18n::T("Transformacion", "Transformation")};
+    const char* kind_ids[] = {"especial", "definitiva", "transformacion"};
+    ImGui::SetNextItemWidth(220);
+    ImGui::InputTextWithHint("##cap_name", i18n::T("Nombre de la capsula", "Capsule name"),
+                             ed_cap_name_buf_, sizeof(ed_cap_name_buf_));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(150);
+    ImGui::Combo("##cap_kind", &ed_cap_kind_, kinds, 3);
+    if (ed_cap_kind_ == 2) {
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(90);
+      ImGui::InputInt(i18n::T("Forma", "Form"), &ed_cap_form_);
+      ed_cap_form_ = std::clamp(ed_cap_form_, 1, 7);
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(busy || ed_cap_name_buf_[0] == '\0');
+    if (ImGui::Button(i18n::T("Anadir capsula", "Add capsule"))) {
+      std::vector<std::string> a = {"--anadir", ed_cap_name_buf_, kind_ids[ed_cap_kind_]};
+      if (ed_cap_kind_ == 2) a.push_back(std::to_string(ed_cap_form_));
+      mod_pipeline_.EditCapsules(cs.folder, a);
+      ed_cap_name_buf_[0] = '\0';
+    }
+    ImGui::EndDisabled();
+    Help(i18n::T(
+        "Especial: ataque con ki (->E, <-E...). Definitiva: el golpe final en modo hiper. "
+        "Transformacion: la capsula que necesita para transformarse a esa forma (1 = la "
+        "primera transformacion). Los cambios se aplican al pulsar PLAY o \"Reconstruir ahora\".",
+        "Special: ki attack (->E, <-E...). Ultimate: the finisher in hyper mode. "
+        "Transformation: the capsule it needs to transform into that form (1 = the first "
+        "transformation). Changes apply on PLAY or \"Rebuild now\"."));
+  }
+
+  // Importar arte propio (PNG/JPG; mejor con fondo transparente).
+  ui::SectionTitle(i18n::T("Arte propio", "Own art"));
+  ImGui::SetNextItemWidth(-330);
+  ImGui::InputText("##import", ed_import_buf_, sizeof(ed_import_buf_));
+  ImGui::SameLine();
+  if (ImGui::Button("...", ImVec2(30, 0))) {
+    std::string picked;
+    if (PickFile(picked, i18n::T("Imagen (PNG/JPG)", "Image (PNG/JPG)"), "*.png;*.jpg;*.jpeg", dir.string())) {
+      std::snprintf(ed_import_buf_, sizeof(ed_import_buf_), "%s", picked.c_str());
+    }
+  }
+  ImGui::BeginDisabled(ed_import_buf_[0] == '\0');
+  ImGui::SameLine();
+  if (ImGui::Button(i18n::T("Como cara", "As face"), ImVec2(90, 0))) {
+    cs.icon_src = 1;
+    RunCharacterPreview(cs.folder, {"--cara", ed_import_buf_, "--guardar", "--solo", "icono"});
+  }
+  ImGui::SameLine();
+  if (ImGui::Button(i18n::T("Como icono", "As icon"), ImVec2(90, 0))) {
+    cs.icon_src = 2;
+    RunCharacterPreview(cs.folder, {"--icono", ed_import_buf_, "--guardar", "--solo", "icono"});
+  }
+  ImGui::SameLine();
+  if (ImGui::Button(i18n::T("Como retrato", "As portrait"), ImVec2(100, 0))) {
+    cs.portrait_src = 1;
+    RunCharacterPreview(cs.folder, {"--retrato", ed_import_buf_, "--guardar", "--solo", "retrato"});
+  }
+  ImGui::EndDisabled();
+  ImGui::TextDisabled("%s", i18n::T(
+      "Cara: se encaja en el circulo con el fondo y el aro oficiales. Icono: se usa tal cual. "
+      "Retrato: se encaja y se le pone el cielo azul (P1) / rojo (P2).",
+      "Face: fitted into the circle with the official background and ring. Icon: used as is. "
+      "Portrait: fitted, with the blue (P1) / red (P2) sky added."));
+
+  ImGui::BeginDisabled(busy && pending_preview_mod_.empty());
+  if (ImGui::Button(i18n::T("Regenerar vista previa", "Refresh preview"), ImVec2(200, 0))) {
+    RunCharacterPreview(cs.folder, {});
+  }
+  ImGui::EndDisabled();
+  ImGui::EndChild();
+  ImGui::PopID();
+}
+
+namespace {
+
+std::vector<std::string> SplitTabs(const std::string& line) {
+  std::vector<std::string> out;
+  size_t start = 0;
+  while (true) {
+    const size_t tab = line.find('\t', start);
+    out.push_back(line.substr(start, tab == std::string::npos ? std::string::npos : tab - start));
+    if (tab == std::string::npos) break;
+    start = tab + 1;
+  }
+  return out;
+}
+
+// Short, translated description of each import source (the script's own notes are Spanish).
+const char* ImportSourceNote(const std::string& id) {
+  if (id == "b1") {
+    return i18n::T("Modelo, golpes, combos y gritos del Budokai 1 original.",
+                   "Model, moves, combos and yells from the original Budokai 1.");
+  }
+  if (id == "b2") {
+    return i18n::T("Modelo de Budokai 2; los golpes son los del personaje donante.",
+                   "Budokai 2 model; the moves are the donor character's.");
+  }
+  if (id == "b3") {
+    return i18n::T("Modelos de la comunidad (.amb / .amo + .amt) de 'modding resources'.",
+                   "Community models (.amb / .amo + .amt) from 'modding resources'.");
+  }
+  if (id == "iw") {
+    return i18n::T("Modelo, voces y gritos de Infinite World; golpes del donante o del port de la comunidad.",
+                   "Infinite World model, voices and yells; moves from the donor or the community port.");
+  }
+  if (id == "sdbh") {
+    return i18n::T("Juego de PC con otro motor: el conversor todavia no esta listo.",
+                   "PC game with another engine: the converter is not ready yet.");
+  }
+  return i18n::T("Los modelos de PSP usan otro formato: el conversor todavia no esta listo.",
+                 "PSP models use another format: the converter is not ready yet.");
+}
+
+std::string ModSlug(const std::string& source, const std::string& name) {
+  std::string out = "imp_" + source + "_";
+  for (char c : name) {
+    if (std::isalnum(static_cast<unsigned char>(c))) {
+      out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    } else if (!out.empty() && out.back() != '_') {
+      out += '_';
+    }
+  }
+  while (!out.empty() && out.back() == '_') out.pop_back();
+  return out;
+}
+
+}  // namespace
+
+void LauncherDialog::ParseImporterOutput() {
+  const std::string out = mod_pipeline_.Output();
+  const int what = imp_pending_;
+  imp_pending_ = 0;
+  if (what == 1) imp_sources_.clear();
+  if (what == 2) imp_entries_.clear();
+  std::istringstream in(out);
+  std::string line;
+  std::string last;
+  while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    const auto cols = SplitTabs(line);
+    if (what == 1 && cols.size() >= 5 && cols[0] == "fuente") {
+      imp_sources_.push_back({cols[1], cols[2], cols[3], cols[4]});
+    } else if (what == 2 && cols.size() >= 8 && cols[0] == "personaje") {
+      ImportEntry e;
+      e.key = cols[1];
+      e.name = cols[2];
+      e.donor = cols[3].empty() ? -1 : std::atoi(cols[3].c_str());
+      e.kind = cols[4];
+      e.count = std::atoi(cols[5].c_str());
+      e.port = cols[6] == "1";
+      e.suggested = cols[7];
+      imp_entries_.push_back(e);
+    } else if (!line.empty()) {
+      last = line;
+    }
+  }
+  if (what == 3) {
+    const bool ok = out.find("listo: ") != std::string::npos;
+    imp_message_ = ok ? std::string(i18n::T("Importado. Ya aparece abajo en \"Instalados\"; se anade al "
+                                            "juego al pulsar JUGAR.",
+                                            "Imported. It is listed below under \"Installed\" and is "
+                                            "added to the game when you press PLAY."))
+                      : std::string(i18n::T("No se pudo importar: ", "Import failed: ")) + last;
+  } else {
+    // queries leave no log behind; a failed one says why
+    if ((what == 1 && imp_sources_.empty()) || (what == 2 && imp_entries_.empty())) {
+      imp_message_ = last.empty() ? std::string(i18n::T("No se encontro nada.", "Nothing found.")) : last;
+    } else {
+      imp_message_.clear();
+    }
+    mod_pipeline_.ClearOutput();
+  }
+}
+
+void LauncherDialog::DrawImporter() {
+  ui::BeginCard("##importer", ICON_DOWNLOAD,
+                i18n::T("Importar personaje de otro juego", "Import a character from another game"),
+                i18n::T("Elige el juego, despues el personaje, y pulsa Importar.",
+                        "Pick the game, then the character, and press Import."));
+  if (!ModPipeline::ToolsInstalled()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(ui::kWarn, "%s  %s", ICON_WARN, i18n::T(
+        "Para importar o crear personajes instala el \"Kit de modding\" (DBZ3HD-Kit-Modding.zip): "
+        "copialo junto a dbz3.exe y sigue su LEEME_KIT.txt. Los packs de personajes ya hechos "
+        "funcionan sin el kit.",
+        "To import or create characters install the \"Modding kit\" (DBZ3HD-Kit-Modding.zip): "
+        "copy it next to dbz3.exe and follow its LEEME_KIT.txt. Ready-made character packs work "
+        "without the kit."));
+    ImGui::PopTextWrapPos();
+    ui::EndCard();
+    return;
+  }
+  if (!imp_loaded_ && !mod_pipeline_.IsRunning()) {
+    imp_loaded_ = true;
+    imp_pending_ = 1;
+    mod_pipeline_.ImporterQuery({"fuentes"});
+  }
+  if (imp_pending_ != 0 && !mod_pipeline_.IsRunning()) {
+    ParseImporterOutput();
+  }
+  const ui::Fonts& fonts = ui::GetFonts();
+
+  // 1) Game tiles: found / missing / in development.
+  if (imp_sources_.empty()) {
+    ImGui::TextDisabled("%s", imp_pending_ == 1 ? i18n::T("Buscando juegos...", "Looking for games...")
+                                                : imp_message_.c_str());
+  }
+  const float avail = ImGui::GetContentRegionAvail().x;
+  const float gap = ImGui::GetStyle().ItemSpacing.x;
+  const int per_row = avail > 1150.0f ? 4 : avail > 760.0f ? 3 : 2;
+  const float tile_w = (avail - gap * float(per_row - 1)) / float(per_row);
+  const float tile_h = 58.0f;
+  for (size_t i = 0; i < imp_sources_.size(); ++i) {
+    const auto& src = imp_sources_[i];
+    const bool ready = src.state == "listo";
+    const bool dev = src.state == "desarrollo";
+    const bool sel = src.id == imp_source_;
+    if (i % per_row != 0) ImGui::SameLine();
+    ImGui::PushID(src.id.c_str());
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::InvisibleButton("##tile", ImVec2(tile_w, tile_h));
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + tile_w, p.y + tile_h);
+    dl->AddRectFilled(p, q, ImGui::GetColorU32(sel ? ui::kAccentSoft : hovered ? ui::kFrameHover : ui::kFrame),
+                      8.0f);
+    dl->AddRect(p, q, ImGui::GetColorU32(sel ? ui::kAccent : ui::kLine), 8.0f, 0, sel ? 2.0f : 1.0f);
+    {
+      ui::FontScope f(fonts.bold);
+      const char* title = src.id == "b3" ? i18n::T("Budokai 3 (mods de la comunidad)", "Budokai 3 (community mods)")
+                                         : src.name.c_str();
+      dl->AddText(ImVec2(p.x + 12.0f, p.y + 8.0f), ImGui::GetColorU32(ready ? ui::kText : ui::kTextDim), title);
+    }
+    {
+      ui::FontScope f(fonts.sm);
+      const char* status = ready ? i18n::T(ICON_OK "  Listo para importar", ICON_OK "  Ready to import")
+                           : dev ? i18n::T(ICON_WARN "  En desarrollo", ICON_WARN "  In development")
+                                 : i18n::T(ICON_ERROR "  No encontrado en ps2_games", ICON_ERROR "  Not found in ps2_games");
+      dl->AddText(ImVec2(p.x + 12.0f, p.y + tile_h - ImGui::GetFontSize() - 9.0f),
+                  ImGui::GetColorU32(ready ? ui::kOk : dev ? ui::kWarn : ui::kTextDim), status);
+    }
+    if (hovered) {
+      ImGui::SetTooltip("%s%s%s", ImportSourceNote(src.id), src.path.empty() ? "" : "\n",
+                        src.path.c_str());
+    }
+    if (clicked && !mod_pipeline_.IsRunning()) {
+      if (ready) {
+        imp_source_ = src.id;
+        imp_entries_.clear();
+        imp_selected_ = -1;
+        imp_search_[0] = '\0';
+        imp_message_.clear();
+        imp_pending_ = 2;
+        mod_pipeline_.ImporterQuery({"lista", src.id});
+      } else {
+        imp_source_.clear();
+        imp_message_ = ImportSourceNote(src.id);
+      }
+    }
+    ImGui::PopID();
+  }
+
+  // 2) Characters of the chosen game.
+  if (!imp_source_.empty()) {
+    ImGui::Dummy(ImVec2(0, 4));
+    if (imp_pending_ == 2) {
+      ImGui::TextDisabled("%s", i18n::T("Leyendo el juego... (la primera vez puede tardar un poco)",
+                                        "Reading the game... (the first time can take a moment)"));
+    } else {
+      ImGui::SetNextItemWidth(std::min(360.0f, avail));
+      ImGui::InputTextWithHint("##imp_search",
+                               i18n::T(ICON_SEARCH "  Buscar personaje...", ICON_SEARCH "  Search character..."),
+                               imp_search_, sizeof(imp_search_));
+      std::string needle = imp_search_;
+      for (char& c : needle) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      std::vector<int> shown;
+      for (int i = 0; i < int(imp_entries_.size()); ++i) {
+        std::string low = imp_entries_[i].name;
+        for (char& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (needle.empty() || low.find(needle) != std::string::npos) shown.push_back(i);
+      }
+      ImGui::SameLine();
+      ImGui::TextDisabled(i18n::T("%d personajes", "%d characters"), int(shown.size()));
+      const float row_h = 24.0f + ImGui::GetStyle().ItemSpacing.y;
+      const float list_h = std::clamp(row_h * float(shown.size()) + 12.0f, 40.0f, 230.0f);
+      ImGui::BeginChild("##imp_list", ImVec2(0, list_h), ImGuiChildFlags_Borders);
+      for (const int i : shown) {
+        const auto& e = imp_entries_[i];
+        ImGui::PushID(i);
+        if (ImGui::Selectable("##row", imp_selected_ == i, 0, ImVec2(0, 24.0f))) {
+          imp_selected_ = i;
+          std::snprintf(imp_name_, sizeof(imp_name_), "%s",
+                        e.suggested.empty() ? e.name.c_str() : e.suggested.c_str());
+          imp_donor_idx_ = -1;
+          imp_message_.clear();
+        }
+        ImGui::SameLine(10.0f);
+        {
+          ui::FontScope f(fonts.bold);
+          ImGui::TextUnformatted(e.name.c_str());
+        }
+        ImGui::SameLine(std::max(300.0f, ImGui::GetWindowWidth() * 0.40f));
+        char note[192];
+        if (e.kind == "b1") {
+          std::snprintf(note, sizeof(note), i18n::T("%d modelos  -  golpes, combos y gritos de B1",
+                                                    "%d models  -  B1 moves, combos and yells"), e.count);
+        } else if (e.kind == "trajes") {
+          std::snprintf(note, sizeof(note), e.count == 1 ? i18n::T("1 traje", "1 costume")
+                                                         : i18n::T("%d trajes", "%d costumes"), e.count);
+        } else {
+          std::snprintf(note, sizeof(note), e.count == 1 ? i18n::T("1 modelo", "1 model")
+                                                         : i18n::T("%d formas", "%d forms"), e.count);
+        }
+        std::string line = note;
+        if (e.port) {
+          line += i18n::T("  -  golpes propios (port de la comunidad)", "  -  own moves (community port)");
+        } else if (e.donor >= 0) {
+          line += std::string(i18n::T("  -  base: ", "  -  base: ")) + DonorName(e.donor);
+        }
+        ImGui::TextDisabled("%s", line.c_str());
+        ImGui::PopID();
+      }
+      ImGui::EndChild();
+    }
+  }
+
+  // 3) Name, donor and Import.
+  if (!imp_source_.empty() && imp_pending_ != 2 && imp_selected_ >= 0 &&
+      imp_selected_ < int(imp_entries_.size())) {
+    const auto& e = imp_entries_[imp_selected_];
+    ImGui::Dummy(ImVec2(0, 4));
+    ui::RowLabel(i18n::T("Nombre en el select", "Select-screen name"),
+                 i18n::T("Asi se vera su rotulo en la rueda.", "How its banner will look on the wheel."));
+    const float input_x = ImGui::GetCursorPosX();
+    ImGui::InputText("##imp_name", imp_name_, sizeof(imp_name_));
+    if (imp_name_[0]) {
+      ImGui::SetCursorPosX(input_x);
+      LiveBanner(imp_name_);
+    }
+    ui::RowLabel(i18n::T("Golpes base (donante)", "Base moves (donor)"),
+                 i18n::T("El personaje del juego del que toma lo que le falte (agarres, modo hiper...).",
+                         "The game character it takes whatever it lacks from (throws, hyper mode...)."));
+    {
+      std::string auto_label = i18n::T("Automatico", "Automatic");
+      if (e.donor >= 0) auto_label += std::string(" (") + DonorName(e.donor) + ")";
+      const char* preview = imp_donor_idx_ >= 0 ? kDonors[imp_donor_idx_].name : auto_label.c_str();
+      if (ImGui::BeginCombo("##imp_donor", preview)) {
+        if (ImGui::Selectable(auto_label.c_str(), imp_donor_idx_ < 0)) imp_donor_idx_ = -1;
+        for (int i = 0; i < kDonorCount; ++i) {
+          if (ImGui::Selectable(kDonors[i].name, imp_donor_idx_ == i)) imp_donor_idx_ = i;
+        }
+        ImGui::EndCombo();
+      }
+    }
+    ImGui::Dummy(ImVec2(0, 4));
+    const bool busy = mod_pipeline_.IsRunning();
+    ImGui::BeginDisabled(busy || imp_name_[0] == '\0');
+    ImGui::PushStyleColor(ImGuiCol_Button, ui::kAccentDim);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui::kAccent);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui::kAccent);
+    const bool do_import = ui::IconButton(ICON_DOWNLOAD, i18n::T("Importar", "Import"), ImVec2(220.0f, 40.0f));
+    ImGui::PopStyleColor(3);
+    if (do_import) {
+      // unique mod folder from game + name
+      std::string mod = ModSlug(imp_source_, imp_name_);
+      std::error_code ec;
+      const auto dir = ModPipeline::ModsDir();
+      std::string unique = mod;
+      for (int n = 2; std::filesystem::exists(dir / unique, ec); ++n) unique = mod + "_" + std::to_string(n);
+      ModPipeline::ImportRequest r;
+      r.source = imp_source_;
+      r.key = e.key;
+      r.mod = unique;
+      r.name = imp_name_;
+      r.donor = imp_donor_idx_ >= 0 ? kDonors[imp_donor_idx_].id : -1;
+      imp_pending_ = 3;
+      imp_message_.clear();
+      mod_pipeline_.ImportCharacter(r);
+      nc_selected_ = unique;
+    }
+    ImGui::EndDisabled();
+    if (imp_pending_ == 3) {
+      ImGui::SameLine();
+      ImGui::TextColored(ui::kWarn, "%s", i18n::T("Importando... (un minuto como mucho)",
+                                                  "Importing... (a minute at most)"));
+    }
+  }
+  if (!imp_message_.empty()) {
+    ImGui::Dummy(ImVec2(0, 2));
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(imp_message_.rfind(i18n::T("Importado", "Imported"), 0) == 0 ? ui::kOk : ui::kWarn, "%s",
+                       imp_message_.c_str());
+    ImGui::PopTextWrapPos();
+  }
+  ui::EndCard();
+}
+
+void LauncherDialog::DrawNewCharactersTab() {
+  ImGui::BeginChild("##new_chars", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
+  // Plain-language notice for non-technical users: what this tab does, that it
+  // is optional and experimental, and how to undo it.
+  {
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.30f, 0.20f, 0.05f, 0.55f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ui::kWarn);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 10.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.5f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 12.0f));
+    ImGui::BeginChild("##chars_notice", ImVec2(0, 0),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding);
+    {
+      ui::FontScope f(ui::GetFonts().bold);
+      ImGui::TextColored(ui::kWarn, "%s  %s", ICON_WARN,
+                         i18n::T("Seccion avanzada y experimental (opcional)",
+                                 "Advanced, experimental section (optional)"));
+    }
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(i18n::T(
+        "Aqui se anaden personajes NUEVOS al juego (de Budokai 1, 2, Infinite World o de la "
+        "comunidad). No hace falta tocar nada de esto para jugar. Los personajes importados son "
+        "experimentales: alguna tecnica, animacion o efecto puede no ser perfecto.",
+        "This adds NEW characters to the game (from Budokai 1, 2, Infinite World or the "
+        "community). You don't need anything here to play. Imported characters are experimental: "
+        "some technique, animation or effect may not be perfect."));
+    ImGui::TextColored(ui::kTextDim, "%s", i18n::T(
+        "Si algo va mal: desmarca el personaje en \"Instalados\" (vuelve a como estaba) y pulsa "
+        "JUGAR. Tus partidas guardadas no se tocan.",
+        "If something goes wrong: untick the character under \"Installed\" (back to how it was) "
+        "and press PLAY. Your saves are never touched."));
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
+    ImGui::Dummy(ImVec2(0, 4));
+  }
+  ui::SectionTitle(i18n::T("Personajes nuevos (casillas extra en el select)",
+                               "New characters (extra select cells)"));
+  ImGui::TextWrapped("%s", i18n::T(
+      "Anade personajes en casillas NUEVAS de la rueda del select, sin sustituir a "
+      "ninguno. Cada uno es un mod con su modelo; el icono, el rotulo y los retratos se "
+      "generan solos con el estilo del juego. Usa el moveset de un personaje \"donante\" "
+      "(o el suyo propio si es un port) y puede llevar sus propias capsulas.",
+      "Adds characters in NEW select-wheel cells without replacing anyone. Each one is a "
+      "mod with its model; the icon, name banner and portraits are generated in the game's "
+      "style. It uses a \"donor\" character's moveset (or its own if it is a port) and can "
+      "have its own capsules."));
+  ImGui::TextDisabled("%s", i18n::T(
+      "Pasos: 1) mira las plazas libres, 2) activa o elige un personaje para editarlo, "
+      "3) crea uno nuevo abajo. Todo se aplica solo al pulsar PLAY.",
+      "Steps: 1) check the free slots, 2) enable or pick a character to edit it, 3) create "
+      "a new one below. Everything applies automatically on PLAY."));
+  if (dbz3::settings::IsIsoMode()) {
+    ImGui::TextColored(kGold, "%s", i18n::T("Modo disco (ISO): los mods no se aplican.",
+                                            "Disc mode (ISO): mods do not apply."));
+  }
+  if (!rex::cvar::Query<bool>("dbz3_afs_append")) {
+    ImGui::PushStyleColor(ImGuiCol_Text, kGold);
+    ImGui::TextWrapped("%s", i18n::T(
+        "Este rexruntime.dll no admite entradas nuevas en los AFS (falta el parche "
+        "AfsVirtualSize): los personajes nuevos se omitiran al jugar.",
+        "This rexruntime.dll does not support new AFS entries (missing the AfsVirtualSize "
+        "patch): new characters will be skipped in game."));
+    ImGui::PopStyleColor();
+  }
+
+  DrawImporter();
+
+  // Al terminar un trabajo: vista previa en cola y relectura de los mods fuente.
+  if (!mod_pipeline_.IsRunning() && !pending_preview_mod_.empty()) {
+    const std::string mod = std::move(pending_preview_mod_);
+    pending_preview_mod_.clear();
+    mod_pipeline_.PreviewCharacter(mod, pending_preview_);
+    pending_preview_.clear();
+  }
+  if (!char_sources_loaded_ || mod_pipeline_.Generation() != char_sources_gen_) {
+    char_sources_loaded_ = true;
+    char_sources_gen_ = mod_pipeline_.Generation();
+    char_sources_.clear();
+    std::error_code ec;
+    const auto dir = ModPipeline::ModsDir();
+    for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+      const auto toml = e.path() / "personaje.toml";
+      if (!e.is_directory(ec) || !std::filesystem::exists(toml, ec)) continue;
+      const std::string text = ReadSmallFile(toml);
+      CharacterSource cs;
+      cs.folder = e.path().filename().string();
+      cs.name = TomlValue(text, "nombre");
+      cs.donor = TomlInt(text, "donante", -1);
+      cs.req_id = TomlInt(text, "id", -1);
+      cs.after = TomlInt(text, "despues_de", -1);
+      const bool has_icon = std::filesystem::exists(e.path() / "ui" / "icono.png", ec);
+      const bool has_por = std::filesystem::exists(e.path() / "ui" / "retrato_p1.png", ec);
+      // mismo criterio que original_sources() / image_source() de roster_build.py: sin
+      // fuente elegida se usan las imagenes propias del mod y, si no trae, el modelo
+      const bool has_face = std::filesystem::exists(e.path() / "ui" / "cara.png", ec);
+      const bool has_art = std::filesystem::exists(e.path() / "ui" / "retrato.png", ec);
+      if (has_icon || has_por) {  // solo imagenes terminadas (cara/retrato.png = reserva)
+        cs.orig_icon_src = has_icon ? 2 : has_face ? 1 : 0;
+        cs.orig_portrait_src = has_por ? 2 : has_art ? 1 : 0;
+      }
+      const std::string isrc = TomlValue(text, "icono_fuente");
+      const std::string psrc = TomlValue(text, "retrato_fuente");
+      cs.icon_src = isrc.empty() ? std::max(cs.orig_icon_src, 0) : SourceIndex(isrc);
+      cs.portrait_src = psrc.empty() ? std::max(cs.orig_portrait_src, 0) : SourceIndex(psrc);
+      TomlFloats(text, "icono_ajuste", cs.icon_adj);
+      TomlFloats(text, "retrato_ajuste", cs.portrait_adj);
+      cs.enabled = !std::filesystem::exists(e.path() / ".disabled", ec);
+      for (const auto& cap : TomlCapsules(text)) {
+        cs.capsules.push_back({cap[0], cap[1], std::max(1, std::atoi(cap[2].c_str()))});
+      }
+      cs.iw_port = !TomlValue(text, "camara").empty();
+      char_sources_.push_back(cs);
+    }
+    // mismo orden que roster_build.py (orden alfabetico de carpeta)
+    std::sort(char_sources_.begin(), char_sources_.end(),
+              [](const CharacterSource& a, const CharacterSource& b) { return a.folder < b.folder; });
+    roster_manifest_ = ReadSmallFile(dir / "_roster" / "manifest.txt");
+  }
+  const auto slots = AssignSlots();
+  DrawSlotTable(slots);
+
+  ui::SectionTitle(i18n::T("2. Instalados (pulsa uno para editarlo)", "2. Installed (click one to edit it)"));
+  if (char_sources_.empty()) {
+    ImGui::TextDisabled("%s", i18n::T("Ninguno todavia.", "None yet."));
+  }
+  for (auto& cs : char_sources_) {
+    ImGui::PushID(cs.folder.c_str());
+    bool on = cs.enabled;
+    if (ImGui::Checkbox("##on", &on)) {
+      dbz3::SetModEnabled(cs.folder, on);
+      cs.enabled = on;
+      mods_loaded_ = false;
+    }
+    ImGui::SameLine();
+    PreviewWidget(ModPipeline::ModsDir() / cs.folder / "ui" / "_vista" / "icono.rgba", 0.30f);
+    ImGui::SameLine();
+    auto it = slots.find(cs.folder);
+    char label[160];
+    if (!cs.enabled) {
+      std::snprintf(label, sizeof(label), "%s", cs.name.empty() ? cs.folder.c_str() : cs.name.c_str());
+    } else if (it != slots.end() && it->second >= 0) {
+      std::snprintf(label, sizeof(label), i18n::T("%s  (plaza %d)", "%s  (slot %d)"),
+                    cs.name.empty() ? cs.folder.c_str() : cs.name.c_str(), it->second);
+    } else {
+      std::snprintf(label, sizeof(label), i18n::T("%s  (sin plaza)", "%s  (no slot)"),
+                    cs.name.empty() ? cs.folder.c_str() : cs.name.c_str());
+    }
+    if (ImGui::Selectable(label, nc_selected_ == cs.folder, 0, ImVec2(0, 25))) {
+      nc_selected_ = nc_selected_ == cs.folder ? std::string() : cs.folder;
+    }
+    ImGui::PopID();
+  }
+  for (auto& cs : char_sources_) {
+    if (cs.folder == nc_selected_) DrawCharacterEditor(cs, slots);
+  }
+  ImGui::BeginDisabled(mod_pipeline_.IsRunning());
+  if (ImGui::Button(i18n::T("Reconstruir ahora", "Rebuild now"), ImVec2(180, 0))) {
+    mod_pipeline_.BuildRoster(true);
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::TextDisabled("%s", i18n::T("(tambien se hace solo al pulsar PLAY)",
+                                    "(also done automatically on PLAY)"));
+  if (!roster_manifest_.empty() &&
+      ImGui::TreeNode(i18n::T("Detalle del ultimo montaje", "Last build details"))) {
+    ImGui::TextUnformatted(roster_manifest_.c_str());
+    ImGui::TreePop();
+  }
+
+  // Crear uno nuevo.
+  ui::SectionTitle(i18n::T("3. Crear personaje", "3. Create character"));
+  ImGui::SetNextItemWidth(260);
+  ImGui::InputText(i18n::T("Nombre (rotulo)", "Name (banner)"), nc_name_buf_, sizeof(nc_name_buf_));
+  if (nc_name_buf_[0]) {
+    ImGui::SameLine(0.0f, 18.0f);
+    LiveBanner(nc_name_buf_);
+  }
+  ImGui::SetNextItemWidth(260);
+  ImGui::InputText(i18n::T("Carpeta del mod", "Mod folder"), nc_mod_buf_, sizeof(nc_mod_buf_));
+  DonorCombo(i18n::T("Donante (moveset y tecnicas)", "Donor (moveset and techniques)"), nc_donor_idx_,
+             false);
+  Help(i18n::T("El personaje del juego del que toma los golpes, las tecnicas, la voz y las "
+               "capsulas (mientras no le pongas capsulas propias).",
+               "The game character it takes its moves, techniques, voice and capsules from "
+               "(until you give it its own capsules)."));
+  DonorCombo(i18n::T("Casilla tras", "Cell after"), nc_after_idx_, true);
+  Help(i18n::T("Su casilla aparece en la rueda justo despues de este personaje.",
+               "Its cell shows up on the wheel right after this character."));
+  {
+    char cur[96];
+    if (nc_slot_choice_ < 0) {
+      std::snprintf(cur, sizeof(cur), "%s", i18n::T("Automatica (primera libre)", "Automatic (first free)"));
+    } else {
+      std::snprintf(cur, sizeof(cur), "%d", nc_slot_choice_);
+    }
+    ImGui::SetNextItemWidth(260);
+    if (ImGui::BeginCombo(i18n::T("Plaza", "Slot"), cur)) {
+      if (ImGui::Selectable(i18n::T("Automatica (primera libre)", "Automatic (first free)"), nc_slot_choice_ < 0)) {
+        nc_slot_choice_ = -1;
+      }
+      for (const auto& s : kFreeSlots) {
+        std::string owner;
+        for (const auto& [folder, id] : slots) {
+          if (id == s.id) owner = folder;
+        }
+        char label[128];
+        if (owner.empty()) {
+          std::snprintf(label, sizeof(label), i18n::T("%d (%s) - libre", "%d (%s) - free"), s.id, s.original);
+        } else {
+          std::snprintf(label, sizeof(label), i18n::T("%d (%s) - ocupada por %s", "%d (%s) - taken by %s"),
+                        s.id, s.original, owner.c_str());
+        }
+        if (ImGui::Selectable(label, nc_slot_choice_ == s.id)) nc_slot_choice_ = s.id;
+      }
+      ImGui::EndCombo();
+    }
+  }
+  ImGui::SetNextItemWidth(120);
+  ImGui::InputInt(i18n::T("Formas por traje", "Forms per costume"), &nc_forms_);
+  nc_forms_ = std::clamp(nc_forms_, 1, 6);
+  ImGui::TextDisabled("%s", i18n::T(
+      "Modelos: una ruta por linea, uno por traje (con varias formas: traje 1 forma 1, traje 1 "
+      "forma 2, ...). Admite #AMB de B3 PS2, #AMB HD o LZX.",
+      "Models: one path per line, one per costume (with several forms: costume 1 form 1, "
+      "costume 1 form 2, ...). Accepts B3 PS2 #AMB, HD #AMB or LZX."));
+  ImGui::InputTextMultiline("##nc_models", nc_models_buf_, sizeof(nc_models_buf_), ImVec2(-1.0f, 70.0f));
+  ImGui::TextDisabled("%s", i18n::T(
+      "Icono y retratos: se generan desde el modelo (opcional: tu arte, aqui o despues en el editor).",
+      "Icon and portraits: rendered from the model (optional: your own art, here or later in the editor)."));
+  ImGui::SetNextItemWidth(-260);
+  ImGui::InputText(i18n::T("Arte de la cara (opcional)", "Face art (optional)"), nc_face_buf_,
+                   sizeof(nc_face_buf_));
+  ImGui::SetNextItemWidth(-260);
+  ImGui::InputText(i18n::T("Arte del retrato (opcional)", "Portrait art (optional)"), nc_portrait_buf_,
+                   sizeof(nc_portrait_buf_));
+  ModPipeline::NewCharacter nc;
+  nc.name = nc_name_buf_;
+  nc.mod = nc_mod_buf_;
+  nc.donor = kDonors[std::clamp(nc_donor_idx_, 0, kDonorCount - 1)].id;
+  nc.after = nc_after_idx_ >= 0 ? kDonors[nc_after_idx_].id : -1;
+  nc.slot = nc_slot_choice_;
+  nc.forms_per_costume = nc_forms_;
+  nc.face = nc_face_buf_;
+  nc.portrait = nc_portrait_buf_;
+  {
+    std::istringstream in(nc_models_buf_);
+    std::string line;
+    while (std::getline(in, line)) {
+      line.erase(0, line.find_first_not_of(" \t\""));
+      line.erase(line.find_last_not_of(" \t\"\r") + 1);
+      if (!line.empty()) nc.models.push_back(line);
+    }
+  }
+  const bool can_create = !nc.name.empty() && !nc.mod.empty() && !nc.models.empty();
+  ImGui::BeginDisabled(!can_create || mod_pipeline_.IsRunning());
+  if (ImGui::Button(i18n::T("Crear", "Create"), ImVec2(180, 0))) {
+    mod_pipeline_.CreateCharacter(nc);
+    nc_selected_ = nc.mod;
+  }
+  ImGui::EndDisabled();
+
+  ImGui::Separator();
+  if (mod_pipeline_.IsRunning()) {
+    ImGui::TextColored(kGold, "%s", i18n::T("Trabajando...", "Working..."));
+  }
+  const std::string out = mod_pipeline_.Output();
+  if (!out.empty()) {
+    std::memcpy(output_buf_, out.c_str(), std::min(out.size(), sizeof(output_buf_) - 1));
+    output_buf_[std::min(out.size(), sizeof(output_buf_) - 1)] = '\0';
+    ImGui::InputTextMultiline("##nc_out", output_buf_, sizeof(output_buf_), ImVec2(-1.0f, 140.0f),
+                              ImGuiInputTextFlags_ReadOnly);
+  }
+  ImGui::EndChild();
+}
+
+void LauncherDialog::DrawTexturesTab() {
+  ImGui::BeginChild("##textures", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
+
+  ui::SectionTitle(i18n::T("Mod de texturas (B3 HD)", "Texture mod (B3 HD)"));
   ImGui::TextDisabled(i18n::T(
       "Extrae las texturas de un personaje como imagenes PNG "
       "editables, y al reconstruir reinserta tus ediciones.",
@@ -2774,7 +4346,7 @@ void LauncherDialog::DrawTexturesTab() {
 }
 
 void LauncherDialog::DrawDevTab() {
-  ImGui::BeginChild("##dev_settings", ImVec2(0, -kFooterHeight), false);
+  ImGui::BeginChild("##dev_settings", ImVec2(0, -kFooterHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
 
   PushSectionHeader(i18n::T("Diagnostico", "Diagnostics"));
 
@@ -2783,32 +4355,27 @@ void LauncherDialog::DrawDevTab() {
                               "Enable Dev mode (F10 overlay)"), &dev_mode)) {
     dbz3::settings::SetDevMode(dev_mode);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Anade un overlay en juego (F10) con diagnostico y opciones de prueba.",
         "Adds an in-game overlay (F10) with diagnostics and test switches."));
-  }
 
   bool show_fps = dbz3::settings::ShowFps();
   if (ImGui::Checkbox(i18n::T("Mostrar contador de FPS en juego (debug 60fps)",
                               "Show FPS counter in-game (60fps debug)"), &show_fps)) {
     dbz3::settings::SetShowFps(show_fps);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Muestra una ventana pequena con los FPS actuales mientras juegas. "
         "Util para verificar el limite de fotogramas / el modo 60fps.",
         "Displays a small corner window with the current FPS while playing. "
         "Useful to verify the frame cap / debug the 60fps mode."));
-  }
 
   bool async_shaders = dbz3::settings::AsyncShaderCompilation();
   if (ImGui::Checkbox(i18n::T("Compilar shaders en segundo plano",
                               "Compile shaders asynchronously"), &async_shaders)) {
     dbz3::settings::SetAsyncShaderCompilation(async_shaders);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "En segundo plano (por defecto) los shaders se compilan en paralelo: "
         "carga mas rapida, pero puede dar un tiron la primera vez que aparece "
         "cada efecto. Desactivalo para compilarlos al momento (sin tirones, "
@@ -2816,30 +4383,26 @@ void LauncherDialog::DrawDevTab() {
         "Asynchronous (default) compiles shaders in parallel: faster loads, but "
         "may hitch the first time each effect appears. Turn it off to compile "
         "them on the spot (no hitching, slower initial load)."));
-  }
 
   bool occ = dbz3::settings::OcclusionQueries();
   if (ImGui::Checkbox(i18n::T("Consultas de oclusion del juego",
                               "Game occlusion queries"), &occ)) {
     dbz3::settings::SetOcclusionQueries(occ);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Permite al juego descartar geometria oculta (por defecto). Si la GPU "
         "se queda corta, desactivarlas elimina esperas del host a cambio de "
         "dibujar de mas: util para diagnosticar.",
         "Lets the game discard hidden geometry (default). On slow GPUs, turning "
         "them off removes host waits at the cost of extra overdraw: useful for "
         "diagnosis."));
-  }
 
   bool perf_logging = dbz3::settings::PerfLogging();
   if (ImGui::Checkbox(i18n::T("Registro de rendimiento (cada 5 s)",
                               "Performance log (every 5 s)"), &perf_logging)) {
     dbz3::settings::SetPerfLogging(perf_logging);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Escribe una linea cada 5 segundos con los FPS reales, el peor frame del "
         "intervalo y si la ventana tiene el foco. Es la forma de distinguir una "
         "bajada real de un alt-tab: Windows limita a la mitad la presentacion de "
@@ -2848,15 +4411,13 @@ void LauncherDialog::DrawDevTab() {
         "the interval and whether the window has focus. The way to tell a real "
         "drop from an alt-tab: Windows halves the presentation of a visible "
         "unfocused window."));
-  }
 
   bool io_logging = dbz3::settings::IoLogging();
   if (ImGui::Checkbox(i18n::T("Registro de E/S de disco (cada 5 s)",
                               "Disk I/O log (every 5 s)"), &io_logging)) {
     dbz3::settings::SetIoLogging(io_logging);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Escribe una linea cada 5 segundos con las lecturas de los AFS "
         "(cantidad, MB, latencia media/p95/p99, maximos y lecturas lentas) y una "
         "linea por cada lectura lenta. Es la forma de ver si un tiron viene del "
@@ -2864,30 +4425,26 @@ void LauncherDialog::DrawDevTab() {
         "Writes one line every 5 seconds with AFS reads (count, MB, average/"
         "p95/p99 latency, worst and slow reads) plus one line per slow read. "
         "The way to tell whether a hitch comes from the disk."));
-  }
 
   bool readahead = dbz3::settings::IoReadahead();
   if (ImGui::Checkbox(i18n::T("Lectura anticipada de disco",
                               "Disk readahead"), &readahead)) {
     dbz3::settings::SetIoReadahead(readahead);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Lee bloques mas grandes de una vez y sirve las lecturas siguientes "
         "desde memoria: ayuda en discos mecanicos y en las cargas. Se desactiva "
         "solo mientras haya mods instalados.",
         "Reads bigger chunks at once and serves the following reads from RAM: "
         "helps on mechanical disks and during loads. Disabled automatically "
         "while mods are installed."));
-  }
 
   bool texdump = dbz3::settings::TextureDumpEnabled();
   if (ImGui::Checkbox(i18n::T("Volcado de texturas para mods (dev)",
                               "Texture dump for mods (dev)"), &texdump)) {
     dbz3::settings::SetTextureDumpEnabled(texdump);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Escribe cada textura unica como DDS + index.jsonl para autorar packs de "
         "texturas (estilo PCSX2). Ocupa cientos de MB: elige una carpeta con "
         "espacio. Solo para desarrollo; requiere reiniciar y no tiene efecto con "
@@ -2896,7 +4453,6 @@ void LauncherDialog::DrawDevTab() {
         "packs (PCSX2-style). It can take hundreds of MB: pick a folder with "
         "room. Development only; requires a restart and has no effect while HD "
         "texture enhancement is on."));
-  }
   if (texdump) {
     // Carpeta destino: el volcado puede ocupar cientos de MB, asi que nunca
     // vive en el disco de instalacion por defecto: el usuario la elige y se
@@ -2917,13 +4473,11 @@ void LauncherDialog::DrawDevTab() {
         dbz3::settings::SetTextureDumpDir(picked);
       }
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Carpeta donde se escriben los DDS. Elige una unidad con espacio "
           "libre; el volcado puede ocupar cientos de MB.",
           "Folder the DDS files are written to. Pick a drive with free space; "
           "the dump can take hundreds of MB."));
-    }
   }
 
   // Ajuste avanzado de la mejora de texturas: cuanto se gasta en VRAM. Se
@@ -2941,13 +4495,13 @@ void LauncherDialog::DrawDevTab() {
     for (int i = 0; i < 3; i++) {
       if (cur == hd_texmins_vals[i]) mins_idx = i;
     }
-    if (ImGui::Combo(i18n::T("Texturas HD: cuanto gastar (avanzado)",
-                             "HD textures: spending (advanced)"),
+    ui::RowLabel(i18n::T("Texturas HD: cuanto gastar (avanzado)",
+                             "HD textures: spending (advanced)"));
+    if (ImGui::Combo("##DrawDevTab_1",
                      &mins_idx, hd_texmins_items, 3)) {
       dbz3::settings::SetHdTextureMaxTexels(hd_texmins_vals[mins_idx]);
     }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", i18n::T(
+    ui::Tip(i18n::T(
           "Cuantas texturas se mejoran segun su tamano. \"Bajo\" solo toca las "
           "pequenas y medianas (mucho menos consumo); \"Alto\" tambien las "
           "grandes de escenario (nota mas, gasta mas). Cambia la VRAM y el uso "
@@ -2956,7 +4510,6 @@ void LauncherDialog::DrawDevTab() {
           "and medium ones (much less cost); \"High\" also the big stage "
           "textures (more noticeable, more cost). Changes the VRAM and GPU usage "
           "of the texture enhancement."));
-    }
   }
 
   bool diag = dbz3::settings::DiagLogging();
@@ -2964,38 +4517,32 @@ void LauncherDialog::DrawDevTab() {
                               "GPU diagnostic logging (logs + .bmp dumps)"), &diag)) {
     dbz3::settings::SetDiagLogging(diag);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Escribe diagnostico GPU por fotograma (logs, readbacks y dumps .bmp). "
         "Genera archivos grandes. Mantener apagado normalmente.",
         "Writes per-frame GPU diagnostics (logs, readbacks and .bmp dumps). "
         "Generates large files. Keep off normally."));
-  }
 
   bool crashdump = dbz3::settings::CrashDumpEnabled();
   if (ImGui::Checkbox(i18n::T("Guardar minidump de crash (crash_*.dmp)",
                               "Write crash minidump (crash_*.dmp)"), &crashdump)) {
     dbz3::settings::SetCrashDumpEnabled(crashdump);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Escribe un minidump cuando el juego falla. Mantener apagado normalmente.",
       "Writes a minidump file when the game crashes. Keep off normally."));
-  }
 
   bool upd_check = dbz3::settings::UpdateCheckEnabled();
   if (ImGui::Checkbox(i18n::T("Buscar actualizaciones al abrir",
                               "Check for updates on launch"), &upd_check)) {
     dbz3::settings::SetUpdateCheckEnabled(upd_check);
   }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", i18n::T(
+  ui::Tip(i18n::T(
         "Consulta en GitHub cual es la ultima version publicada al abrir el "
         "launcher (solo lectura, menos de 1 KB). Desactivalo si no quieres "
         "ninguna conexion.",
         "Asks GitHub for the latest published release when the launcher opens "
         "(read-only, under 1 KB). Turn it off if you prefer no connections."));
-  }
 
   ImGui::Spacing();
   PushSectionHeader(i18n::T("Datos del usuario", "User data"));

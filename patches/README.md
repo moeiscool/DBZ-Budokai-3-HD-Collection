@@ -237,6 +237,17 @@ que recompilar `rexgpu-xenos` en ambas variantes (v3 y v2) y copiar las DLLs.
 
 ## Como aplicar (ReXGlue 0.10.0)
 
+> **Desde la v1.4.0** basta con copiar la carpeta entera encima de un checkout
+> limpio del tag `v0.10.0` (es lo que hace el CI de Linux):
+>
+> ```
+> git clone --branch v0.10.0 https://github.com/rexglue/rexglue-sdk.git rexglue-sdk-0.10
+> cp -a patches/rexglue-sdk/. rexglue-sdk-0.10/        # PowerShell: Copy-Item -Recurse -Force
+> ```
+>
+> La lista de abajo es la historica (parches 1-13, v1.0-v1.3); el detalle de lo
+> anadido en la v1.4.0 esta en la ultima seccion de este README.
+
 Copiar los 19 archivos sobre el SDK (rutas relativas a la raiz del SDK):
 
 ```
@@ -440,3 +451,81 @@ ficheros de abajo ya forman parte del arbol de parches.
   mandos genericos que no van por XInput.
 - **DLLs canonicas (2026-09-29)**: `rexruntime.dll` **10.920.448 B**,
   `rexgpu-xenos.dll` **6.360.064 B**, `amd_fidelityfx_dx12.dll` **5.413.888 B**.
+
+## 2026-10-04 - v1.4.0: menu rapido, FSR en vivo, VFS diferido, personajes nuevos
+
+A partir de la v1.4.0 esta carpeta es el **overlay COMPLETO** de nuestro SDK sobre
+ReXGlue **v0.10.0** (`git diff v0.10.0` de la rama local `dbz3-burstlimit`): copiar
+`patches/rexglue-sdk/.` encima de un checkout limpio de v0.10.0 deja el arbol
+identico al que compila las DLL canonicas. Se anaden, ademas de los parches de las
+secciones anteriores, `CMakeLists.txt` (raiz del SDK: `REXGLUE_OUTPUT_DIR`),
+`src/core/CMakeLists.txt`, `src/ui/CMakeLists.txt`, `include/rex/rex_app.h`
+(`ResolveImageInfo` del nucleo dual y `OnConfigureQuickMenu`) y el resto de
+ficheros listados abajo.
+
+### Funciones adaptadas de Burst Limit Recompiled (iExplosiveRage)
+
+Cherry-picks de la rama `burstlimit` de
+[iExplosiveRage/rexglue-sdk](https://github.com/iExplosiveRage/rexglue-sdk)
+(proyecto *DBZ Burst Limit Recompiled*), que desciende del mismo `v0.10.0`
+(commits originales 0f57cc6, 284e15b, 5f3abd4, be4bdb0, 9296733, 156a164,
+d197cd7, 431266b, 3360458, 0f1ae03 + port minimo de 1fc298c). Licencia del SDK
+(BSD-3) intacta en las cabeceras.
+
+- **Menu rapido con mando** (`ui/overlay/quick_menu.{h,cpp}`, `rex_app.{h,cpp}`):
+  F1 o el combo `quick_menu_buttons` (Back+Start por defecto; L3+R3 o solo
+  teclado). La app lo rellena con `ReXApp::OnConfigureQuickMenu`. Adaptado a
+  DBZ3: paleta naranja/azul del launcher, banda de cabecera, textos traducibles,
+  elementos de tipo accion (`kAction`), `on_changed` (guardar en
+  `dbz3_user.toml`) y `can_open` (solo en partida).
+- **Bloqueo de entrada para la UI** (`input/input_system.{h,cpp}`): combo de
+  apertura y *input blockers*; con un dialogo abierto el guest no recibe teclas ni
+  botones.
+- **Panel de FPS F3 restilizado** (`ui/overlay/debug_overlay.{h,cpp}`,
+  `overlay_text.{h,cpp}`, `perf/frame_rate.{h,cpp}`): FPS del juego (swaps del
+  guest por segundo) y FPS de pantalla, grafica de tiempo de frame, esquina
+  configurable (`debug_overlay_position`).
+- **Ajustes de video en vivo** (`ui/presenter.cpp`, `ui/d3d12/d3d12_presenter.cpp`,
+  `graphics/d3d12/command_processor.{h,cpp}`, `graphics/graphics_system.cpp`):
+  `present_effect`, FSR/CAS, nitidez, FXAA (`swap_post_effect`) y
+  `draw_resolution_scale` se aplican sin reiniciar; el upscaler FidelityFX no se
+  libera mientras un pintado lo usa.
+- **FSR por debajo de la resolucion** (`present_fsr_quality_mode`): los modos
+  calidad/equilibrado/rendimiento renderizan por debajo de `draw_resolution_scale`
+  (FPS reales). En DBZ3 lo expone la cvar `dbz3_fsr_render` («Mas FPS con FSR»).
+- **Fix de pantalla negra** con `present_effect` fsr2/fsr3.
+- **Guardado TOML valido** (`core/cvar.cpp`, test en `tests/unit/core/cvar_test.cpp`).
+- No portado (especifico de su juego): tope de FPS por vblank, FOV/modo foto,
+  mips/precarga de packs de texturas.
+
+### Cambios propios v1.4.0
+
+- **Cerrojo de entrada** (`input/input_system.cpp`): `GetCapabilities`, `SetState`,
+  `GetKeystroke` y `RefreshDevices` toman el mutex del `InputSystem`. El menu rapido
+  lee el mando desde el hilo de la UI mientras el juego lo lee desde los suyos;
+  sin el cerrojo habia corrupcion del heap (0xC0000374 en `RefreshDevices`).
+- **VFS diferido** (`filesystem/devices/host_path_device.cpp`,
+  `host_path_entry.{h,cpp}`, `filesystem/entry.{h,cpp}`): `HostPathDevice::Initialize`
+  ya no recorre toda la carpeta del juego (30 s en frio); los directorios se listan
+  bajo demanda (`EnsureChildrenListed` al enumerar, busqueda exacta al abrir). La
+  cvar `vfs_eager_scan=true` recupera el modo antiguo. Sellos `dbz3 startup:` en el
+  log (`system/runtime.cpp`). Launcher: de ~31 s a <1 s.
+- **Entradas AFS anadidas** (`filesystem/afs.{h,cpp}`, `host_path_file.cpp`): los
+  mods pueden ANADIR entradas detras de la ultima de cualquier AFS
+  (`mods/<mod>/us/<afs>/<N>` con `N` >= numero de entradas: `data_cmn`, `data_usi`,
+  `lang_*`... para los personajes nuevos); `AfsVirtualSize` presenta al guest el
+  tamano virtual del contenedor. Capacidad publicada por la cvar `dbz3_afs_append` (si falta, el
+  launcher desactiva `mods/_roster` para que el juego arranque).
+- **Gritos RXADPC** (`audio/xma_context.cpp`): `Decode()` acepta paquetes
+  `"RXADPC\x01"` (cabecera de 8 B + hasta 7 bloques IMA ADPCM de 260 B / 512
+  muestras) y los decodifica sin FFmpeg. Es la pasarela de gritos de combate de
+  los personajes nuevos (no hay codificador XMA).
+- **Diagnostico opcional** (`graphics/pipeline/shader/translator.cpp`,
+  `graphics/pipeline/texture/cache.cpp`, `graphics/command_processor.cpp`):
+  registro del layout de vertex fetch (solo con `DBZ3_LOG_DRAWS=1` o el marcador
+  `dbz3_drawlog.on`) y contadores de swap del guest para el panel de FPS.
+- **Sello de version**: `include/rex/dbz3_build.h` -> `1.4.0`.
+- **DLLs canonicas v1.4.0 (2026-10-04)**: `rexruntime.dll` **11.034.624 B**,
+  `rexgpu-xenos.dll` **6.372.864 B**, `amd_fidelityfx_dx12.dll` **5.413.888 B**
+  (sin cambios). `tools/verify_release.ps1` comprueba hash contra el SDK baseline y
+  estos tamanos de referencia.

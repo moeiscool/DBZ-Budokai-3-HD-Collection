@@ -20,6 +20,16 @@ if ($Stage -eq "") { $Stage = Join-Path $root "github\release-stage" }
 $baseline = Join-Path $root "rexglue-sdk-0.10\out\win-amd64-baseline"
 $errors = @()
 
+# Tamanos de las DLL canonicas de la release actual (SDK rama dbz3-burstlimit,
+# 2026-10-04). Historico: v1.3.0 = 10920448 / 6360064. amd_fidelityfx_dx12.dll no
+# cambia desde 2026-08-28.
+$canonVersion = "1.4.0"
+$canonSizes = @{
+    "rexruntime.dll"          = 11034624
+    "rexgpu-xenos.dll"        = 6372864
+    "amd_fidelityfx_dx12.dll" = 5413888
+}
+
 if (-not (Test-Path -LiteralPath $Stage)) {
     Write-Error "No existe el stage: $Stage"
     exit 1
@@ -62,6 +72,17 @@ foreach ($dll in @("rexruntime.dll", "rexgpu-xenos.dll", "amd_fidelityfx_dx12.dl
         Write-Output "dll OK: $dll (SHA256 coincide con el baseline)"
     } else {
         $errors += "$dll en el stage NO coincide con el SDK baseline (¿DLL stale?)"
+    }
+    # Tamano de referencia de la release actual: atrapa un baseline sobrescrito por
+    # otro build del SDK (p. ej. sin los cambios de la rama dbz3-burstlimit). Al
+    # recompilar el SDK para una release nueva hay que actualizar esta tabla.
+    if ($canonSizes.ContainsKey($dll)) {
+        $len = (Get-Item -LiteralPath $inStage).Length
+        if ($len -eq $canonSizes[$dll]) {
+            Write-Output "dll OK: $dll ($len B = referencia v$canonVersion)"
+        } else {
+            $errors += "$dll mide $len B; la referencia v$canonVersion es $($canonSizes[$dll]) B (¿DLL de otro build del SDK?)"
+        }
     }
 }
 

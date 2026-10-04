@@ -60,6 +60,7 @@ import struct
 import sys
 
 WINDOW = 44
+GROW_ALIGN = 0x1000   # grow() desplaza el resto del bin en multiplos de esto
 
 
 def be32(b, o): return struct.unpack(">I", b[o:o + 4])[0]
@@ -274,11 +275,31 @@ class AwgVertexBuffer:
         old_win = self.ib_abs - self.vb0            # bytes de ventanas actuales
         region = bytearray(new_n * WINDOW)
         region[:old_win] = self.data[self.vb0:self.ib_abs]
+        # TABLA DE PALETA (RE en runtime 2026-10-03, sub_8208F658): AWG0+0x38 NO es
+        # el "fin del IB" sino el puntero (rel AWG0) a la tabla slot->hueso
+        # (u32 BE, slot 0 = FFFFFFFF) y AWG0+0x3C su numero de entradas. Vive justo
+        # tras el IB (alineada a 4). El guest escribe palette[k] para el hueso
+        # tabla[k]; si +0x38 apunta a otra cosa (p.ej. el relleno de alineacion)
+        # la tabla se lee a CEROS, la paleta queda sin escribir y el cuerpo
+        # skinneado desaparece (select y/o combate). La tabla se mueve pegada al IB.
+        new_ib_abs = self.vb0 + new_n * WINDOW
+        if (new_ib_abs + new_nib * 2) % 4:
+            new_nib += 1                            # tabla alineada a 4
         ib = bytearray(self.data[self.ib_abs:self.ib_abs + self.n_ib * 2])
         ib += b"\xff\xff" * (new_nib - self.n_ib)
-        tail = self.data[self.ib_abs + self.n_ib * 2:]
-        new_data = bytearray(self.data[:self.vb0]) + region + ib + tail
+        old_end_abs = self.ib_abs + self.n_ib * 2
+        list_len = 0
+        if self.awg0 + be32(self.data, self.awg0 + 0x38) == old_end_abs:
+            list_len = be32(self.data, self.awg0 + 0x3C) * 4
+        pal_list = self.data[old_end_abs:old_end_abs + list_len]
+        tail = self.data[old_end_abs + list_len:]
         total_delta = len(region) - old_win + (new_nib - self.n_ib) * 2
+        # ALINEACION: lo posterior a la tabla (AWG1..n, #AZT) se desplaza un
+        # multiplo de 0x1000 (relleno de ceros DESPUES de la tabla de paleta).
+        pad = (-total_delta) % GROW_ALIGN
+        total_delta += pad
+        new_data = (bytearray(self.data[:self.vb0]) + region + ib + pal_list +
+                    bytes(pad) + tail)
         new_ib_abs = self.vb0 + new_n * WINDOW
         new_end_abs = new_ib_abs + new_nib * 2
         b = new_data
@@ -306,11 +327,22 @@ class AwgVertexBuffer:
             off = be32(b, tbl + i * 4)
             if awo + off >= old_end_abs:
                 set32(b, tbl + i * 4, off + total_delta)
-        # cabecera #AMB: offsets absolutos (AZT y vecinos)
-        for o in range(0, awo, 4):
-            v = be32(b, o)
-            if old_end_abs <= v < len(b) - total_delta:
-                set32(b, o, v + total_delta)
+        # cabecera #AMB: entradas (offset, TAMANO, tipo, 0) de 16 B desde +hdr[1],
+        # nº en +0x0C. El bloque que contiene el AWG0 (#AWO) crece; los posteriores
+        # (#AZT) solo se desplazan. ⚠️ Antes se sumaba el delta a cualquier palabra
+        # >= old_end, y el TAMANO del #AZT (0x5BAC0 en Cell) caia en el rango ->
+        # #AZT declarado mas alla del EOF -> crash en COMBATE (bug 2026-10-03; en
+        # el select no se notaba).
+        ent, n_ent = be32(b, 4), be32(b, 0x0C)
+        for k in range(n_ent):
+            e = ent + k * 16
+            if e + 8 > awo:
+                break
+            off, size = be32(b, e), be32(b, e + 4)
+            if off <= self.vb0 < off + size:
+                set32(b, e + 4, size + total_delta)
+            elif off >= old_end_abs:
+                set32(b, e, off + total_delta)
         # cabecera #AWO [awo, awg0): punteros absolutos (tabla por-hueso en
         # +0x34, stride 0x20, y similares). ⚠️ La tabla AWG (relativa a awo)
         # vive DENTRO de [awo, awg0) y ya se ajusto arriba: hay que EXCLUIRLA o
@@ -323,6 +355,24 @@ class AwgVertexBuffer:
             v = be32(b, o)
             if old_end_abs <= v < len(b) - total_delta:
                 set32(b, o, v + total_delta)
+        # ZONAS DE VARIANTES (cola del #AWO): la cabecera AWO tiene un registro de
+        # 0x20 B por hueso desde awo+0x30 (hasta la tabla AWG) con +4 = zona (rel
+        # AWO); cada zona = be32(awo+0x20) registros (0, hueso, PTR, 0) de 16 B y
+        # PTR (rel AWO) = ejes del hueso que dibuja esa variante: poses de mano y
+        # expresiones de cara -> apuntan a los AWG auxiliares 1..n. El guest los
+        # sigue al cambiar de variante (sub_8208E7C8 -> sub_8208B0B8). Sin
+        # ajustarlos: crash `read of guest <float>` en COMBATE (en el select solo
+        # se usa la variante 0, que vive en el AWG0). Bug 2026-10-03.
+        n_var = be32(b, awo + 0x20)
+        for rec in range(awo + 0x30, tbl, 0x20):
+            zone = be32(b, rec + 4)
+            if not zone or awo + zone + n_var * 16 > len(b):
+                continue
+            for r in range(n_var):
+                p = awo + zone + r * 16 + 8
+                v = be32(b, p)
+                if v and awo + v >= old_end_abs:
+                    set32(b, p, v + total_delta)
         o = AwgVertexBuffer.__new__(AwgVertexBuffer)
         o.data = b
         o.awg0 = self.awg0

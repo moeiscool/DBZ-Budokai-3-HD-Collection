@@ -236,7 +236,9 @@ X_STATUS HostPathFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
       // gap, pad, EOF) is served as zeros -- NEVER as a physical read at a stale
       // offset, which would pull garbage from the middle of another entry and
       // crash the guest's sub-block parser.
-      if (path.filename() == "data_cmn.afs") {
+      // Cualquier AFS (data_cmn, data_eng...): solo hay traduccion si ese AFS tiene
+      // overrides que CRECEN (any_growth); si no, se cae a la ruta normal.
+      {
         bool any_growth = false;
         const std::vector<uint8_t>* vtable = AfsGetVirtualTableFast(path, any_growth);
         if (any_growth && vtable) {

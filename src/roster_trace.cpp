@@ -17,6 +17,7 @@
 #include <rex/cvar.h>
 
 #include "generated/dbz3_init.h"
+#include "roster_ext.h"
 
 #include <cstdio>
 #include <fstream>
@@ -82,7 +83,8 @@ REX_HOOK_RAW(sub_8217F478) {
 // sub_8217F3F0: portrait resolver. r3 = widget; slot = u16(r3+64); flag = bit
 // (u16(r3+62) & 1). index = slot*8 + flag*4 over 0x82372818.
 //------------------------------------------------------------------------------
-REX_HOOK_RAW(sub_8217F3F0) {
+// Llamado desde el gancho de select_ext.cpp (un solo gancho por funcion).
+void dbz3_trace_sub_8217F3F0(PPCContext& ctx, uint8_t* base) {
   const bool trace = dbz3::TraceEnabled();
   uint32_t obj = ctx.r3.u32;
   uint32_t slot = REX_LOAD_U16(obj + 64);
@@ -95,7 +97,6 @@ REX_HOOK_RAW(sub_8217F3F0) {
                     " portrait=" + dbz3::Dec(portrait) + " caller=" +
                     dbz3::Hx(ctx.lr));
   }
-  __imp__sub_8217F3F0(ctx, base);
 }
 
 //------------------------------------------------------------------------------
@@ -107,7 +108,8 @@ REX_HOOK_RAW(sub_8217F3F0) {
 // Called by the select navigation handlers (sub_8217C5C0 / sub_8217ADE8) every
 // time the cursor moves. Traces the ACTUAL set of reachable slots (capacity).
 //------------------------------------------------------------------------------
-REX_HOOK_RAW(sub_8217F520) {
+// Llamado desde el gancho de select_ext.cpp (un solo gancho por funcion).
+void dbz3_trace_sub_8217F520(PPCContext& ctx, uint8_t* base) {
   const bool trace = dbz3::TraceEnabled();
   uint32_t obj = ctx.r3.u32;
   uint32_t slot = ctx.r4.u32;
@@ -123,7 +125,6 @@ REX_HOOK_RAW(sub_8217F520) {
     }
     dbz3::TraceLine(line);
   }
-  __imp__sub_8217F520(ctx, base);
 }
 
 //------------------------------------------------------------------------------
@@ -148,6 +149,7 @@ REX_HOOK_RAW(sub_8217A920) {
     dbz3::TraceLine(line);
   }
   __imp__sub_8217A920(ctx, base);
+  dbz3::roster::AddExtraCostumes(base);
 }
 
 //------------------------------------------------------------------------------
@@ -271,7 +273,8 @@ REX_HOOK_RAW(sub_8217ADE8) {
 // sub_82180AA0: selection update. Reads P1/P2 char indices (stride 184) and the
 // +14/+18/+114 u16 fields of each record. Logs the state before delegating.
 //------------------------------------------------------------------------------
-REX_HOOK_RAW(sub_82180AA0) {
+// Llamado desde el gancho de select_ext.cpp (un solo gancho por funcion).
+void dbz3_trace_sub_82180AA0(PPCContext& ctx, uint8_t* base) {
   const bool trace = dbz3::TraceEnabled();
   uint32_t obj = ctx.r3.u32;
   uint32_t inner = REX_LOAD_U32(obj + 48);  // r30 = *(r3+48)
@@ -296,5 +299,4 @@ REX_HOOK_RAW(sub_82180AA0) {
     }
     dbz3::TraceLine(line);
   }
-  __imp__sub_82180AA0(ctx, base);
 }

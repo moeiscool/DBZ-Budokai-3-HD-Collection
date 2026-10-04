@@ -47,8 +47,28 @@ Para instalar un mod:
 > Los mods de música (og_music) reemplazan archivos completos:
 > `mods/<mod>/us/adx_usa.afs`, `us/opening.sfd`, etc.
 
+## Personajes nuevos (v1.4.0)
+
+La pestaña **Personajes nuevos** del launcher añade personajes en casillas
+propias del select, sin sustituir a nadie (experimental; versión USA y datos en
+carpeta). En la página de la release hay dos descargas opcionales:
+
+- **`DBZ3HD-1.4.0-Personajes.zip`** — Janemba, Androide 19, Zarbon, Dodoria,
+  Guldo, Jeice y Burter, listos para jugar. Copia la carpeta `mods` del ZIP
+  junto a `dbz3.exe` (acepta combinar carpetas), abre el launcher y pulsa
+  **JUGAR**. Para quitar uno, desmárcalo en **Personajes nuevos → Instalados**.
+- **`DBZ3HD-1.4.0-Kit-Modding.zip`** — las herramientas para crear e
+  **importar** personajes (Budokai 1, Budokai 2, Infinite World y modelos de la
+  comunidad), cápsulas, voces y gritos. Copia todo su contenido junto a
+  `dbz3.exe`, instala Python 3.11+ y ejecuta `instalar_requisitos.bat` una vez
+  (instala numpy, Pillow y scipy). Luego: **Personajes nuevos → Importar
+  personaje de otro juego**.
+
+Tus partidas guardadas no se tocan en ningún caso.
+
 ## Nota sobre las herramientas
 
 El toolkit del paquete es el subconjunto **necesario para el runtime** (swap y
-texturas). El repositorio de GitHub contiene el resto de herramientas de
+texturas). Las herramientas de personajes nuevos van en el **Kit de modding**
+(descarga aparte). El repositorio de GitHub contiene el resto de herramientas de
 investigación/RE de `mod center hd` y `awo_tools`, por si quieres profundizar.

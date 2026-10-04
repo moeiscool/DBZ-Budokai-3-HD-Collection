@@ -50,6 +50,7 @@
 | [03_formatos/AWO_FORMAT.md](03_formatos/AWO_FORMAT.md) | Formato #AWO HD campo a campo |
 | [03_formatos/ACM_FORMAT.md](03_formatos/ACM_FORMAT.md) | Formato moveset HD (#AMB→#CSK→#ACM) + edición de habilidades |
 | [03_formatos/STAGES_FORMAT.md](03_formatos/STAGES_FORMAT.md) | Bins de stage (#AMB→#ZDD/#CAD/#CAS/#SPX) + contenedor PS2 (ports IW) |
+| [03_formatos/CAPSULAS_B3.md](03_formatos/CAPSULAS_B3.md) | Cápsulas: catálogo #SKC, fichas de habilidades, plazas extra 44-63 y ports de IW (modo hiper) |
 | [04_herramientas](04_herramientas/TOOLS.md) | Inventario de herramientas y su función |
 | [05_build](05_build/COMO_COMPILAR.md) | Cómo compilar el juego y el SDK |
 | [06_limpieza](06_limpieza/PLAN_LIMPIEZA.md) | Plan de limpieza/reorganización |

@@ -29,7 +29,8 @@ if (-not (Test-Path -LiteralPath (Join-Path $repoPath ".git"))) {
 }
 
 # --- patrones -----------------------------------------------------------------
-$gameExt = @(".iso", ".xiso", ".xex", ".afs", ".bin", ".awo", ".azt", ".amb", ".amo", ".amg", ".dds", ".xbr", ".bmp", ".png", ".rgb")
+$gameExt = @(".iso", ".xiso", ".xex", ".afs", ".bin", ".awo", ".azt", ".amb", ".amo", ".amg", ".dds", ".xbr", ".bmp", ".png", ".rgb",
+             ".amt", ".rgba", ".npy", ".npz")   # v1.4.0: texturas PS2, previews crudas y datos numpy derivados del juego
 $buildExt = @(".exe", ".dll", ".pdb", ".ilk", ".obj", ".tlog", ".zip", ".7z", ".rar")
 # excepciones explicitas permitidas (herramientas del pipeline)
 $allowBuild = @("tools/xbcompress.exe", "tools/xbdecompress.exe", "tools/xbecompress.exe")

@@ -323,6 +323,9 @@ void SetPresentEffect(const std::string& effect);
 
 // FSR quality mode: "auto", "native_aa", "quality", "balanced", "performance".
 std::string FsrQualityMode();
+// FSR render resolution (v1.4.0): native, quality, balanced, performance, ultra_performance.
+std::string FsrRender();
+void SetFsrRender(const std::string& mode);
 void SetFsrQualityMode(const std::string& mode);
 
 // FSR sharpness reduction in stops (0.0 - 2.0).

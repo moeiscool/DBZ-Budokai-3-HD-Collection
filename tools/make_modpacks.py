@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""make_modpacks.py - Builds the two modpacks of a release (v1.4.0+).
+
+  release_packs/DBZ3HD-<ver>-Personajes.zip
+      mods/cut_* (source mods of the new characters) + a prebuilt mods/_roster built
+      from exactly those, so they work right away (even without Python).
+  release_packs/DBZ3HD-<ver>-Kit-Modding.zip
+      The tools behind the launcher's modding tabs (new characters, importer,
+      capsules, voices/yells, textures, model swap): mod center hd/ + awo_tools/ (only
+      the modules they import), the XDK LZX tools, the community reference lists the
+      capsule importer reads, docs and a one-click requirements installer.
+
+Usage:  python tools/make_modpacks.py [--version 1.4.0]
+"""
+import argparse
+import ast
+import os
+import shutil
+import subprocess
+import sys
+import zipfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODS = os.path.join(ROOT, "out", "build", "win-amd64-release", "mods")
+OUT = os.path.join(ROOT, "release_packs")
+CHARACTERS = ["cut_janemba", "cut_android19", "cut_zarbon", "cut_dodoria", "cut_guldo", "cut_jeice",
+              "cut_burter"]
+KIT_ENTRIES = ["roster_build", "importar", "swap_b3", "texture_b3", "texture_dump_import", "texture_pack",
+               "capsulas", "gritos", "voces", "iso", "model_render"]
+KIT_DATA = ["catalog_b3.cat", "roster_db.json"]
+XDK = os.path.join(ROOT, "mod center", "Xbox 360 Compression - Decompression tool from the XBOX Development Kit")
+RES = os.path.join(ROOT, "modding resources")
+RES_FILES = ["Budokai_3_Capsules_IDs.txt", "Dragon Ball Z Infinite World Capsule List.xlsx",
+             "Budokai 1 and Budokai 2 Capsule Data", "Voice list for Infinite World.txt",
+             "DBZ_B3_GH_Character_Bin_List.txt", "Character IDs (BUDOKAI 3).rtf",
+             "Character IDs (INFINITE WORLD).rtf"]
+
+
+def kit_modules():
+    """Local modules reached from the entry scripts (imports inside functions too)."""
+    dirs = [os.path.join(ROOT, "mod center hd"), os.path.join(ROOT, "awo_tools")]
+
+    def find(m):
+        for d in dirs:
+            p = os.path.join(d, m + ".py")
+            if os.path.exists(p):
+                return p
+        return None
+    seen, todo = set(), [find(e) for e in KIT_ENTRIES]
+    while todo:
+        p = todo.pop()
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        for n in ast.walk(ast.parse(open(p, encoding="utf-8").read())):
+            names = []
+            if isinstance(n, ast.Import):
+                names = [a.name.split(".")[0] for a in n.names]
+            elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+                names = [n.module.split(".")[0]]
+            todo += [find(m) for m in names]
+    return sorted(seen)
+
+
+def zip_dir(src, dst):
+    with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for dp, _, files in os.walk(src):
+            for fn in files:
+                full = os.path.join(dp, fn)
+                z.write(full, os.path.relpath(full, src))
+
+
+def characters_pack(ver, stage):
+    mods = os.path.join(stage, "mods")
+    os.makedirs(mods)
+    for m in CHARACTERS:
+        shutil.copytree(os.path.join(MODS, m), os.path.join(mods, m),
+                        ignore=shutil.ignore_patterns(".disabled", "*.antes_de_importar"))
+    # the generated mod for exactly these characters
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "mod center hd", "roster_build.py"), "construir",
+                        "--mods", mods, "--force"], capture_output=True, text=True, encoding="utf-8",
+                       errors="replace")
+    print(r.stdout[-1500:], r.stderr[-1500:])
+    if r.returncode != 0 or not os.path.isdir(os.path.join(mods, "_roster")):
+        raise SystemExit("roster_build failed")
+    shutil.copyfile(os.path.join(ROOT, "tools", "modpacks", "LEEME_PERSONAJES.txt"),
+                    os.path.join(stage, "LEEME_PERSONAJES.txt"))
+    out = os.path.join(OUT, "DBZ3HD-%s-Personajes.zip" % ver)
+    zip_dir(stage, out)
+    return out
+
+
+def kit_pack(ver, stage):
+    mch = os.path.join(stage, "mod center hd")
+    awo = os.path.join(stage, "awo_tools")
+    os.makedirs(os.path.join(mch, "tools"))
+    os.makedirs(awo)
+    for p in kit_modules():
+        dst = mch if os.path.basename(os.path.dirname(p)) == "mod center hd" else awo
+        shutil.copyfile(p, os.path.join(dst, os.path.basename(p)))
+    for f in KIT_DATA:
+        shutil.copyfile(os.path.join(ROOT, "mod center hd", f), os.path.join(mch, f))
+    for f in os.listdir(XDK):
+        shutil.copyfile(os.path.join(XDK, f), os.path.join(mch, "tools", f))
+    res = os.path.join(stage, "modding resources")
+    os.makedirs(res)
+    for f in RES_FILES:
+        src = os.path.join(RES, f)
+        if os.path.isdir(src):
+            shutil.copytree(src, os.path.join(res, f))
+        elif os.path.exists(src):
+            shutil.copyfile(src, os.path.join(res, f))
+    os.makedirs(os.path.join(stage, "ps2_games"))
+    docs = os.path.join(stage, "docs")
+    os.makedirs(docs)
+    for f in ("COMO_HACER_MODS.md", "PACKS_DE_TEXTURAS.md", "TEXTURAS_MOD.md", "MODEL_SWAP.md"):
+        src = os.path.join(ROOT, "docs", "02_mods", f)
+        if os.path.exists(src):
+            shutil.copyfile(src, os.path.join(docs, f))
+    for f in ("LEEME_KIT.txt", "requirements.txt", "instalar_requisitos.bat"):
+        shutil.copyfile(os.path.join(ROOT, "tools", "modpacks", f), os.path.join(stage, f))
+    shutil.copyfile(os.path.join(ROOT, "tools", "modpacks", "LEEME_PS2_GAMES.txt"),
+                    os.path.join(stage, "ps2_games", "LEEME.txt"))
+    out = os.path.join(OUT, "DBZ3HD-%s-Kit-Modding.zip" % ver)
+    zip_dir(stage, out)
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--version", default="1.4.0")
+    a = ap.parse_args()
+    os.makedirs(OUT, exist_ok=True)
+    stage = os.path.join(OUT, "_stage")
+    if os.path.exists(stage):
+        shutil.rmtree(stage)   # our own scratch folder from a previous run
+    for name, fn in (("personajes", characters_pack), ("kit", kit_pack)):
+        out = fn(a.version, os.path.join(stage, name))
+        print("%s: %s (%.1f MB)" % (name, out, os.path.getsize(out) / 1e6))
+
+
+if __name__ == "__main__":
+    main()

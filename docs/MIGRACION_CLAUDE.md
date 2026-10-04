@@ -59,7 +59,8 @@ la Vía B (port completo) está **aparcada** pero con un hallazgo RE nuevo.
 >   `tools\copy_sdk_dlls.ps1` (AGENTS §7).
 > - Si tu trabajo es de **RE/instrumentación**, deja claro en el handback cómo
 >   **revertir** y qué tamaños canónicos de DLL deben quedar
->   (`rexgpu-xenos.dll` **6360064 B**, `rexruntime.dll` **10920448 B**).
+>   (v1.4.0, SDK rama `dbz3-burstlimit`: `rexgpu-xenos.dll` **6372864 B**,
+>   `rexruntime.dll` **11034624 B**; antes, v1.3.0: 6360064 / 10920448).
 
 ### 2.1 Plantilla vacía (Claude puede copiarla)
 ```markdown

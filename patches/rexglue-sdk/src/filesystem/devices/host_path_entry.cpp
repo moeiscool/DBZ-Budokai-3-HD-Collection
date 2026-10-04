@@ -38,6 +38,21 @@ HostPathEntry::HostPathEntry(Device* device, Entry* parent, const std::string_vi
 
 HostPathEntry::~HostPathEntry() = default;
 
+void HostPathEntry::EnsureChildrenListed() {
+  if (children_listed_ || !(attributes_ & kFileAttributeDirectory)) {
+    return;
+  }
+  children_listed_ = true;
+  for (auto& info : rex::filesystem::ListFiles(host_path_)) {
+    if (GetChild(rex::path_to_utf8(info.name))) {
+      continue;  // already created by a lookup
+    }
+    if (auto* child = Create(device_, this, host_path_ / info.name, info)) {
+      children_.push_back(std::unique_ptr<Entry>(child));
+    }
+  }
+}
+
 HostPathEntry* HostPathEntry::Create(Device* device, Entry* parent,
                                      const std::filesystem::path& full_path,
                                      rex::filesystem::FileInfo file_info) {
@@ -54,8 +69,13 @@ HostPathEntry* HostPathEntry::Create(Device* device, Entry* parent,
     if (device->is_read_only()) {
       entry->attributes_ |= kFileAttributeReadOnly;
     }
-    entry->size_ = file_info.total_size;
-    entry->allocation_size_ = rex::round_up(file_info.total_size, device->bytes_per_sector());
+    // AFS con crecimiento virtual (mods): el guest debe ver el tamano VIRTUAL o las
+    // ultimas entradas desplazadas quedan tras el EOF fisico (ver AfsVirtualSize).
+    const uint64_t size = full_path.extension() == ".afs"
+                              ? AfsVirtualSize(full_path, file_info.total_size)
+                              : file_info.total_size;
+    entry->size_ = size;
+    entry->allocation_size_ = rex::round_up(size, device->bytes_per_sector());
   }
   return entry;
 }
@@ -228,8 +248,11 @@ void HostPathEntry::update() {
     return;
   }
   if (file_info.type == rex::filesystem::FileInfo::Type::kFile) {
-    size_ = file_info.total_size;
-    allocation_size_ = rex::round_up(file_info.total_size, device()->bytes_per_sector());
+    const uint64_t size = host_path_.extension() == ".afs"
+                              ? AfsVirtualSize(host_path_, file_info.total_size)
+                              : file_info.total_size;
+    size_ = size;
+    allocation_size_ = rex::round_up(size, device()->bytes_per_sector());
   }
 }
 

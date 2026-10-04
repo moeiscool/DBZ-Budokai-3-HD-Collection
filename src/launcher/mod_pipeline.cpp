@@ -52,6 +52,14 @@ std::filesystem::path TextureScript() {
   return ProjectRoot() / "mod center hd" / "texture_b3.py";
 }
 
+std::filesystem::path RosterScript() {
+  return ProjectRoot() / "mod center hd" / "roster_build.py";
+}
+
+std::filesystem::path ImporterScript() {
+  return ProjectRoot() / "mod center hd" / "importar.py";
+}
+
 std::filesystem::path CatalogFile() {
   return ProjectRoot() / "mod center hd" / "catalog_b3.cat";
 }
@@ -318,6 +326,7 @@ void ModPipeline::RunAsync(const std::filesystem::path& script,
     }
   }
 
+  REXLOG_INFO("dbz3: mod pipeline: {}", tail);
   worker_ = std::thread([this, tail]() {
     const std::string python = ResolvePython();
     if (python.empty()) {
@@ -372,8 +381,9 @@ void ModPipeline::RunAsync(const std::filesystem::path& script,
     // Leer la salida (stdout+stderr combinados) del pipe.
     char buf[4096];
     DWORD n = 0;
+    // (no terminator: buf[n] with n == sizeof(buf) wrote past the buffer and
+    // corrupted the worker's stack on outputs of 4 KB+, like the importer's lists)
     while (ReadFile(hOutRead, buf, sizeof(buf), &n, nullptr) && n > 0) {
-      buf[n] = '\0';
       AppendOutput(std::string(buf, n));
     }
     CloseHandle(hOutRead);
@@ -393,6 +403,7 @@ void ModPipeline::RunAsync(const std::filesystem::path& script,
     } else if (Output().find("No module named") != std::string::npos) {
       AppendOutput(DependencyHintMessage());
     }
+    REXLOG_INFO("dbz3: mod pipeline: done (exit {})", rc);
     generation_.fetch_add(1);
     running_.store(false);
 #else  // !REX_PLATFORM_WIN32
@@ -545,6 +556,127 @@ void ModPipeline::ExtractTextures(const B3Char& src,
 void ModPipeline::BuildTextures(const std::string& mod_name, int dest_slot,
                                 const std::string& dir) {
   RunAsync(TextureScript(), BuildTextureArgs(mod_name, dest_slot, dir));
+}
+
+void ModPipeline::CreateCharacter(const NewCharacter& c) {
+  if (c.mod.empty() || c.name.empty() || c.models.empty()) {
+    AppendOutput("ERROR: faltan el nombre, la carpeta del mod o los modelos.\n");
+    return;
+  }
+  std::vector<std::string> args = {"nuevo", "--mods", ModsOutDir().string(), "--mod", c.mod,
+                                   "--nombre", c.name, "--donante", std::to_string(c.donor)};
+  if (c.forms_per_costume > 1) {
+    args.push_back("--por-traje");
+    args.push_back(std::to_string(c.forms_per_costume));
+  }
+  if (c.slot >= 0) {
+    args.push_back("--id");
+    args.push_back(std::to_string(c.slot));
+  }
+  for (const auto& m : c.models) {
+    args.push_back("--modelo");
+    args.push_back(m);
+  }
+  if (!c.face.empty()) {
+    args.push_back("--cara");
+    args.push_back(c.face);
+  }
+  if (!c.portrait.empty()) {
+    args.push_back("--retrato");
+    args.push_back(c.portrait);
+  }
+  if (c.after >= 0) {
+    args.push_back("--despues-de");
+    args.push_back(std::to_string(c.after));
+  }
+  const std::string us = UsDir();
+  if (!us.empty()) {
+    args.push_back("--us");
+    args.push_back(us);
+  }
+  RunAsync(RosterScript(), args);
+}
+
+void ModPipeline::PreviewCharacter(const std::string& mod, const std::vector<std::string>& extra) {
+  std::vector<std::string> args = {"vista", "--mods", ModsOutDir().string(), "--mod", mod};
+  const std::string us = UsDir();
+  if (!us.empty()) {
+    args.push_back("--us");
+    args.push_back(us);
+  }
+  args.insert(args.end(), extra.begin(), extra.end());
+  RunAsync(RosterScript(), args);
+}
+
+std::string ModPipeline::UsDir() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return afs_path_.empty() ? std::string() : std::filesystem::path(afs_path_).parent_path().string();
+}
+
+void ModPipeline::EditCapsules(const std::string& mod, const std::vector<std::string>& extra) {
+  std::vector<std::string> args = {"capsulas", "--mods", ModsOutDir().string(), "--mod", mod};
+  args.insert(args.end(), extra.begin(), extra.end());
+  RunAsync(RosterScript(), args);
+}
+
+void ModPipeline::ImporterQuery(const std::vector<std::string>& args) {
+  RunAsync(ImporterScript(), args);
+}
+
+void ModPipeline::ImportCharacter(const ImportRequest& r) {
+  std::vector<std::string> args = {"importar", r.source, r.key, "--mod", r.mod, "--nombre", r.name,
+                                   "--mods", ModsOutDir().string()};
+  if (r.donor >= 0) {
+    args.push_back("--donante");
+    args.push_back(std::to_string(r.donor));
+  }
+  const std::string us = UsDir();
+  if (!us.empty()) {
+    args.push_back("--us");
+    args.push_back(us);
+  }
+  RunAsync(ImporterScript(), args);
+}
+
+bool ModPipeline::ToolsInstalled() {
+  std::error_code ec;
+  return std::filesystem::exists(ImporterScript(), ec) && std::filesystem::exists(RosterScript(), ec);
+}
+
+void ModPipeline::ClearOutput() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  output_.clear();
+}
+
+void ModPipeline::BuildRoster(bool force) {
+  std::vector<std::string> args = {"construir", "--mods", ModsOutDir().string()};
+  const std::string us = UsDir();
+  if (!us.empty()) {
+    args.push_back("--us");
+    args.push_back(us);
+  }
+  if (force) args.push_back("--force");
+  RunAsync(RosterScript(), args);
+}
+
+void ModPipeline::Wait() {
+  if (worker_.joinable()) worker_.join();
+}
+
+std::filesystem::path ModPipeline::ModsDir() { return ModsOutDir(); }
+
+bool ModPipeline::HasCharacterSources() {
+  std::error_code ec;
+  const auto dir = ModsOutDir();
+  if (!std::filesystem::is_directory(dir, ec)) return false;
+  for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+    if (e.is_directory(ec) && std::filesystem::exists(e.path() / "personaje.toml", ec) &&
+        !std::filesystem::exists(e.path() / ".disabled", ec)) {
+      return true;
+    }
+  }
+  // fuentes desactivadas pero _roster generado: hay que regenerarlo (o borrarlo)
+  return std::filesystem::exists(dir / "_roster", ec);
 }
 
 }  // namespace dbz3::launcher

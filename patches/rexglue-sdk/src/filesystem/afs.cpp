@@ -54,6 +54,12 @@ REXCVAR_DEFINE_INT32(dbz3_io_slow_ms, 25, "DBZ3/Dev",
 REXCVAR_DEFINE_STRING(dbz3_runtime_build, DBZ3_RUNTIME_BUILD, "DBZ3/Dev",
                       "Build de rexruntime (lo comprueba el launcher)");
 
+// DBZ3 - capacidad (solo lectura): este runtime sirve entradas AFS ANADIDAS por mods
+// (indices >= numero de entradas del contenedor) y hace crecer cualquier entrada.
+// El exe la consulta antes de aplicar personajes nuevos (roster_ext.cpp).
+REXCVAR_DEFINE_BOOL(dbz3_afs_append, true, "DBZ3/Dev",
+                    "Runtime con entradas AFS anadidas por mods (personajes nuevos)");
+
 namespace rex::filesystem {
 
 namespace {
@@ -507,6 +513,35 @@ bool FindModOverrideQuiet(const std::filesystem::path& host_path, int entry_inde
   return false;
 }
 
+// Highest entry index >= first_new that some enabled mod provides for this AFS
+// (mods/<mod>/us/<afs>/<N> as file or folder). Those entries do not exist in the
+// physical container: the virtual table APPENDS them after the last real entry
+// (new characters/slots ship their own bins without replacing any). Returns -1 if
+// none. g_mod_dirs_mutex must be held.
+int64_t MaxAppendedOverride(const std::filesystem::path& host_path, uint32_t first_new) {
+  const std::string afs_name = host_path.filename().string();
+  int64_t best = -1;
+  for (const auto& mod_dir : g_mod_dirs_cache) {
+    std::error_code ec;
+    const auto dir = mod_dir / "us" / afs_name;
+    if (!std::filesystem::is_directory(dir, ec)) {
+      continue;
+    }
+    for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+      const std::string name = e.path().filename().string();
+      if (name.empty() || name.size() > 6 ||
+          name.find_first_not_of("0123456789") != std::string::npos) {
+        continue;
+      }
+      const int64_t idx = std::stoll(name);
+      if (idx >= int64_t(first_new) && idx > best) {
+        best = idx;
+      }
+    }
+  }
+  return best;
+}
+
 const VirtualAfsLayout* GetOrLoadVirtualAfs(const std::filesystem::path& host_path) {
   std::lock_guard<std::mutex> lock(g_vafs_mutex);
   const std::string key = rex::path_to_utf8(host_path);
@@ -519,8 +554,15 @@ const VirtualAfsLayout* GetOrLoadVirtualAfs(const std::filesystem::path& host_pa
     return nullptr;
   }
   VirtualAfsLayout layout;
-  layout.entry_count = index->entry_count;
-  const size_t count = index->entry_count;
+  const size_t phys_count = index->entry_count;
+  ScanModDirs();
+  std::lock_guard<std::mutex> lock_mods(g_mod_dirs_mutex);
+  // Entradas ANADIDAS por mods (indice >= nº fisico), con un tope de seguridad.
+  const int64_t appended_max = MaxAppendedOverride(host_path, uint32_t(phys_count));
+  const size_t count =
+      appended_max >= 0 ? std::min<size_t>(size_t(appended_max) + 1, phys_count + 0x4000)
+                        : phys_count;
+  layout.entry_count = uint32_t(count);
   layout.virt_addrs.resize(count);
   layout.virt_sizes.resize(count);
   layout.phys_addrs.resize(count);
@@ -531,10 +573,19 @@ const VirtualAfsLayout* GetOrLoadVirtualAfs(const std::filesystem::path& host_pa
   // than the physical slot, the entry grows to the override size (aligned to
   // the AFS slot granularity 0x800) and the accumulated delta shifts all later
   // entries. This mirrors exactly a mid-insert AFS rebuild.
-  ScanModDirs();
-  std::lock_guard<std::mutex> lock_mods(g_mod_dirs_mutex);
+  // Si la tabla virtual (cabecera 8 B + count x 8 + par del directorio de nombres)
+  // no cabe antes de la primera entrada, TODO el contenido se desplaza (alineado a
+  // 0x800, como un AFS reconstruido).
   uint64_t acc_delta = 0;
-  for (uint32_t i = 0; i < count; ++i) {
+  if (phys_count) {
+    const uint64_t need = 8 + (uint64_t(count) + 1) * 8;
+    const uint64_t first = index->entry_offsets[0];
+    if (need > first) {
+      acc_delta = (need - first + 0x7FF) & ~uint64_t(0x7FF);
+      layout.any_growth = true;
+    }
+  }
+  for (uint32_t i = 0; i < phys_count; ++i) {
     const uint64_t phys_addr = index->entry_offsets[i];
     const uint64_t phys_size = index->entry_sizes[i];
     // Guest read size: the guest allocates ceil(size/0x1000)*0x1000 for each
@@ -542,9 +593,8 @@ const VirtualAfsLayout* GetOrLoadVirtualAfs(const std::filesystem::path& host_pa
     // it does not exceed this to_read. Physical slot length (distance to the
     // next entry) is only used to compute the shift when the entry must grow.
     const uint64_t next_phys =
-        (i + 1 < count) ? index->entry_offsets[i + 1] : phys_addr + phys_size;
+        (i + 1 < phys_count) ? index->entry_offsets[i + 1] : phys_addr + phys_size;
     const uint64_t slot_len = next_phys - phys_addr;
-    const uint64_t to_read = (phys_size + 0xFFF) & ~uint64_t(0xFFF);
 
     layout.phys_addrs[i] = phys_addr;
     layout.virt_addrs[i] = phys_addr + acc_delta;
@@ -556,17 +606,53 @@ const VirtualAfsLayout* GetOrLoadVirtualAfs(const std::filesystem::path& host_pa
       std::error_code ec;
       const uint64_t fsz = std::filesystem::file_size(mod_path, ec);
       layout.mod_paths[i] = mod_path;
-      if (!ec && fsz > to_read) {
-        // The override bin is larger than what the guest would allocate for the
-        // original entry: grow in place (align the new slot to 0x800 like the
-        // AFS) and shift all later entries by the delta.
-        const uint64_t grown_slot = (fsz + 0x7FF) & ~uint64_t(0x7FF);
+      if (!ec && fsz > phys_size) {
+        // The override bin is larger than the original entry: the guest must see
+        // its REAL size (a table size smaller than the LZX stream truncates it ->
+        // crash in the guest decompressor; seen with a 1198 B LIPS over a 1166 B
+        // entry, i.e. bigger than the entry but still under to_read). Later
+        // entries shift only when the bin does not fit in the physical slot.
         virt_size = fsz;
-        acc_delta += grown_slot - slot_len;
+        const uint64_t grown_slot = (fsz + 0x7FF) & ~uint64_t(0x7FF);
+        if (grown_slot > slot_len) {
+          acc_delta += grown_slot - slot_len;
+        }
         layout.any_growth = true;
       }
     }
     layout.virt_sizes[i] = virt_size;
+  }
+
+  // Entradas anadidas: CONTIGUAS a la ultima entrada (alineadas a 0x800), porque ADXF
+  // deduce el offset de cada fichero sumando los tamanos de los anteriores en sectores.
+  // El directorio de nombres del AFS queda tapado en el espacio virtual (el juego no lo
+  // usa; la tabla virtual ya no lo referencia). Sin override = entrada vacia.
+  if (count > phys_count) {
+    uint64_t vend = acc_delta;
+    if (phys_count) {
+      const size_t last = phys_count - 1;
+      vend = layout.virt_addrs[last] + layout.virt_sizes[last];
+    }
+    vend = (vend + 0x7FF) & ~uint64_t(0x7FF);
+    for (size_t i = phys_count; i < count; ++i) {
+      std::filesystem::path mod_path;
+      uint64_t fsz = 0;
+      if (FindModOverrideQuiet(host_path, int(i), mod_path)) {
+        std::error_code fec;
+        fsz = std::filesystem::file_size(mod_path, fec);
+        if (fec) {
+          fsz = 0;
+        } else {
+          layout.mod_paths[i] = mod_path;
+        }
+      }
+      layout.phys_addrs[i] = 0;
+      layout.virt_addrs[i] = vend;
+      layout.virt_sizes[i] = fsz;
+      layout.delta[i] = 0;
+      vend = (vend + fsz + 0x7FF) & ~uint64_t(0x7FF);
+    }
+    layout.any_growth = true;
   }
 
   // Serialize the virtual header+table.
@@ -577,7 +663,8 @@ const VirtualAfsLayout* GetOrLoadVirtualAfs(const std::filesystem::path& host_pa
   layout.table_bytes[1] = 'F';
   layout.table_bytes[2] = 'S';
   layout.table_bytes[3] = 0;
-  std::memcpy(&layout.table_bytes[4], &count, 4);
+  const uint32_t count32 = uint32_t(count);
+  std::memcpy(&layout.table_bytes[4], &count32, 4);
   for (uint32_t i = 0; i < count; ++i) {
     uint32_t addr = static_cast<uint32_t>(layout.virt_addrs[i]);
     uint32_t size = static_cast<uint32_t>(layout.virt_sizes[i]);
@@ -675,6 +762,26 @@ const std::vector<uint8_t>* AfsGetVirtualTableFast(const std::filesystem::path& 
   }
   out_any_growth = layout->any_growth;
   return &layout->table_bytes;
+}
+
+uint64_t AfsVirtualSize(const std::filesystem::path& host_path, uint64_t physical_size) {
+  if (host_path.extension() != ".afs" || !AfsModsPresent()) {
+    return physical_size;
+  }
+  const VirtualAfsLayout* layout = GetOrLoadVirtualAfs(host_path);
+  if (!layout || !layout->any_growth || layout->entry_count == 0) {
+    return physical_size;
+  }
+  const size_t last = layout->entry_count - 1;
+  uint64_t vend = layout->virt_addrs[last] + layout->virt_sizes[last];
+  if (layout->phys_addrs[last] != 0 || last == 0) {
+    // ultima entrada fisica: conservar la cola (directorio de nombres) desplazada
+    const uint64_t tail = physical_size > layout->phys_addrs[last]
+                              ? physical_size - layout->phys_addrs[last]
+                              : 0;
+    vend = layout->virt_addrs[last] + std::max<uint64_t>(layout->virt_sizes[last], tail);
+  }
+  return std::max(physical_size, (vend + 0x7FF) & ~uint64_t(0x7FF));
 }
 
 bool AfsModsPresent() {

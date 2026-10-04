@@ -48,7 +48,7 @@
 REXCVAR_DEFINE_INT32(dbz3_resolution_scale, 1, "DBZ3/Video",
                      "Internal render scale (1x-4x supersampling of the 720p framebuffer)")
     .range(1, 4)
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);  // live since v1.4.0 (draw scale changes live)
 
 REXCVAR_DEFINE_INT32(dbz3_language, 1, "DBZ3/Language",
                      "Game text language (Xbox XGetLanguage id: 1=EN 2=JP 3=DE 4=FR 5=ES 6=IT)")
@@ -133,7 +133,17 @@ REXCVAR_DEFINE_INT32(dbz3_hd_texture_max_texels, 524288, "DBZ3/Video",
 
 REXCVAR_DEFINE_STRING(dbz3_present_effect, "fsr", "DBZ3/Video",
                       "Upscaling effect: bilinear, cas, fsr")
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+// FSR render resolution (v1.4.0, like a PC game's upscaler quality): with FSR
+// the game can render BELOW the internal scale and FSR brings it back up, for
+// real FPS. "native" renders at the internal scale (the old behaviour). Only
+// whole scales exist: at 3x, quality/balanced/performance render at 2x.
+REXCVAR_DEFINE_STRING(dbz3_fsr_render, "native", "DBZ3/Video",
+                      "FSR render resolution: native, quality, balanced, performance, "
+                      "ultra_performance")
+    .allowed({"native", "quality", "balanced", "performance", "ultra_performance"})
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DEFINE_STRING(dbz3_fsr_quality, "quality", "DBZ3/Video",
                       "FSR quality: auto, native_aa, quality, balanced, performance")
@@ -142,19 +152,19 @@ REXCVAR_DEFINE_STRING(dbz3_fsr_quality, "quality", "DBZ3/Video",
 REXCVAR_DEFINE_DOUBLE(dbz3_fsr_sharpness, 0.2, "DBZ3/Video",
                       "FSR sharpness reduction in stops (0.0 - 2.0)")
     .range(0.0, 2.0)
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DEFINE_DOUBLE(dbz3_cas_sharpness, 0.0, "DBZ3/Video",
                       "CAS additional sharpness (0.0 - 1.0)")
     .range(0.0, 1.0)
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 // FXAA on the guest output (SDK swap_post_effect). Cheap anti-aliasing applied
 // at swap time, before the upscaling effect, so it composes with FSR/CAS.
 REXCVAR_DEFINE_STRING(dbz3_fxaa, "none", "DBZ3/Video",
                       "FXAA: none, fxaa, fxaa_extreme")
     .allowed({"none", "fxaa", "fxaa_extreme"})
-    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 // Dithering of the final image (SDK present_dither).
 REXCVAR_DEFINE_BOOL(dbz3_present_dither, false, "DBZ3/Video",
@@ -1635,6 +1645,8 @@ std::string PresentEffect() { return REXCVAR_GET(dbz3_present_effect); }
 void SetPresentEffect(const std::string& effect) { REXCVAR_SET(dbz3_present_effect, effect); }
 
 std::string FsrQualityMode() { return REXCVAR_GET(dbz3_fsr_quality); }
+std::string FsrRender() { return REXCVAR_GET(dbz3_fsr_render); }
+void SetFsrRender(const std::string& mode) { REXCVAR_SET(dbz3_fsr_render, mode); }
 void SetFsrQualityMode(const std::string& mode) { REXCVAR_SET(dbz3_fsr_quality, mode); }
 
 double FsrSharpness() { return REXCVAR_GET(dbz3_fsr_sharpness); }
@@ -2188,7 +2200,16 @@ void ApplyRuntimeSettingsToSdk(bool for_game) {
   // required" in the UI).
   SetSdkInt("dbz3_texture_upscale", REXCVAR_GET(dbz3_hd_textures));
   SetSdkInt("dbz3_upscale_max_texels", REXCVAR_GET(dbz3_hd_texture_max_texels));
-  SetSdkString("present_fsr_quality_mode", REXCVAR_GET(dbz3_fsr_quality));
+  // The upscaler and its render resolution apply live (v1.4.0). dbz3_fsr_quality
+  // is the pre-1.4 value: it never lowered the render resolution, so it is not
+  // forwarded (its old default "quality" would now halve the picture at 2x).
+  SetSdkString("present_effect", REXCVAR_GET(dbz3_present_effect));
+  {
+    const std::string render = REXCVAR_GET(dbz3_fsr_render);
+    SetSdkString("present_fsr_quality_mode", render == "native" ? "nativeaa" : render);
+  }
+  // The frame rate panel (F3) is the Dev tab's "Show FPS".
+  SetSdkBool("debug_overlay", REXCVAR_GET(dbz3_show_fps));
   SetSdkDouble("present_fsr_sharpness_reduction", REXCVAR_GET(dbz3_fsr_sharpness));
   SetSdkDouble("present_cas_additional_sharpness", REXCVAR_GET(dbz3_cas_sharpness));
   // Present-time filters and GPU plugin switches (these cvars are registered by

@@ -5,7 +5,10 @@
 
 #include <filesystem>
 #include <functional>
+#include <map>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include <imgui.h>
 
@@ -16,11 +19,28 @@
 #include "../mods.h"
 #include "../native_mods.h"
 
+namespace rex::ui {
+class ImmediateDrawer;
+class ImmediateTexture;
+}  // namespace rex::ui
+
 namespace dbz3::launcher {
+
+// The app hands the launcher its immediate drawer so it can show image previews
+// (new-character icon / name banner / portraits). Null = previews disabled.
+void SetPreviewDrawer(rex::ui::ImmediateDrawer* drawer);
+// Runs a function on the UI thread after the current paint (the app's
+// CallInUIThreadDeferred). The launcher reads the controllers through it:
+// reading them may pump window events, which must not happen mid-paint.
+void SetUiDefer(std::function<void(std::function<void()>)> defer);
 
 class LauncherDialog : public rex::ui::ImGuiDialog {
  public:
   LauncherDialog(rex::ui::ImGuiDrawer* drawer, std::function<void()> on_play);
+  ~LauncherDialog() override;
+
+  // Over a running game (F4): the game doesn't see the controller meanwhile.
+  void SetInGame(bool in_game);
 
   // Apply the shared dark DBZ theme (also used by the in-game F4 menu).
   static void ApplyTheme();
@@ -41,7 +61,14 @@ class LauncherDialog : public rex::ui::ImGuiDialog {
   void DrawNativeModsTab();
   void DrawModelSwapTab();
   void DrawTexturesTab();
+  void DrawNewCharactersTab();
+  void DrawImporter();
+  void ParseImporterOutput();
   void DrawDevTab();
+  // Controller: feeds ImGui's gamepad navigation, LB/RB tabs, START = Play,
+  // and remembers whether the last input came from the pad or the keyboard.
+  void PollController(ImGuiIO& io);
+  void DrawInputHints();
 
   struct AssetProbe {
     bool valid = false;
@@ -81,6 +108,110 @@ class LauncherDialog : public rex::ui::ImGuiDialog {
   int tex_dst_idx_ = -1;  // -1 = mismo bin que el origen (sin swap)
   char tex_mod_buf_[128] = {};
   char tex_dir_buf_[512] = {};  // carpeta de texturas (default = mods/<mod>/textures)
+
+  // New characters tab (roster_build.py).
+  struct CharacterSource {
+    std::string folder;
+    std::string name;
+    int donor = -1;
+    int req_id = -1;      // plaza pedida (id = ...), -1 = automatica
+    int after = -1;       // despues_de, -1 = el donante
+    int icon_src = 0;     // 0 modelo, 1 imagen (ui/cara.png), 2 terminado (ui/icono.png)
+    int portrait_src = 0;
+    // Fuentes de "conservar las imagenes originales" (port con arte propio, p.ej.
+    // Infinite World); -1 = el mod no trae esa imagen.
+    int orig_icon_src = -1;
+    int orig_portrait_src = -1;
+    struct Capsule {
+      std::string name;
+      std::string kind;  // especial | definitiva | transformacion
+      int form = 1;
+    };
+    std::vector<Capsule> capsules;   // [[capsula]] de personaje.toml
+    bool iw_port = false;            // trae su propio moveset (camara.bin): port
+    float icon_adj[4] = {1.0f, 0.0f, 0.0f, 3.0f};       // zoom, dx, dy, giro (= ICON_ADJ)
+    float portrait_adj[4] = {1.0f, 0.0f, 0.0f, 35.0f};  // = PORTRAIT_ADJ
+    bool enabled = true;
+  };
+  std::vector<CharacterSource> char_sources_;
+  // Plaza (free character ID) each enabled source gets, same rule as roster_build.py.
+  std::map<std::string, int> AssignSlots() const;
+  void DrawSlotTable(const std::map<std::string, int>& slots);
+  void DrawCharacterEditor(CharacterSource& cs, const std::map<std::string, int>& slots);
+  void RunCharacterPreview(const std::string& mod, std::vector<std::string> args);
+  struct PreviewImage {
+    std::unique_ptr<rex::ui::ImmediateTexture> tex;
+    int w = 0;
+    int h = 0;
+    std::filesystem::file_time_type stamp{};
+  };
+  // Loads (and reloads when the file changes) a raw preview written by
+  // roster_build.py vista: u32 width, u32 height (LE) + RGBA8.
+  const PreviewImage* Preview(const std::filesystem::path& rgba);
+  void PreviewWidget(const std::filesystem::path& rgba, float scale);
+  std::map<std::string, PreviewImage> previews_;
+  std::string nc_selected_;          // installed character being edited
+  std::string ed_loaded_for_;        // editor fields loaded for this folder
+  char ed_name_buf_[64] = {};
+  char ed_import_buf_[1024] = {};
+  char ed_cap_name_buf_[64] = {};
+  int ed_cap_kind_ = 0;              // 0 especial, 1 definitiva, 2 transformacion
+  int ed_cap_game_ = 0;             // juego de origen al importar capsulas (0 = detectar)
+  int ed_cap_form_ = 1;
+  bool slots_expanded_ = false;
+  // Cambio de pestana pedido desde otra (Mods <-> Personajes nuevos).
+  int request_tab_ = 0;              // 0 ninguno, 1 Mods, 2 Personajes nuevos
+  std::vector<std::string> pending_preview_;   // queued while another job runs
+  std::string pending_preview_mod_;
+  int nc_slot_choice_ = -1;          // -1 = automatica, si no el ID de la plaza
+  bool char_sources_loaded_ = false;
+  int char_sources_gen_ = -1;
+  std::string roster_manifest_;
+  char nc_name_buf_[64] = {};
+  char nc_mod_buf_[64] = {};
+  char nc_models_buf_[4096] = {};   // una ruta por linea
+  char nc_face_buf_[1024] = {};
+  char nc_portrait_buf_[1024] = {};
+  int nc_donor_idx_ = 21;           // Recoome
+  int nc_after_idx_ = -1;
+  int nc_forms_ = 1;
+
+  // Controller state (read on the UI thread outside the paint, see SetUiDefer).
+  struct PadShared {
+    uint16_t buttons = 0;
+    int16_t lx = 0, ly = 0;
+    bool valid = false;
+    bool pending = false;
+  };
+  std::shared_ptr<PadShared> pad_ = std::make_shared<PadShared>();
+  uint16_t pad_last_buttons_ = 0;
+  bool pad_mode_ = false;          // last input: true = controller, false = keyboard/mouse
+  int tab_index_ = 0;              // tab drawn this frame
+  int tab_request_ = -1;           // tab to select next frame (LB/RB, Ctrl+Tab)
+  bool pad_play_ = false;          // START pressed
+  bool in_game_ = false;
+  bool input_blocked_ = false;
+
+  // Character importer (importar.py): games found on disk and their characters.
+  struct ImportSource {
+    std::string id, name, state, path;
+  };
+  struct ImportEntry {
+    std::string key, name, kind, suggested;  // kind: b1 | trajes | formas
+    int donor = -1;
+    int count = 0;
+    bool port = false;                       // community moveset port available
+  };
+  std::vector<ImportSource> imp_sources_;
+  std::vector<ImportEntry> imp_entries_;
+  std::string imp_source_;           // selected game
+  std::string imp_message_;          // last result line
+  int imp_pending_ = 0;              // 1 sources, 2 character list, 3 importing
+  int imp_selected_ = -1;
+  int imp_donor_idx_ = -1;           // -1 = the importer's suggestion
+  bool imp_loaded_ = false;
+  char imp_search_[64] = {};
+  char imp_name_[64] = {};
 
   // Mod manifest editing state.
   bool editing_mod_ = false;

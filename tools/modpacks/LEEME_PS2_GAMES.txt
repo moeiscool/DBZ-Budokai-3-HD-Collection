@@ -1,0 +1,14 @@
+PON AQUI TUS COPIAS DE LOS JUEGOS DE PS2 (para importar personajes)
+===================================================================
+
+El importador del launcher los detecta solo si tienen estos nombres:
+
+- Budokai 1:  un .iso cuyo nombre contenga "Budokai (Europe)" o "Budokai (USA)"
+              ejemplo: DragonBall Z - Budokai (Europe) (En,Fr,De,Es,It).iso
+- Budokai 2:  un .iso cuyo nombre contenga "Budokai 2"
+- Infinite World:  una CARPETA cuyo nombre contenga "Infinite World" con el disco
+              extraido dentro (debe tener USR\DATA_CMN.AFS)
+- Budokai 3 Greatest Hits (PS2): carpeta "Budokai 3 Greatest Hits (USA)" con el disco
+              extraido (la usan los golpes base de los personajes de Budokai 1)
+
+Las ISOs se leen tal cual: no hace falta extraerlas.

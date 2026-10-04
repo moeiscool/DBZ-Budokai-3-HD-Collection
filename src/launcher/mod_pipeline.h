@@ -50,6 +50,51 @@ class ModPipeline {
   void BuildTextures(const std::string& mod_name, int dest_slot = -1,
                      const std::string& dir = "");
 
+  // New characters (mod center hd/roster_build.py): creates a source mod
+  // (mods/<mod>/personaje.toml + models + face images) and builds the combined
+  // generated mod "_roster" (IDs, appended data_cmn entries, select icons/names/
+  // portraits, select framing) that the runtime reads. Both are asynchronous.
+  struct NewCharacter {
+    std::string mod;           // folder name under mods/
+    std::string name;          // select name banner
+    int donor = 21;            // character ID whose moveset/techniques it uses
+    int after = -1;            // character ID after which its wheel cell goes (-1 = donor)
+    int forms_per_costume = 1;
+    int slot = -1;             // requested free ID (22-26, 31); -1 = first free
+    std::vector<std::string> models;  // one per costume (x forms): PS2 #AMB, HD #AMB or LZX
+    // Select images are rendered from the model by default; optional own art:
+    std::string face;          // face art for the wheel icon (official ring/background added)
+    std::string portrait;      // art for the P1/P2 portraits
+  };
+  void CreateCharacter(const NewCharacter& c);
+  // Regenerates the select previews of a source mod (roster_build.py vista), with
+  // extra args (adjustments, --guardar to persist them, --solo icono|retrato).
+  void PreviewCharacter(const std::string& mod, const std::vector<std::string>& extra);
+  void BuildRoster(bool force = false);
+  // Capsules (skills) of a source mod: roster_build.py capsulas (--anadir NOMBRE TIPO
+  // [FORMA] | --quitar N | --renombrar N NOMBRE | --subir N); edits personaje.toml.
+  void EditCapsules(const std::string& mod, const std::vector<std::string>& extra);
+  // Character importer (mod center hd/importar.py). Queries print TAB lines in
+  // Output(): "fuentes" -> "fuente	ID	NAME	STATE	PATH	NOTE", "lista ID" ->
+  // "personaje	KEY	NAME	DONOR	NOTE". ImportCharacter creates the source mod.
+  void ImporterQuery(const std::vector<std::string>& args);
+  struct ImportRequest {
+    std::string source;  // b1, b2, b3, iw...
+    std::string key;     // character key from "lista"
+    std::string mod;     // folder under mods/
+    std::string name;    // select name banner
+    int donor = -1;      // -1 = the importer's suggestion
+  };
+  void ImportCharacter(const ImportRequest& r);
+  void ClearOutput();
+  // The modding kit (mod center hd/ with the importer) is next to the game.
+  static bool ToolsInstalled();
+  // Blocks until the current async run (if any) finishes.
+  void Wait();
+  // True if any enabled mod declares a new character (mods/*/personaje.toml).
+  static bool HasCharacterSources();
+  static std::filesystem::path ModsDir();
+
   // Path to the data_cmn.afs to operate on (the model source/destination).
   // Auto-detected by default; the launcher can override it if the user picks
   // a custom location.
@@ -72,6 +117,8 @@ class ModPipeline {
   void RunAsync(const std::filesystem::path& script,
                 const std::vector<std::string>& args);
   void AppendOutput(const std::string& text);
+  // us/ folder next to the selected data_cmn.afs ("" = let the script auto-detect).
+  std::string UsDir() const;
   std::vector<std::string> SwapArgs(const B3Char& src, const B3Char& dst,
                                     const std::string& mod) const;
   std::vector<std::string> TextureArgs(const B3Char& src,

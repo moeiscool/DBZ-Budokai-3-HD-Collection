@@ -15,15 +15,19 @@ set(DBZ3_SOURCES
     src/main.cpp
     src/hooks.cpp
     src/roster_trace.cpp
+    src/roster_ext.cpp
+    src/select_ext.cpp
     src/mods.cpp
     src/native_mods.cpp
     src/region.cpp
     src/launcher/settings.cpp
     src/launcher/launcher_state.cpp
+    src/launcher/ui_kit.cpp
     src/launcher/mod_pipeline.cpp
     src/launcher/i18n.cpp
     src/launcher/update_check.cpp
     src/ingame/menu.cpp
+    src/ingame/quick_settings.cpp
 )
 
 # Codegen output directory. Default is the US/NA build (generated/); a second
@@ -58,6 +62,7 @@ endif()
 if(DBZ3_GENERATED_DIR STREQUAL "generated_eu" AND NOT DBZ3_DUAL_REGION)
     list(REMOVE_ITEM DBZ3_SOURCES src/hooks.cpp)
     list(REMOVE_ITEM DBZ3_SOURCES src/roster_trace.cpp)
+    list(REMOVE_ITEM DBZ3_SOURCES src/roster_ext.cpp src/select_ext.cpp)
 endif()
 
 if(WIN32)

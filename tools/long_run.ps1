@@ -3,20 +3,36 @@ param(
   [int]$Seconds = 1200,          # duracion maxima (minutos de margen para llegar a la demo)
   [string]$Label = "long",
   [string]$Overrides = "",       # "clave=valor;clave=valor" (se anaden a los base de abajo)
-  [switch]$Unmuted               # por defecto SILENCIADO (audio_mute=true) para no oir el opening
+  [switch]$Unmuted,              # por defecto SILENCIADO (audio_mute=true) para no oir el opening
+  [switch]$Visible,              # ventana VISIBLE en pantalla (para que el usuario pueda navegar)
+  [switch]$AllowSave             # por defecto la partida guardada se copia al arrancar y se RESTAURA al parar
 )
 $ErrorActionPreference = 'Stop'
 $dst = (Resolve-Path 'out\build\win-amd64-release').Path
 $toml = Join-Path $dst 'dbz3_user.toml'
 $state = Join-Path $env:TEMP 'opencode\long_run_state.json'
+$saveDir = Join-Path $dst 'user_data\dbz3'
+$saveBak = Join-Path $env:TEMP 'opencode\long_run_save'
 
 if ($Action -eq 'Stop') {
   if (Test-Path -LiteralPath $state) {
     $s = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
-    if ($s.pid) { try { Stop-Process -Id $s.pid -Force -ErrorAction SilentlyContinue } catch {} }
+    if ($s.pid) {
+      try { Stop-Process -Id $s.pid -Force -ErrorAction SilentlyContinue } catch {}
+      try { Wait-Process -Id $s.pid -Timeout 10 -ErrorAction SilentlyContinue } catch {}
+    }
     if ($s.backup -and (Test-Path -LiteralPath $s.backup)) {
       Copy-Item -LiteralPath $s.backup -Destination $toml -Force
       Remove-Item -LiteralPath $s.backup -Force -ErrorAction SilentlyContinue
+    }
+    # Partida guardada: una prueba NUNCA debe cambiarla (un "New Game -> Yes" la sobrescribe).
+    if ($s.save_backup -and (Test-Path -LiteralPath $s.save_backup)) {
+      Get-ChildItem -LiteralPath $s.save_backup -Directory | ForEach-Object {
+        $to = Join-Path $saveDir $_.Name
+        if (Test-Path -LiteralPath $to) { Remove-Item -LiteralPath $to -Recurse -Force }
+        Copy-Item -LiteralPath $_.FullName -Destination $to -Recurse -Force
+      }
+      Write-Output "long_run: partida guardada restaurada"
     }
     Remove-Item -LiteralPath $state -Force -ErrorAction SilentlyContinue
     Write-Output "long_run: detenido y toml restaurado"
@@ -61,7 +77,7 @@ public class WinHide2 {
 }
 "@
 
-$base = "dbz3_skip_launcher=true;dbz3_perf_logging=true;dbz3_diag_logging=false"
+$base = "dbz3_skip_launcher=true;dbz3_perf_logging=true;dbz3_diag_logging=false;dbz3_dim_unfocused=false"
 if (-not $Unmuted) { $base += ";audio_mute=true" }
 $all = if ($Overrides) { "$base;$Overrides" } else { $base }
 
@@ -81,10 +97,21 @@ foreach ($l in $lines) {
 foreach ($k in $ov.Keys) { if (-not $seen.ContainsKey($k)) { $out.Add("$k = $($ov[$k])") } }
 [System.IO.File]::WriteAllLines($toml, $out)
 
+# Copia de la partida guardada (carpetas de perfil = nombres hex de 16 caracteres).
+$saveBackup = $null
+if (-not $AllowSave -and (Test-Path -LiteralPath $saveDir)) {
+  if (Test-Path -LiteralPath $saveBak) { Remove-Item -LiteralPath $saveBak -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $saveBak | Out-Null
+  Get-ChildItem -LiteralPath $saveDir -Directory | Where-Object { $_.Name -match '^[0-9A-Fa-f]{16}$' } |
+    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $saveBak $_.Name) -Recurse -Force }
+  $saveBackup = $saveBak
+}
+
 $logsBefore = @(Get-ChildItem -LiteralPath "$dst\logs" -Filter 'dbz3_*.log' | Sort-Object Name)
-$p = Start-Process -FilePath (Join-Path $dst 'dbz3.exe') -WorkingDirectory $dst -WindowStyle Hidden -PassThru
+$style = if ($Visible) { 'Normal' } else { 'Hidden' }
+$p = Start-Process -FilePath (Join-Path $dst 'dbz3.exe') -WorkingDirectory $dst -WindowStyle $style -PassThru
 Start-Sleep -Seconds 6
-try { [WinHide2]::Hide([uint32]$p.Id) } catch {}
+if (-not $Visible) { try { [WinHide2]::Hide([uint32]$p.Id) } catch {} }
 Start-Sleep -Seconds 2
 $after = @(Get-ChildItem -LiteralPath "$dst\logs" -Filter 'dbz3_*.log' | Sort-Object LastWriteTime -Descending)
 $new = @($after | Where-Object { $logsBefore.Name -notcontains $_.Name })
@@ -93,6 +120,7 @@ $log = if ($new.Count -gt 0) { $new[0].FullName } else { $after[0].FullName }
 @{
   pid = $p.Id
   backup = $backup
+  save_backup = $saveBackup
   log = $log
   started = (Get-Date).ToString('s')
   seconds = $Seconds

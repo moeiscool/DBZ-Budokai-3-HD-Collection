@@ -63,31 +63,29 @@ El paquete **NO incluye los archivos del juego** (copyright). Aporta los de tu
 > Para extraer los archivos de tu **ISO legal** usa `extract-xiso` (FATX de Xbox
 > 360). Tamaños y SHA-256 de cada archivo en `baserom.md`.
 
-## Novedades de esta release — v1.3.0 (2026-09-30)
+## Novedades de esta release — v1.4.0 (2026-10-04)
 
-**Mejoras de launcher y runtime.** Esta versión pule la interfaz, añade una
-reparación de instalación en un clic y refuerza el diagnóstico de problemas
-(sobre todo cuando algo va mal de verdad), además de arreglar un fallo del
-extractor de texturas.
+**Menú rápido, vídeo en vivo, launcher nuevo y personajes nuevos.**
 
-- **«Reparar instalación»** (botón en el pie): pone en cuarentena un
-  `dbz3_user.toml` ilegible, reescribe ajustes limpios y verifica que
-  `rexruntime.dll`, `rexgpu-xenos.dll`, `amd_fidelityfx_dx12.dll` y
-  `gamecontrollerdb.txt` están presentes. **No** toca `us/`, `eu/`, `mods/` ni
-  las cachés.
-- **Etiquetas de botón** en Controles: junto a cada tecla se muestra el nombre
-  del botón del mando (Xbox / PlayStation / Switch). Es **solo cosmético**: no
-  cambia el mapeo.
-- **DRED activo por defecto**: si el driver pierde el device, el log nombra la
-  queue/list y las allocation nodes implicadas en vez de un cierre opaco.
-- **Mando**: se envía `gamecontrollerdb.txt` junto al ejecutable, con mapeos de
-  mandos genéricos para el backend SDL.
-- **Fix del extractor de texturas** (issue #13): la carpeta elegida se ignoraba
-  si la ruta llevaba el `:` de la unidad (p. ej. `C:\...`) y caía a
-  `mods/<mod>/textures`; ahora se respeta.
-- **Pulido visual y rendimiento**: tema del launcher revisado (cabeceras de
-  sección, pie con botones secundarios) y sondeo de assets/versión **cacheados**,
-  con menos lecturas de disco por fotograma.
+- **Menú rápido en partida**: **F1** o **Back + Start** (se puede cambiar a
+  L3 + R3 o solo teclado). Imagen, sonido y mando, pantalla y «Todos los
+  ajustes» (F4). Se aplica al momento y se guarda solo.
+- **«Más FPS con FSR»** (Nativa / Calidad / Equilibrado / Rendimiento / Ultra
+  rendimiento): el juego se dibuja por debajo de la resolución y FSR lo
+  reescala. En el menú rápido y en la pestaña de escalado.
+- **Panel de FPS (F3)** nuevo: FPS del juego, FPS de pantalla y gráfica.
+- **Vídeo en vivo**: resolución interna, escalado, nitidez y FXAA sin reiniciar.
+- **Launcher rediseñado**, abre en **menos de 1 s** (antes ~31 s) y se maneja
+  **con el mando**: LB/RB o Ctrl+Tab cambian de pestaña, START = Jugar, y la
+  barra de ayudas muestra teclas o botones (Xbox / PlayStation / Switch).
+- **Personajes nuevos** en casillas propias del select (pestaña **Personajes
+  nuevos**) e **importador** desde Budokai 1, Budokai 2, Infinite World y
+  modelos de la comunidad. Ver «Mods» más abajo.
+- **Arreglos**: cierre al usar el menú rápido (lectura del mando sin cerrojo),
+  launcher colgado en «trabajando…» con herramientas que escriben mucho,
+  pantalla negra con FSR2/FSR3.
+- **DLL nuevas** (`rexruntime.dll` 11.034.624 B, `rexgpu-xenos.dll`
+  6.372.864 B, sello 1.4.0): no las mezcles con las de versiones anteriores.
 
 Si tu equipo va lento: actualiza, reproduce el problema, cierra el juego y
 adjunta el `logs\dbz3_NNN.log`: ya trae sistema, RAM, versiones, configuración,
@@ -98,6 +96,7 @@ rendimiento»**.
 
 | Versión | Fecha | Resumen |
 |---|---|---|
+| v1.4.0 | 2026-10-04 | Menú rápido en partida (F1 / Back+Start), «Más FPS con FSR», panel de FPS F3, vídeo en vivo, launcher rediseñado con mando y arranque <1 s, personajes nuevos e importador |
 | v1.3.0 | 2026-09-30 | Reparar instalación, etiquetas de botón (Xbox/PS/Switch), DRED por defecto, `gamecontrollerdb.txt`, fix del extractor de texturas (#13), pulido y optimización del launcher |
 | v1.2.9 | 2026-09-26 | Diagnóstico autoexplicativo: avisos siempre activos (fps, disco, instalación mixta), `vram`/`lim` en `perf`, guardia de VRAM |
 | v1.2.8.2 | 2026-09-24 | El upscale de texturas deja de hundir los fps (solo nivel 0 en texturas dinámicas) + `cfg`/`upx_dyn`/`texload` en `perf` |
@@ -134,6 +133,12 @@ entradas concretas del AFS, así que cada mod pesa solo ~100 KB.
 - **Packs de texturas**: sustituye texturas por las tuyas (p. ej. reescaladas con
   IA) **sin tocar los ficheros del juego ni su memoria**.
 - **Música** (`og_music`): reemplaza los AFS de audio por región.
+- **Personajes nuevos** (v1.4.0, experimental, versión USA): casillas propias en
+  el select sin sustituir a nadie. Descargas opcionales en la release:
+  - `DBZ3HD-1.4.0-Personajes.zip` — Janemba, Androide 19, Zarbon, Dodoria,
+    Guldo, Jeice y Burter. Copia su carpeta `mods` junto a `dbz3.exe`.
+  - `DBZ3HD-1.4.0-Kit-Modding.zip` — herramientas para crear e importar
+    personajes (requiere Python 3.11+; ejecuta `instalar_requisitos.bat` una vez).
 
 ## Estado de la release
 
@@ -150,9 +155,11 @@ seguridad de tus AFS.
   respaldo `v1.1.0-clasico`.
 - **Vulkan experimental**: el backend Vulkan funciona pero el render 3D es
   ~6.5x más lento que D3D12. Usa **D3D12** (por defecto).
-- **Port de personajes PS2/IW→B3**: la inyección (geometría PS2 en la plantilla
-  HD) funciona y da siluetas reconocibles; el port con topología PS2 exacta
-  sigue en investigación.
+- **Personajes nuevos (experimental)**: alguna técnica de agarre de Budokai 1
+  sale como un golpe normal y algún efecto puede no ser perfecto. Necesitan la
+  versión USA y los datos en carpeta (no modo ISO).
+- **Textos nuevos de la v1.4.0** (launcher y menú rápido): en español e inglés;
+  en italiano, alemán y francés se ven en inglés por ahora.
 
 ## Legal
 

@@ -41,4 +41,13 @@ bool BackupNativeSave(const std::filesystem::path& save,
 // explicit so future native transformers cannot silently edit an unknown file.
 bool IsSupportedNativeSave(const std::filesystem::path& save);
 
+// "Partida al 100%": template shipped in <exe>/mods_nativos/partida_100
+// (data.bin + DBZ3.header of a complete Xbox 360 save, same title 4E4D0856).
+bool Save100Available();
+// Copies the whole current profile folders to user_data/respaldos_partida/<date>
+// and then installs the template atomically (temp file + rename).
+bool ApplySave100(std::string& message);
+// Puts back the most recent backup made by ApplySave100.
+bool RestoreLastSaveBackup(std::string& message);
+
 }  // namespace dbz3

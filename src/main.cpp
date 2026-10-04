@@ -33,9 +33,14 @@ extern const rex::PPCImageInfo PPCImageConfigEU;
 #include <rex/rex_app.h>
 #include <rex/hook.h>
 #include "hooks.h"
+#ifndef DBZ3_EU_VARIANT
+#include "roster_ext.h"
+#endif
 #include "region.h"
 #include "launcher/settings.h"
 #include "launcher/launcher_state.h"
+#include "launcher/ui_kit.h"
+#include "ingame/quick_settings.h"
 #include "launcher/i18n.h"
 #include "ingame/menu.h"
 #include <rex/audio/sdl/sdl_audio_system.h>
@@ -128,17 +133,8 @@ protected:
                                       center_y + gap + ImGui::GetTextLineHeight() * 1.6f),
                                IM_COL32(190, 190, 190, 200), hint);
         }
-        // Only visible when the user enables the FPS counter (Dev tab).
-        if (!dbz3::settings::ShowFps()) {
-            return;
-        }
-        ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(220, 60), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowBgAlpha(0.5f);
-        if (ImGui::Begin("Debug##overlay", nullptr, ImGuiWindowFlags_NoCollapse)) {
-            ImGui::Text("%.1f FPS (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
-        }
-        ImGui::End();
+        // The FPS counter is the SDK's frame rate panel now (F3, v1.4.0):
+        // dbz3_show_fps is forwarded to its `debug_overlay` cvar.
     }
 };
 
@@ -259,6 +255,27 @@ public:
         REXLOG_INFO("dbz3: window {}", focused ? "focused" : "in the background");
     }
 
+    // Launcher fonts (Segoe UI + icons) go into the shared atlas before it is built.
+    void OnConfigureFonts(ImFontAtlas* atlas) override {
+        dbz3::launcher::ui::LoadFonts(atlas);
+    }
+
+    // In-game quick settings (F1 / Back + Start), see ingame/quick_settings.cpp.
+    void OnConfigureQuickMenu(rex::ui::QuickMenuConfig& menu) override {
+        dbz3::ingame::ConfigureQuickMenu(menu, [this]() { OpenFullSettings(); });
+        // Only over the game: the pre-game launcher has all of this already.
+        menu.can_open = [this]() { return launched_.load(std::memory_order_acquire) && !launcher_dialog_; };
+    }
+
+    // The launcher dialog over the game (F4 and the quick menu's "All settings").
+    void OpenFullSettings() {
+        if (!imgui_drawer_ || launcher_dialog_) return;
+        launcher_dialog_ = new dbz3::launcher::LauncherDialog(
+            imgui_drawer_, [this]() { launcher_dialog_ = nullptr; });
+        // Over the game: the game must not also read the pad meanwhile.
+        launcher_dialog_->SetInGame(launched_.load(std::memory_order_acquire));
+    }
+
     // Called after ImGui drawer is created - add custom dialogs
     void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
         PhaseLog("OnCreateDialogs");
@@ -266,6 +283,12 @@ public:
             debug_overlay_ = std::make_unique<DebugOverlayDialog>(drawer);
         }
         imgui_drawer_ = drawer;
+        // The launcher reads the controllers on the UI thread, outside its paint.
+        dbz3::launcher::SetUiDefer([this](std::function<void()> fn) {
+            app_context().CallInUIThreadDeferred(std::move(fn));
+        });
+        // Vistas previas de imagenes en el launcher (personajes nuevos).
+        dbz3::launcher::SetPreviewDrawer(immediate_drawer());
 
         // Pre-game launcher. Its "Play" button dismisses the dialog and
         // triggers the gated module launch (see LaunchModule override below).
@@ -309,10 +332,7 @@ public:
 
         // F4 opens the settings launcher in-game (hot-reloadable options).
         rex::ui::RegisterBind("bind_dbz3_settings", "F4", "Open settings", [this]() {
-            if (!imgui_drawer_) return;
-            if (launcher_dialog_) return;
-            launcher_dialog_ = new dbz3::launcher::LauncherDialog(
-                imgui_drawer_, [this]() { launcher_dialog_ = nullptr; });
+            OpenFullSettings();
         });
 
         // F10 toggles the in-game dev overlay (only meaningful once running).
@@ -333,6 +353,9 @@ public:
     void OnPreLaunchModule() override {
         PhaseLog("OnPreLaunchModule");
         REXLOG_INFO("OnPreLaunchModule - about to launch guest thread");
+#ifndef DBZ3_EU_VARIANT
+        dbz3::roster::GuardGeneratedMod();
+#endif
         // Re-mount the game drive (folder or ISO) and re-apply the region device
         // so game:\us points at the currently selected region's assets (covers
         // the skip-launcher fast path too).
@@ -345,6 +368,13 @@ public:
         PhaseLog("OnPostLaunchModule");
         REXLOG_INFO("OnPostLaunchModule - guest thread created and resumed");
         launched_.store(true, std::memory_order_release);
+#ifndef DBZ3_EU_VARIANT
+        // Personajes/trajes declarados por mods (roster.toml): la imagen del guest
+        // ya esta cargada y su hilo aun no ha ejecutado nada.
+        if (auto* rt = runtime()) {
+            dbz3::roster::ApplyAtLaunch(rt->memory());
+        }
+#endif
         if (auto* rt = runtime()) {
             if (window()) {
                 rt->set_display_window(window());

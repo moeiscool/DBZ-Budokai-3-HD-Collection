@@ -9,17 +9,17 @@ entradas retiradas.
   vuelta al array `builds` de `../.forge.json`.
 - `_retired` (dentro del JSON) — motivo de retirada de cada version.
 
-## Estado actual (2026-09-30)
+## Estado actual (2026-10-04)
 
 Versiones **visibles** en PortForge (las tres ultimas funcionales):
 
 | Version | Notas |
 |---|---|
-| `1.3.0` | Actual (Latest). Default. Reparar instalacion, etiquetas de boton (Xbox/PS/Switch), DRED por defecto, `gamecontrollerdb.txt`, fix del extractor de texturas (#13), pulido y optimizacion del launcher. |
+| `1.4.0` | Actual (Latest). Default. Menu rapido en partida (F1 / Back+Start), panel de FPS F3 nuevo, video en vivo y «Mas FPS con FSR», launcher redisenado y con mando (arranque <1 s), personajes nuevos e importador (requieren la carpeta extraida: PortForge instala en modo ISO). |
+| `1.3.0` | Reparar instalacion, etiquetas de boton (Xbox/PS/Switch), DRED por defecto, `gamecontrollerdb.txt`, fix del extractor de texturas (#13), pulido y optimizacion del launcher. Respaldo inmediato. |
 | `1.2.9` | Diagnostico que se explica solo: avisos de fps sostenido, disco lento e instalacion mixta; `vram=`/`lim=` en la linea `perf`; guardia de VRAM. |
-| `1.2.8.2` | La mejora de texturas deja de hundir los FPS (throttle de texturas dinamicas) + diagnostico en la linea `perf`. Respaldo inmediato. |
 
-**Archivadas**: `1.2.8.1`, `1.2.8`, `1.2.7`, `1.2.5`, `1.2.6`, `1.2.4-EX`, `1.2.4`, `1.2.3`, `1.2.2-EX`, `1.2.2` (retirada), `1.2.1`, `1.1.4`, `1.1.2`.
+**Archivadas**: `1.2.8.2`, `1.2.8.1`, `1.2.8`, `1.2.7`, `1.2.5`, `1.2.6`, `1.2.4-EX`, `1.2.4`, `1.2.3`, `1.2.2-EX`, `1.2.2` (retirada), `1.2.1`, `1.1.4`, `1.1.2`.
 
 ## Como rehabilitar una version
 
