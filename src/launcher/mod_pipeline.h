@@ -88,6 +88,8 @@ class ModPipeline {
   void ImportCharacter(const ImportRequest& r);
   void ClearOutput();
   // The modding kit (mod center hd/ with the importer) is next to the game.
+  // roster_build.py presente (kit de modding instalado).
+  static bool RosterToolAvailable();
   static bool ToolsInstalled();
   // Blocks until the current async run (if any) finishes.
   void Wait();

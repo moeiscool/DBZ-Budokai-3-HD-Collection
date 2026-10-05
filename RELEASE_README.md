@@ -63,7 +63,26 @@ El paquete **NO incluye los archivos del juego** (copyright). Aporta los de tu
 > Para extraer los archivos de tu **ISO legal** usa `extract-xiso` (FATX de Xbox
 > 360). Tamaños y SHA-256 de cada archivo en `baserom.md`.
 
-## Novedades de esta release — v1.4.0 (2026-10-04)
+## Novedades de esta release — v1.4.1 (2026-10-05)
+
+- **Rendimiento**: temporización de alta resolución (pausas de 1 ms reales en
+  Windows 11) y el juego deja de entrar en el modo ahorro de Windows (núcleos de
+  eficiencia), contra los 30 FPS clavados en equipos potentes (issue #8).
+- **DRED apagado por defecto**: se arma solo en la sesión siguiente a un
+  `device removed`.
+- **Registro**: la línea `perf` añade `gpu_wait=`/`syncs=`/`cp_wait=`; los
+  frames de más de 50 ms dejan una línea `tiron`; el aviso de FPS bajo solo
+  sugiere los ajustes activos y distingue CPU de GPU.
+- **Personajes nuevos**: arreglado el cierre en el select al cambiar de traje (Janemba)
+  y la música en silencio con un pack de música + el mod de personajes; sin el kit, el
+  launcher ya no intenta reconstruir el `_roster` al pulsar JUGAR.
+- **Launcher**: aviso de personajes nuevos con el juego EU/PAL.
+- **Kit de modding 1.4.1**: página Diagnóstico (`diagnostico.py`).
+- DLL del runtime: `rexruntime.dll` 11.039.744 B y `rexgpu-xenos.dll`
+  6.385.152 B, sello 1.4.1. El pack de personajes sigue siendo el de la 1.4.0
+  (Google Drive).
+
+## Release anterior — v1.4.0 (2026-10-04)
 
 **Menú rápido, vídeo en vivo, launcher nuevo y personajes nuevos.**
 
@@ -96,6 +115,7 @@ rendimiento»**.
 
 | Versión | Fecha | Resumen |
 |---|---|---|
+| v1.4.1 | 2026-10-05 | Rendimiento (temporización precisa, sin modo ahorro de Windows, DRED solo tras un fallo), registro de esperas y tirones, aviso EU de personajes nuevos, Kit con Diagnóstico | 1.4.1 |
 | v1.4.0 | 2026-10-04 | Menú rápido en partida (F1 / Back+Start), «Más FPS con FSR», panel de FPS F3, vídeo en vivo, launcher rediseñado con mando y arranque <1 s, personajes nuevos e importador |
 | v1.3.0 | 2026-09-30 | Reparar instalación, etiquetas de botón (Xbox/PS/Switch), DRED por defecto, `gamecontrollerdb.txt`, fix del extractor de texturas (#13), pulido y optimización del launcher |
 | v1.2.9 | 2026-09-26 | Diagnóstico autoexplicativo: avisos siempre activos (fps, disco, instalación mixta), `vram`/`lim` en `perf`, guardia de VRAM |
@@ -137,7 +157,7 @@ entradas concretas del AFS, así que cada mod pesa solo ~100 KB.
   el select sin sustituir a nadie. Descargas opcionales:
   - `DBZ3HD-1.4.0-Personajes.zip` (Google Drive: https://drive.google.com/file/d/1zpwuuU7ITKZlC43nsTbp6s2wceBcwO85/view?usp=sharing) — Janemba, Androide 19, Zarbon, Dodoria,
     Guldo, Jeice y Burter. Copia su carpeta `mods` junto a `dbz3.exe`.
-  - `DBZ3HD-1.4.0-Kit-Modding.zip` — herramientas para crear e importar
+  - `DBZ3HD-1.4.1-Kit-Modding.zip` — herramientas para crear e importar
     personajes (requiere Python 3.11+; ejecuta `instalar_requisitos.bat` una vez).
 
 ## Estado de la release

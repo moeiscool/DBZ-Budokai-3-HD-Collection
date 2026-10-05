@@ -71,9 +71,19 @@ HostPathEntry* HostPathEntry::Create(Device* device, Entry* parent,
     }
     // AFS con crecimiento virtual (mods): el guest debe ver el tamano VIRTUAL o las
     // ultimas entradas desplazadas quedan tras el EOF fisico (ver AfsVirtualSize).
-    const uint64_t size = full_path.extension() == ".afs"
-                              ? AfsVirtualSize(full_path, file_info.total_size)
-                              : file_info.total_size;
+    // Con un override de fichero completo, el tamano (y la tabla virtual) son los del
+    // fichero del mod, que es el que se abre (ver HostPathEntry::Open / ReadSync).
+    uint64_t size = file_info.total_size;
+    if (full_path.extension() == ".afs") {
+      std::filesystem::path whole_override;
+      std::error_code ec;
+      if (AfsFindModFileOverride(full_path, whole_override)) {
+        const uint64_t override_size = std::filesystem::file_size(whole_override, ec);
+        size = AfsVirtualSize(whole_override, ec ? file_info.total_size : override_size);
+      } else {
+        size = AfsVirtualSize(full_path, file_info.total_size);
+      }
+    }
     entry->size_ = size;
     entry->allocation_size_ = rex::round_up(size, device->bytes_per_sector());
   }

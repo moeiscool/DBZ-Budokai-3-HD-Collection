@@ -1551,6 +1551,46 @@ std::filesystem::path LatestLogPath() {
   return newest;
 }
 
+// v1.4.1: DRED (diagnostico de "device removed") deja de ir siempre encendido: sus
+// breadcrumbs y el seguimiento de page faults tienen coste en cada lista de comandos
+// y en cada recurso creado, y desde que se activo por defecto (v1.3.0) llegaron los
+// reportes de bajones en equipos potentes. Ahora se arma solo para la sesion
+// siguiente a un fallo de la GPU (la sesion anterior registro "D3D12 device
+// removed"), que es justo cuando hace falta el informe. Un `d3d12_dred = true`
+// puesto a mano en el toml se respeta.
+static bool PreviousSessionLostGpu() {
+  const auto logs_dir = rex::filesystem::GetExecutableFolder() / "logs";
+  std::error_code ec;
+  if (!std::filesystem::is_directory(logs_dir, ec)) return false;
+  // La sesion actual ya ha creado su log (el mas reciente): mirar el anterior.
+  std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> logs;
+  for (const auto& entry : std::filesystem::directory_iterator(logs_dir, ec)) {
+    if (entry.is_regular_file(ec) && entry.path().extension() == ".log") {
+      logs.emplace_back(entry.last_write_time(ec), entry.path());
+    }
+  }
+  if (logs.size() < 2) return false;
+  std::sort(logs.begin(), logs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+  std::ifstream in(logs[1].second, std::ios::binary);
+  if (!in) return false;
+  in.seekg(0, std::ios::end);
+  const std::streamoff size = in.tellg();
+  const std::streamoff tail = std::min<std::streamoff>(size, 256 * 1024);
+  in.seekg(size - tail);
+  std::string text(static_cast<size_t>(tail), ' ');
+  in.read(text.data(), tail);
+  return text.find("D3D12 device removed:") != std::string::npos;
+}
+
+void ArmGpuCrashDiagnostics() {
+  if (rex::cvar::HasNonDefaultValue("d3d12_dred")) return;
+  if (PreviousSessionLostGpu()) {
+    rex::cvar::SetFlagByName("d3d12_dred", "true");
+    REXLOG_INFO("dbz3: la sesion anterior perdio la GPU (device removed): DRED activado para esta "
+                "sesion");
+  }
+}
+
 std::string FullscreenMode() { return REXCVAR_GET(dbz3_fullscreen_mode); }
 void SetFullscreenMode(const std::string& mode) { REXCVAR_SET(dbz3_fullscreen_mode, mode); }
 
@@ -2100,6 +2140,7 @@ void ApplyUserSettingsToSdk() {
   // the individual cvars below carry the recommended values (once per process,
   // see ApplyQualityPresetIfAuto).
   ApplyQualityPresetIfAuto();
+  ArmGpuCrashDiagnostics();
   // Re-detect the texture packs in mods/ (a pack is a folder with the dump's
   // `<hash>_<W>x<H>_<FOURCC>.dds` files). This runs before the GPU plugin loads,
   // so it must be set here and not only saved to the TOML.

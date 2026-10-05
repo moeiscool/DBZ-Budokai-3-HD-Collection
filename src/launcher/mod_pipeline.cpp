@@ -638,6 +638,11 @@ void ModPipeline::ImportCharacter(const ImportRequest& r) {
   RunAsync(ImporterScript(), args);
 }
 
+bool ModPipeline::RosterToolAvailable() {
+  std::error_code ec;
+  return std::filesystem::exists(RosterScript(), ec);
+}
+
 bool ModPipeline::ToolsInstalled() {
   std::error_code ec;
   return std::filesystem::exists(ImporterScript(), ec) && std::filesystem::exists(RosterScript(), ec);

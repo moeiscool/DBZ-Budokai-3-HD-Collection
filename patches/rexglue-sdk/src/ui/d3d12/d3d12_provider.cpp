@@ -23,10 +23,12 @@
 REXCVAR_DEFINE_BOOL(d3d12_debug, false, "UI/D3D12", "Enable Direct3D 12 and DXGI debug layer")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
-// DRED needs only D3D12GetDebugInterface, not the (heavy) debug layer, so it is
-// enabled by default: it is what names the faulting op and the allocation at
-// the faulting VA when the device is lost. See LogDeviceRemovalDiagnostics.
-REXCVAR_DEFINE_BOOL(d3d12_dred, true, "UI/D3D12",
+// DRED needs only D3D12GetDebugInterface, not the (heavy) debug layer: it is what
+// names the faulting op and the allocation at the faulting VA when the device is
+// lost. See LogDeviceRemovalDiagnostics. DBZ3 v1.4.1: OFF by default (breadcrumbs +
+// page-fault tracking cost on every command list / resource); the game arms it for
+// the session after a device removal (settings.cpp ArmGpuCrashDiagnostics).
+REXCVAR_DEFINE_BOOL(d3d12_dred, false, "UI/D3D12",
                     "Enable D3D12 Device Removed Extended Data (auto-breadcrumbs "
                     "+ page-fault reporting) for GPU-crash diagnostics")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);

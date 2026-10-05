@@ -8,6 +8,61 @@ Downloads: [latest release](../../releases/latest).
 
 ---
 
+## [1.4.1] - 2026-10-05
+
+Performance and polish.
+
+### Fixed
+
+- **Fixes for the 30 FPS lock-up on powerful PCs (issue #8)** (not reproducible on the dev PC; the new telemetry below names the cause on affected machines). The runtime now requests a
+  1 ms system timer, uses high-resolution waitable timers for its short sleeps
+  (guest vblank, GPU register waits, the game's own `Sleep` calls) and opts the
+  process out of Windows power throttling (EcoQoS / timer-resolution
+  throttling), so Windows 11 neither stretches 1 ms waits to ~15 ms nor parks
+  the game on efficiency cores.
+- The low-FPS warning no longer suggests "lower the internal scale to 1x" when
+  it is already 1x: it lists only the expensive settings that are active, and
+  says when the bottleneck is the CPU.
+
+- **Crash on the character select screen with the new characters pack.** A new
+  cell borrows its host's saved costume and costume count (Janemba on Krillin), so
+  the game asked for costume 1-3 of a 1-costume character and read past its model
+  list (null pointer in `sub_8208DDF0`, called from `0x82134A98`). Model/mouth lists
+  are now padded to 8 costumes (repeating the first one) and costume cycling on a
+  new cell only walks that character's own costumes.
+- **Music silent with a music pack + the characters mod.** The virtual AFS table was
+  built from the original `adx_usa.afs` while the data came from the music pack's
+  whole-file replacement; it now uses the file actually opened.
+- The launcher no longer runs `roster_build.py` on PLAY when the modding kit is not
+  installed (the characters pack ships a prebuilt `_roster`).
+
+### Changed
+
+- **DRED (GPU crash diagnostics) is off by default** (it was always on since
+  1.3.0, with a cost on every command list and resource). The game turns it on
+  automatically for the session after a `D3D12 device removed`.
+- The `perf` log line adds `gpu_wait=` (ms per frame blocked on the GPU),
+  `syncs=` and `cp_wait=` (ms per frame the GPU thread waited for the game).
+- The `entorno` line (component versions, OS, RAM) is also logged when the
+  launcher is skipped.
+- `dbz3: tiron N ms (...)` lines for guest frames over 50 ms (D3D12 and Vulkan),
+  `perf` lines on Vulkan, and `dbz3: audio pico=... rms=...` (guest mix level) with
+  `dbz3_perf_logging`.
+- Launcher: the New characters tab warns when the game is the EU/PAL version
+  (new characters need the US/NA one).
+
+### Modding Kit 1.4.1
+
+- New **Diagnostics** page (`diagnostico.py`, also usable from the console):
+  reads a game log and explains, in plain language, old/mixed installs, 30 FPS
+  lock-ups (CPU vs GPU), GPU resets, sudden closes, slow disks and new
+  characters on the EU version; copies the report for Discord.
+- Checks that the new characters mod is built for all five game languages.
+- `make_modpacks.py --solo kit`: the characters pack stays the 1.4.0 one on
+  Google Drive.
+
+---
+
 ## [1.4.0] - 2026-10-04
 
 The biggest update so far: an in-game quick menu, live video settings, a

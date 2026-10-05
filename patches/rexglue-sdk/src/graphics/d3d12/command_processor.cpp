@@ -2101,20 +2101,36 @@ bool Dbz3IsOurWindowForeground() {
 //    (`frame_cap`, o 60 Hz si no hay limite) durante 3 ventanas seguidas, el
 //    frame no esta llegando al intervalo de presentacion (sintoma clasico de
 //    vsync a media tasa: 60 -> 30 exactos);
-//  * si ademas hay ajustes caros activos (escala interna > 1x, MSAA o mejora de
-//    texturas) la linea dice CUALES y que tocar. Sin ellos el aviso no sale: en
-//    un equipo modesto ir por debajo de 60 es esperado, no un error.
+//  * la linea dice si el cuello es la CPU (el hilo apenas espera a la GPU: bajar
+//    ajustes de imagen no ayuda) o la GPU, y en ese caso CUALES de los ajustes caros
+//    activos (escala interna > 1x, MSAA, mejora de texturas) tocar (v1.4.1).
 // Es deliberadamente independiente de las cvars de diagnostico: el log normal
 // sigue limpio y solo aparece una linea cuando hay algo que el usuario puede
 // arreglar.
-void Dbz3CheckSustainedLowFps(double fps) {
+// DBZ3 (v1.4.1): tiempo que el hilo de la GPU emulada pasa BLOQUEADO esperando a que
+// la GPU real termine (fences) y cuantas veces. Con esto un log de "va a 30" dice si
+// el cuello es la GPU (espera alta) o la CPU (espera baja: el frame se va en traducir
+// comandos o en el propio guest). `cp_wait` = espera del command processor al guest.
+static std::atomic<uint64_t> g_dbz3_fence_wait_us{0};
+extern std::atomic<uint64_t> g_dbz3_sync_shader_work;  // pipeline_cache.cpp
+static std::atomic<uint64_t> g_dbz3_fence_waits{0};
+
+static void Dbz3TimedFenceWait(HANDLE event) {
+  const auto start = std::chrono::steady_clock::now();
+  WaitForSingleObject(event, INFINITE);
+  g_dbz3_fence_wait_us.fetch_add(
+      uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                   std::chrono::steady_clock::now() - start)
+                   .count()),
+      std::memory_order_relaxed);
+  g_dbz3_fence_waits.fetch_add(1, std::memory_order_relaxed);
+}
+
+void Dbz3CheckSustainedLowFps(double fps, double gpu_wait_ms_per_frame) {
   const bool scale_high = rex::cvar::GetFlagByName("draw_resolution_scale_x") != "1" ||
                           rex::cvar::GetFlagByName("draw_resolution_scale_y") != "1";
   const bool msaa = rex::cvar::GetFlagByName("native_2x_msaa") == "true";
   const bool hd_tex = rex::cvar::GetFlagByName("dbz3_texture_upscale") != "1";
-  if (!scale_high && !msaa && !hd_tex) {
-    return;
-  }
   int32_t cap = int32_t(REXCVAR_GET(frame_cap));
   if (cap <= 0) {
     cap = 60;  // el guest corre a 60 Hz: ese es el limite real de presentacion
@@ -2131,12 +2147,35 @@ void Dbz3CheckSustainedLowFps(double fps) {
   }
   ++warnings;
   low_windows = 0;
+  // v1.4.1: sugerir solo lo que de verdad esta activo (antes pedia "baja la escala
+  // a 1x" aunque ya estuviera en 1x).
+  std::string hints;
+  // Si el hilo apenas espera a la GPU, el frame se va en CPU: los ajustes de imagen no
+  // son la causa y bajarlos no ayudara.
+  const bool cpu_bound = gpu_wait_ms_per_frame >= 0.0 && gpu_wait_ms_per_frame < 2.0;
+  if (cpu_bound) {
+    hints = "el cuello es la CPU (espera a la GPU " + fmt::format("{:.1f}", gpu_wait_ms_per_frame) +
+            " ms/frame): cierra programas en segundo plano y usa el plan de energia de alto "
+            "rendimiento";
+  }
+  if (scale_high && !cpu_bound) {
+    hints += "baja la escala interna a 1x";
+  }
+  if (msaa && !cpu_bound) {
+    hints += hints.empty() ? "desactiva MSAA" : ", desactiva MSAA";
+  }
+  if (hd_tex && !cpu_bound) {
+    hints += hints.empty() ? "desactiva la mejora de texturas" : ", desactiva la mejora de texturas";
+  }
+  if (hints.empty()) {
+    hints = "la grafica no llega a 60 con esta configuracion: usa el preset Rendimiento";
+  }
   REXGPU_WARN(
       "dbz3: aviso - fps {:.1f} sostenido con limite {} (config: escala {}x{} msaa={} "
       "mejora_texturas={}) - el frame no llega al intervalo de presentacion (vsync a media "
-      "tasa); baja la escala interna a 1x, desactiva MSAA o la mejora de texturas",
+      "tasa); prueba: {}",
       fps, uint32_t(cap), rex::cvar::GetFlagByName("draw_resolution_scale_x"),
-      rex::cvar::GetFlagByName("draw_resolution_scale_y"), msaa ? 1 : 0, hd_tex ? 1 : 0);
+      rex::cvar::GetFlagByName("draw_resolution_scale_y"), msaa ? 1 : 0, hd_tex ? 1 : 0, hints);
 }
 
 static void Dbz3LogGuestPerformance(uint64_t upscaled_textures, uint64_t upscale_dynamic_refills,
@@ -2154,6 +2193,32 @@ static void Dbz3LogGuestPerformance(uint64_t upscaled_textures, uint64_t upscale
       max_frame_ms = frame_ms;
     }
   }
+  // v1.4.1: registro de tirones (issue #14, "se congela 6-8 frames al transformarse").
+  // Cada frame del guest de mas de 50 ms deja una linea con lo que paso en ESE frame:
+  // texturas cargadas, espera a la GPU y espera al guest. Siempre activo, maximo 30 por
+  // sesion: un log de usuario dice si el tiron es carga de texturas, GPU o el propio
+  // juego (lectura de disco / CPU del guest: ninguna de las dos esperas lo explica).
+  {
+    static uint64_t hitch_tex_last = 0, hitch_fence_last = 0, hitch_cp_last = 0, hitch_sh_last = 0;
+    const uint64_t sh_now = g_dbz3_sync_shader_work.load(std::memory_order_relaxed);
+    static uint32_t hitches_logged = 0;
+    const uint64_t fence_now = g_dbz3_fence_wait_us.load(std::memory_order_relaxed);
+    const uint64_t cp_now = rex::graphics::g_dbz3_regmem_wait_us.load(std::memory_order_relaxed);
+    if (last_frame.time_since_epoch().count() != 0 && hitch_tex_last != 0) {
+      const double frame_ms = std::chrono::duration<double, std::milli>(now - last_frame).count();
+      if (frame_ms > 50.0 && hitches_logged < 30) {
+        ++hitches_logged;
+        REXGPU_INFO(
+            "dbz3: tiron {:.0f} ms (texload +{} gpu_wait {:.1f} ms cp_wait {:.1f} ms shaders +{})",
+            frame_ms, texture_loads - hitch_tex_last, double(fence_now - hitch_fence_last) / 1000.0,
+            double(cp_now - hitch_cp_last) / 1000.0, sh_now - hitch_sh_last);
+      }
+    }
+    hitch_tex_last = texture_loads ? texture_loads : 1;
+    hitch_fence_last = fence_now;
+    hitch_cp_last = cp_now;
+    hitch_sh_last = sh_now;
+  }
   last_frame = now;
   if (window_start.time_since_epoch().count() == 0) {
     window_start = now;
@@ -2164,6 +2229,18 @@ static void Dbz3LogGuestPerformance(uint64_t upscaled_textures, uint64_t upscale
   if (elapsed_s < 5.0) {
     return;
   }
+  // Esperas de esta ventana, por frame (siempre: las usa tambien el aviso de fps bajo).
+  static uint64_t fence_wait_us_last = 0, fence_waits_last = 0, cp_wait_us_last = 0;
+  const uint64_t fence_wait_us_now = g_dbz3_fence_wait_us.load(std::memory_order_relaxed);
+  const uint64_t fence_waits_now = g_dbz3_fence_waits.load(std::memory_order_relaxed);
+  const uint64_t cp_wait_us_now = rex::graphics::g_dbz3_regmem_wait_us.load(std::memory_order_relaxed);
+  const double frames_div = frames_in_window ? double(frames_in_window) : 1.0;
+  const double gpu_wait_ms = double(fence_wait_us_now - fence_wait_us_last) / 1000.0 / frames_div;
+  const uint64_t fence_waits = fence_waits_now - fence_waits_last;
+  const double cp_wait_ms = double(cp_wait_us_now - cp_wait_us_last) / 1000.0 / frames_div;
+  fence_wait_us_last = fence_wait_us_now;
+  fence_waits_last = fence_waits_now;
+  cp_wait_us_last = cp_wait_us_now;
   if (rex::cvar::GetFlagByName("dbz3_perf_logging") == "true") {
     // `fg=` = our window is the foreground one. Windows' DWM halves the present
     // rate of an unfocused window (a clean 60 -> 30 fps in the log, not gradual),
@@ -2183,7 +2260,7 @@ static void Dbz3LogGuestPerformance(uint64_t upscaled_textures, uint64_t upscale
     REXGPU_INFO(
         "dbz3: perf fps={:.1f} frames={} window={:.2f}s max_frame_ms={:.1f} fg={} "
         "cfg=scale:{}x{} msaa:{} hdtex:{} area:{} min:{} aniso:{} upx={} upx_dyn={} "
-        "texload={} vram={}MB/{}MB lim={}",
+        "texload={} vram={}MB/{}MB lim={} gpu_wait={:.1f}ms/f syncs={} cp_wait={:.1f}ms/f",
         double(frames_in_window) / elapsed_s, frames_in_window, elapsed_s, max_frame_ms,
         foreground ? 1 : 0, rex::cvar::GetFlagByName("draw_resolution_scale_x"),
         rex::cvar::GetFlagByName("draw_resolution_scale_y"),
@@ -2193,9 +2270,9 @@ static void Dbz3LogGuestPerformance(uint64_t upscaled_textures, uint64_t upscale
         rex::cvar::GetFlagByName("dbz3_upscale_min_size"),
         rex::cvar::GetFlagByName("anisotropic_override"), upscaled_textures,
         upscale_dynamic_refills, texture_loads_window, vram_usage >> 20, vram_budget >> 20,
-        upscale_limit);
+        upscale_limit, gpu_wait_ms, fence_waits, cp_wait_ms);
   }
-  Dbz3CheckSustainedLowFps(double(frames_in_window) / elapsed_s);
+  Dbz3CheckSustainedLowFps(double(frames_in_window) / elapsed_s, gpu_wait_ms);
   window_start = now;
   frames_in_window = 0;
   max_frame_ms = 0.0;
@@ -3438,7 +3515,7 @@ void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission) {
                     SUCCEEDED(queue_operations_since_submission_fence_->SetEventOnCompletion(
                         fence_value, fence_completion_event_)))) {
         PROFILE_CMD_BUFFER_STALL();
-        WaitForSingleObject(fence_completion_event_, INFINITE);
+        Dbz3TimedFenceWait(fence_completion_event_);
         queue_operations_done_since_submission_signal_ = false;
       } else {
         REXGPU_ERROR(
@@ -3457,7 +3534,7 @@ void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission) {
     if (SUCCEEDED(
             submission_fence_->SetEventOnCompletion(await_submission, fence_completion_event_))) {
       PROFILE_CMD_BUFFER_STALL();
-      WaitForSingleObject(fence_completion_event_, INFINITE);
+      Dbz3TimedFenceWait(fence_completion_event_);
       submission_completed_ = submission_fence_->GetCompletedValue();
     }
   }

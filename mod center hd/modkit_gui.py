@@ -42,8 +42,8 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-MODKIT_VERSION = "1.0.0"
-KIT_VERSION = "1.4.0"
+MODKIT_VERSION = "1.1.0"
+KIT_VERSION = "1.4.1"
 
 # =================================================================================================
 # COMUNIDAD / COMMUNITY: pega aqui el enlace de invitacion del servidor de Discord.
@@ -1310,6 +1310,7 @@ ICONS = {  # (Segoe MDL2 / Fluent, alternativa)
     "setup": ("\uE9D9", "⚙"), "mods": ("\uE8F1", "▤"), "importer": ("\uE896", "⇩"),
     "characters": ("\uE716", "☺"), "create": ("\uE8FA", "✚"), "textures": ("\uE790", "✎"),
     "swap": ("\uE8AB", "⇄"), "help": ("\uE897", "?"), "tools": ("\uE90F", "⚒"), "home": ("\uE80F", "⌂"),
+    "diag": ("\uE9D2", "♥"),
 }
 
 
@@ -1836,6 +1837,9 @@ PAGE_DEFS = [
      "Export a character's textures to PNG, edit them and rebuild."),
     ("swap", "Cambio de modelo", "Model swap",
      "Pon el modelo de un personaje en el sitio de otro.", "Put one character's model in another's slot."),
+    ("diag", "Diagnóstico", "Diagnostics",
+     "¿Va lento o se cierra? Analiza el registro del juego y te dice qué hacer.",
+     "Slow or crashing? Analyse the game log and get what to do."),
     ("help", "Ayuda y comunidad", "Help & community",
      "Guías, primeros pasos y el Discord de la comunidad.", "Guides, first steps and the community Discord."),
 ]
@@ -4315,6 +4319,118 @@ DOCS = [
 ]
 
 
+class DiagPage(Page):
+    """Lee el log del juego y explica en sencillo que pasa (diagnostico.py), y revisa que el mod de
+    personajes nuevos tenga todos los idiomas (en espanol/aleman/... el juego lee otros ficheros)."""
+    key = "diag"
+
+    def build(self):
+        self.header(T("Diagnóstico", "Diagnostics"),
+                    T("¿Va lento, se cierra o no salen los personajes? Analiza el registro del juego y te dice "
+                      "qué pasa y qué hacer.",
+                      "Slow, crashing or new characters missing? Analyse the game log and get what is wrong "
+                      "and what to do."))
+        sf, body = self.scroll_body()
+        c = Card(body, T("Registro del juego", "Game log"),
+                 T("El juego guarda uno por partida en la carpeta logs (dbz3_XXX.log). También vale el log "
+                   "que te pase otro jugador.",
+                   "The game writes one per session in the logs folder (dbz3_XXX.log). A log from another "
+                   "player works too."), accent=True)
+        c.pack(fill="x", pady=(12, 12))
+        row = tk.Frame(c.body, bg=C["card"])
+        row.pack(fill="x")
+        ttk.Button(row, text=T("Analizar mi último registro", "Analyse my latest log"), style="Accent.TButton",
+                   command=self.latest).pack(side="left")
+        ttk.Button(row, text=T("Abrir otro registro…", "Open another log…"), style="Small.TButton",
+                   command=self.pick).pack(side="left", padx=8)
+        ttk.Button(row, text=T("Copiar informe", "Copy report"), style="Small.TButton",
+                   command=self.copy).pack(side="left")
+        self.src = label(c.body, "", fg=C["dim"], bg=C["card"], font=F["small"])
+        self.src.pack(fill="x", pady=(8, 0))
+        self.out = tk.Frame(body, bg=C["bg"])
+        self.out.pack(fill="x")
+        self.report = ""
+        m = Card(body, T("Mod de personajes nuevos", "New characters mod"),
+                 T("Comprueba que esté montado para todos los idiomas del juego.",
+                   "Checks it is built for every game language."))
+        m.pack(fill="x", pady=(12, 12))
+        self.mods_lbl = label(m.body, "", bg=C["card"], wrap=820)
+        self.mods_lbl.pack(fill="x")
+
+    def on_show(self):
+        roster = os.path.join(self.env.mods, "_roster", "us")
+        if not os.path.isdir(roster):
+            self.mods_lbl.configure(text=T("Aún no hay personajes nuevos montados (se montan al pulsar JUGAR).",
+                                           "No new characters built yet (they are built when you press PLAY)."),
+                                    fg=C["dim"])
+            return
+        need = ["data_usi.afs"] + ["data_%s.afs" % k for k in ("eng", "spn", "fra", "ger", "ita")]
+        miss = [n for n in need if not os.path.exists(os.path.join(roster, n))]
+        if miss:
+            self.mods_lbl.configure(text=T("Faltan idiomas: %s. Con el juego en esos idiomas las casillas nuevas "
+                                           "salen vacías. Pulsa «Reconstruir» en «Personajes nuevos».",
+                                           "Missing languages: %s. With the game in those languages the new "
+                                           "cells are blank. Press 'Rebuild' in 'New characters'.")
+                                    % ", ".join(miss), fg=C["err"])
+        else:
+            self.mods_lbl.configure(text=T("Correcto: montado para inglés, español, francés, alemán e italiano.",
+                                           "OK: built for English, Spanish, French, German and Italian."),
+                                    fg=C["ok"])
+
+    def latest(self):
+        logs = os.path.join(self.env.game, "logs") if self.env.game else ""
+        cands = []
+        if logs and os.path.isdir(logs):
+            cands = [os.path.join(logs, n) for n in os.listdir(logs) if n.startswith("dbz3_") and n.endswith(".log")]
+        if not cands:
+            messagebox.showinfo(T("Diagnóstico", "Diagnostics"),
+                                T("No encuentro registros del juego. Juega una partida o elige uno con «Abrir otro "
+                                  "registro…».", "No game logs found. Play once or pick one with 'Open another "
+                                  "log…'."))
+            return
+        self.analyse(max(cands, key=os.path.getmtime))
+
+    def pick(self):
+        p = filedialog.askopenfilename(filetypes=[(T("Registros", "Logs"), "*.log *.txt"), (T("Todos", "All"), "*.*")])
+        if p:
+            self.analyse(p)
+
+    def analyse(self, path):
+        import diagnostico
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError as e:
+            messagebox.showerror(T("Diagnóstico", "Diagnostics"), str(e))
+            return
+        findings = diagnostico.analizar(text, en=LANG == "en")
+        self.report = diagnostico.informe(text, en=LANG == "en")
+        self.src.configure(text=path)
+        for w in self.out.winfo_children():
+            w.destroy()
+        color = {"ok": C["ok"], "info": C["blue"], "warn": C["warn"], "err": C["err"]}
+        mark = {"ok": "✔", "info": "ℹ", "warn": "!", "err": "✖"}
+        for level, title, detail in findings:
+            card = tk.Frame(self.out, bg=C["card"], highlightthickness=1, highlightbackground=C["line"])
+            card.pack(fill="x", pady=4)
+            tk.Label(card, text=mark[level], bg=C["card"], fg=color[level], font=F["h3"], width=2).pack(
+                side="left", anchor="n", padx=(10, 4), pady=8)
+            tf = tk.Frame(card, bg=C["card"])
+            tf.pack(side="left", fill="x", expand=True, pady=8, padx=(0, 12))
+            label(tf, title, font=F["bold"], bg=C["card"], fg=color[level]).pack(fill="x")
+            if detail:
+                label(tf, detail, bg=C["card"], wrap=820).pack(fill="x", pady=(2, 0))
+        self.app.log_text(self.report + "\n")
+
+    def copy(self):
+        if not self.report:
+            return
+        self.app.root.clipboard_clear()
+        self.app.root.clipboard_append(self.report)
+        self.src.configure(text=T("Informe copiado: pégalo en Discord al pedir ayuda.",
+                                  "Report copied: paste it on Discord when asking for help."))
+
+
 class HelpPage(Page):
     key = "help"
 
@@ -4630,10 +4746,11 @@ class StatusBar(tk.Frame):
 ADV_TABS = [("setup", "Entorno", "Environment"), ("mods", "Mods", "Mods"), ("importer", "Importar", "Import"),
             ("characters", "Personajes", "Characters"), ("create", "Crear", "Create"),
             ("textures", "Texturas", "Textures"), ("swap", "Cambio de modelo", "Model swap"),
-            ("tools", "Herramientas", "Tools"), ("help", "Ayuda", "Help")]
+            ("tools", "Herramientas", "Tools"), ("diag", "Diagnóstico", "Diagnostics"),
+            ("help", "Ayuda", "Help")]
 PAGE_CLASSES = {"home": HomePage, "setup": SetupPage, "mods": ModsPage, "importer": ImporterPage,
                 "characters": CharactersPage, "create": CreatePage, "textures": TexturesPage, "swap": SwapPage,
-                "tools": ToolsPage, "help": HelpPage}
+                "tools": ToolsPage, "diag": DiagPage, "help": HelpPage}
 
 
 class App:
@@ -4987,6 +5104,20 @@ def selftest(lang=None):
                 built.append("%s/%s:%d" % (lg, mode, len(app.pages)))
         say("screens built: " + ", ".join(built))
         LANG = lang or "es"
+        # diagnostico: un log sintetico con 30 FPS sostenidos en una version antigua
+        import diagnostico
+        sample = "\n".join(
+            ["[2026-10-04 17:51:47.887] [info] [core] [t1] dbz3: entorno os=10.0.26300 ram=65219MB "
+             "dbz3.exe=1.3.0.0 rexgpu-xenos=1.3.0 rexruntime=1.3.0 amd_fidelityfx_dx12.dll=1.0.1.0"] +
+            ["[2026-10-04 17:53:%02d.000] [info] [gpu] [t2] dbz3: perf fps=30.0 frames=150 window=5.00s "
+             "max_frame_ms=33.5 fg=1 cfg=x" % i for i in range(4)])
+        levels = [f[0] for f in diagnostico.analizar(sample)]
+        if "err" not in levels or "warn" not in levels:
+            ok = False
+            say("DIAG FAIL: %s" % levels)
+        app.goto("diag")
+        app.pages["diag"].report = diagnostico.informe(sample)
+        say("diagnostico: %d hallazgos (%s)" % (len(levels), ",".join(levels)))
         # todas las herramientas con su formulario
         tp = app.pages["tools"]
         tp.on_show()

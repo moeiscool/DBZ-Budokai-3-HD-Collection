@@ -22,7 +22,7 @@ emulator. Native Linux builds use Vulkan and SDL3.
 | Platform | Windows / Linux |
 | Engine | Xbox 360 (ReXGlue SDK) |
 | Genre | 3D fighting |
-| Version | v1.4.0 |
+| Version | v1.4.1 |
 
 Copyright (c) 2026 **NovaPowers**. Released under the MIT License (see `LICENSE`).
 
@@ -31,6 +31,23 @@ Copyright (c) 2026 **NovaPowers**. Released under the MIT License (see `LICENSE`
 [Mods and new characters](#mods-and-new-characters)
 
 ---
+
+## What's new in v1.4.1
+
+- **Fixes for the 30 FPS lock-up on powerful PCs** (issue #8): precise timing, and Windows no
+  longer puts the game in power-saving mode (efficiency cores).
+- GPU crash diagnostics (DRED) no longer cost performance: they only turn on
+  for the session after a GPU crash.
+- The log shows where the time goes (`gpu_wait`, `cp_wait`) and records hitches
+  longer than 50 ms.
+- The launcher warns when your game is the European version and you have new
+  characters (they only work with the US/NA version).
+- Fixed the crash when changing costume on a new character (Janemba) and the
+  music going silent with the characters mod plus a music pack.
+- Modding Kit 1.4.1: a **Diagnostics** page that reads the game log and
+  explains what is wrong and what to do.
+
+The character pack is still `DBZ3HD-1.4.0-Personajes.zip` (it works as-is).
 
 ## What's new in v1.4.0
 
@@ -96,14 +113,14 @@ From the [**Releases**](../../releases/latest) page:
 
 | File | What it is |
 |---|---|
-| `DBZ-Budokai-3-HD-Collection-v1.4.0.zip` | **The game for Windows** (required). |
-| `DBZ-Budokai-3-HD-Collection-v1.4.0-linux-amd64.tar.gz` | The game for Linux (Vulkan), when published. |
+| `DBZ-Budokai-3-HD-Collection-v1.4.1.zip` | **The game for Windows** (required). |
+| `DBZ-Budokai-3-HD-Collection-v1.4.1-linux-amd64.tar.gz` | The game for Linux (Vulkan), when published. |
 | [`DBZ3HD-1.4.0-Personajes.zip`](https://drive.google.com/file/d/1zpwuuU7ITKZlC43nsTbp6s2wceBcwO85/view?usp=sharing) | Optional: the 7 new characters (**download it from [Google Drive](https://drive.google.com/file/d/1zpwuuU7ITKZlC43nsTbp6s2wceBcwO85/view?usp=sharing)**). |
-| `DBZ3HD-1.4.0-Kit-Modding.zip` | Optional: tools to create and import characters. |
+| `DBZ3HD-1.4.1-Kit-Modding.zip` | Optional: tools to create and import characters. |
 
 ### Windows
 
-1. **Extract** `DBZ-Budokai-3-HD-Collection-v1.4.0.zip` into a folder, for
+1. **Extract** `DBZ-Budokai-3-HD-Collection-v1.4.1.zip` into a folder, for
    example `C:\Games\DBZ3\`.
 2. **Add the data from your copy of the game**, in one of two ways:
    - **Easiest — the ISO**: drop the game's `.iso` next to `dbz3.exe`. Nothing
@@ -193,7 +210,7 @@ and yells of their Budokai 1 version.
 To remove one, untick it under **New characters → Installed**. Your saves are
 never touched.
 
-### Modding kit (`DBZ3HD-1.4.0-Kit-Modding.zip`)
+### Modding kit (`DBZ3HD-1.4.1-Kit-Modding.zip`)
 
 The tools behind the launcher's modding tabs: create and **import characters**
 (Budokai 1, Budokai 2, Infinite World and community models), custom capsules,

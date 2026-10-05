@@ -40,6 +40,7 @@ extern const rex::PPCImageInfo PPCImageConfigEU;
 #include "launcher/settings.h"
 #include "launcher/launcher_state.h"
 #include "launcher/ui_kit.h"
+#include "launcher/update_check.h"
 #include "ingame/quick_settings.h"
 #include "launcher/i18n.h"
 #include "ingame/menu.h"
@@ -722,6 +723,9 @@ protected:
                     }
                 }
             }
+            // Sin launcher tambien queda en el log la linea `entorno` (version de cada
+            // componente, SO, RAM): la necesitan el diagnostico del Mod Kit y los reportes.
+            dbz3::launcher::InstalledComponents();
             REXLOG_INFO("dbz3: skip_launcher set, booting directly");
             ReXApp::LaunchModule();
             return;

@@ -10,6 +10,8 @@
  */
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <array>
 #include <cstring>
 
@@ -168,6 +170,45 @@ void SDLAudioDriver::Shutdown() {
   }
 }
 
+// DBZ3 (v1.4.1): nivel de la mezcla del guest (antes de mute/volumen), una linea cada
+// 5 s con `dbz3_perf_logging`: `audio pico=0.000` sostenido = el juego no esta
+// generando sonido (p. ej. "con el mod de personajes no suena la musica"), distinto
+// de "lo silencia el launcher" (mute/volumen/ventana sin foco).
+static void Dbz3TrackAudioLevel(const float* buffer, uint32_t channel_samples) {
+  static float peak = 0.0f;
+  static double sum_sq = 0.0;
+  static uint64_t samples = 0;
+  static std::chrono::steady_clock::time_point window_start;
+  // 6 canales secuenciales en big-endian (el formato del XAudio del guest).
+  const uint32_t n = channel_samples * 6;
+  const uint32_t* words = reinterpret_cast<const uint32_t*>(buffer);
+  for (uint32_t i = 0; i < n; ++i) {
+    uint32_t w = words[i];
+    w = (w >> 24) | ((w >> 8) & 0xFF00u) | ((w << 8) & 0xFF0000u) | (w << 24);
+    float v;
+    std::memcpy(&v, &w, sizeof(v));
+    if (!(v == v)) continue;  // NaN
+    const float a = v < 0 ? -v : v;
+    if (a > peak) peak = a;
+    sum_sq += double(v) * double(v);
+  }
+  samples += n;
+  const auto now = std::chrono::steady_clock::now();
+  if (window_start.time_since_epoch().count() == 0) {
+    window_start = now;
+    return;
+  }
+  if (now - window_start < std::chrono::seconds(5)) return;
+  if (rex::cvar::GetFlagByName("dbz3_perf_logging") == "true") {
+    REXAPU_INFO("dbz3: audio pico={:.3f} rms={:.4f}", peak,
+                samples ? std::sqrt(sum_sq / double(samples)) : 0.0);
+  }
+  peak = 0.0f;
+  sum_sq = 0.0;
+  samples = 0;
+  window_start = now;
+}
+
 void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int additional_amount,
                                  [[maybe_unused]] int total_amount) {
   SCOPE_profile_cpu_f("apu");
@@ -210,6 +251,7 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
     } else {
       auto buffer = driver->frames_queued_.front();
       driver->frames_queued_.pop();
+      Dbz3TrackAudioLevel(buffer, channel_samples_);
       if (REXCVAR_GET(audio_mute) ||
           (REXCVAR_GET(dbz3_mute_unfocused) && !REXCVAR_GET(dbz3_window_focused))) {
         std::memset(data, 0, len);

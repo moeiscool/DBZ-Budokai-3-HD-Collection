@@ -1,4 +1,4 @@
-# dbz3 - Verificacion de un paquete de release (github/release-stage) antes de
+﻿# dbz3 - Verificacion de un paquete de release (github/release-stage) antes de
 # publicar. Comprueba que las DLLs del runtime son las del SDK baseline, que el
 # exe es el core dual esperado con VERSIONINFO correcto, que no hay assets del
 # juego en el zip, y que mods/ va vacia.
@@ -21,12 +21,12 @@ $baseline = Join-Path $root "rexglue-sdk-0.10\out\win-amd64-baseline"
 $errors = @()
 
 # Tamanos de las DLL canonicas de la release actual (SDK rama dbz3-burstlimit,
-# 2026-10-04). Historico: v1.3.0 = 10920448 / 6360064. amd_fidelityfx_dx12.dll no
-# cambia desde 2026-08-28.
-$canonVersion = "1.4.0"
+# 2026-10-05). Historico: v1.3.0 = 10920448 / 6360064, v1.4.0 = 11034624 / 6372864.
+# amd_fidelityfx_dx12.dll no cambia desde 2026-08-28.
+$canonVersion = "1.4.1"
 $canonSizes = @{
-    "rexruntime.dll"          = 11034624
-    "rexgpu-xenos.dll"        = 6372864
+    "rexruntime.dll"          = 11039744
+    "rexgpu-xenos.dll"        = 6385152
     "amd_fidelityfx_dx12.dll" = 5413888
 }
 

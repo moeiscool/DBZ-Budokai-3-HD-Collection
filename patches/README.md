@@ -529,3 +529,34 @@ d197cd7, 431266b, 3360458, 0f1ae03 + port minimo de 1fc298c). Licencia del SDK
   `rexgpu-xenos.dll` **6.372.864 B**, `amd_fidelityfx_dx12.dll` **5.413.888 B**
   (sin cambios). `tools/verify_release.ps1` comprueba hash contra el SDK baseline y
   estos tamanos de referencia.
+
+## 2026-10-05 - v1.4.1: rendimiento y diagnostico
+
+- `src/core/threading_win.cpp` (solo Windows, no esta en el overlay de Linux):
+  `timeBeginPeriod(1)` + opt-out de power throttling (EcoQoS e
+  IGNORE_TIMER_RESOLUTION) la primera vez que se duerme, y `Sleep`/`AlertableSleep`
+  con un waitable timer de alta resolucion por hilo (fallback a `::Sleep`).
+  Motivo: issue #8 (30 FPS clavados con i9-14900K + RTX 4090).
+- `src/graphics/command_processor.cpp` + `include/rex/graphics/command_processor.h`:
+  contador `g_dbz3_regmem_wait_us` (tiempo dormido en WAIT_REG_MEM).
+- `src/graphics/d3d12/command_processor.cpp`: esperas a fences cronometradas
+  (`gpu_wait=`/`syncs=`/`cp_wait=` en la linea `perf`), lineas `tiron` para los
+  frames del guest de mas de 50 ms (max 30/sesion) y aviso de FPS bajo que solo
+  sugiere los ajustes activos y distingue CPU de GPU.
+- `src/ui/d3d12/d3d12_provider.cpp`: `d3d12_dred` pasa a **false** por defecto;
+  el juego lo arma para la sesion siguiente a un `D3D12 device removed`
+  (`src/launcher/settings.cpp`, `ArmGpuCrashDiagnostics`).
+- `src/graphics/d3d12/pipeline_cache.cpp` (solo D3D12): contador
+  `g_dbz3_sync_shader_work` (traducciones/pipelines hechos en el hilo de la GPU
+  emulada) que la linea `tiron` muestra como `shaders +N`.
+- `include/rex/dbz3_build.h`: sello `1.4.1`.
+- `src/filesystem/devices/host_path_file.cpp` + `host_path_entry.cpp`: la tabla virtual de
+  un AFS (mods que anaden/agrandan entradas) se calcula sobre el fichero que de verdad se
+  abre. Con un pack de musica que trae su propio `adx_usa.afs` (override de fichero
+  completo) y el mod de personajes anadiendo voces a ese AFS, se leia el pack con los
+  offsets del original y la musica salia en silencio (reproducido con un pack reordenado:
+  menu a 0.000 sin el arreglo, musica con el).
+- `src/audio/sdl/sdl_audio_driver.cpp`: linea `dbz3: audio pico=... rms=...` cada 5 s con
+  `dbz3_perf_logging` (nivel de la mezcla del guest, antes de mute/volumen).
+- `src/graphics/vulkan/command_processor.cpp`: linea `perf` (backend=vulkan) y lineas
+  `tiron` tambien en Vulkan/Linux.

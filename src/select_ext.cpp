@@ -241,6 +241,10 @@ void Leave(uint8_t* base) {
 
 }  // namespace
 
+// Casilla nueva activa para el jugador cuyo estado del select se esta ejecutando en este
+// hilo (-1 = casilla original). La usa el cambio de traje (roster_ext, sub_8217A5A0).
+int dbz3_select_active_cell() { return t_active; }
+
 #include "select_wheel_gen.inc"
 
 REX_HOOK_RAW(sub_8217D710) { Wheel_8217D710(ctx, base); }

@@ -1219,10 +1219,18 @@ void LauncherDialog::OnDraw(ImGuiIO& io) {
     // Personajes nuevos: regenerar el mod combinado "_roster" si cambio algo
     // (instantaneo si esta al dia; los mods no se aplican en modo ISO).
     if (!dbz3::settings::IsIsoMode() && ModPipeline::HasCharacterSources()) {
-      mod_pipeline_.Wait();
-      mod_pipeline_.BuildRoster();
-      mod_pipeline_.Wait();
-      REXLOG_INFO("dbz3: personajes nuevos: {}", mod_pipeline_.Output());
+      if (ModPipeline::RosterToolAvailable()) {
+        mod_pipeline_.Wait();
+        mod_pipeline_.BuildRoster();
+        mod_pipeline_.Wait();
+        REXLOG_INFO("dbz3: personajes nuevos: {}", mod_pipeline_.Output());
+      } else {
+        // v1.4.1: el pack de personajes trae el _roster ya montado y funciona sin el kit
+        // de modding; antes se lanzaba igualmente roster_build.py y cada partida dejaba
+        // "can't open file ... roster_build.py" (exit 2) en el log.
+        REXLOG_INFO("dbz3: personajes nuevos: se usa el _roster ya montado (sin el kit de "
+                    "modding no se reconstruye; para cambiar personajes instala el kit)");
+      }
     }
     Close();
     if (on_play_) {
@@ -3849,6 +3857,17 @@ void LauncherDialog::DrawNewCharactersTab() {
         "JUGAR. Tus partidas guardadas no se tocan.",
         "If something goes wrong: untick the character under \"Installed\" (back to how it was) "
         "and press PLAY. Your saves are never touched."));
+    // v1.4.1: los personajes nuevos solo existen en el nucleo US/NA (las tablas que se
+    // amplian son las del ejecutable US); con el default.xex europeo el juego arranca
+    // normal pero sin ellos, y antes no se decia en ninguna parte.
+    if (dbz3::settings::CurrentBootSource().status == dbz3::settings::XexStatus::kEu) {
+      ImGui::Dummy(ImVec2(0, 4));
+      ImGui::TextColored(ui::kError, "%s  %s", ICON_WARN, i18n::T(
+          "Tu juego es la version europea (EU/PAL): los personajes nuevos solo funcionan con la "
+          "version US/NA. El juego arrancara normal, pero sin ellos.",
+          "Your game is the European version (EU/PAL): new characters only work with the US/NA "
+          "version. The game will start normally, but without them."));
+    }
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::PopStyleVar(3);

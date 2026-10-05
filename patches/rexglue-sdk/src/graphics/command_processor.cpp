@@ -10,6 +10,8 @@
  */
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cinttypes>
 #include <cmath>
 #include <cstdio>
@@ -84,6 +86,10 @@ REXCVAR_DEFINE_BOOL(async_shader_compilation, true, "GPU",
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 namespace rex::graphics {
+
+// DBZ3 (v1.4.1): microsegundos que el command processor pasa dormido en WAIT_REG_MEM
+// (esperando a que el guest escriba un registro/memoria). Lo lee la linea `perf`.
+std::atomic<uint64_t> g_dbz3_regmem_wait_us{0};
 
 using namespace rex::graphics::xenos;
 
@@ -1037,6 +1043,7 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
     if (!matched) {
       // Wait.
       if (wait >= 0x100) {
+        const auto dbz3_wait_start = std::chrono::steady_clock::now();
         PrepareForWait();
         if (!REXCVAR_GET(vsync)) {
           // User wants it fast and dangerous.
@@ -1046,6 +1053,11 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
         }
         rex::thread::SyncMemory();
         ReturnFromWait();
+        g_dbz3_regmem_wait_us.fetch_add(
+            uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::steady_clock::now() - dbz3_wait_start)
+                         .count()),
+            std::memory_order_relaxed);
 
         if (!worker_running_) {
           // Short-circuited exit.

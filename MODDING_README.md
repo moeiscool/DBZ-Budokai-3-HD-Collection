@@ -57,7 +57,7 @@ carpeta). Hay dos descargas opcionales:
   Guldo, Jeice y Burter, listos para jugar. Copia la carpeta `mods` del ZIP
   junto a `dbz3.exe` (acepta combinar carpetas), abre el launcher y pulsa
   **JUGAR**. Para quitar uno, desmárcalo en **Personajes nuevos → Instalados**.
-- **`DBZ3HD-1.4.0-Kit-Modding.zip`** — las herramientas para crear e
+- **`DBZ3HD-1.4.1-Kit-Modding.zip`** — las herramientas para crear e
   **importar** personajes (Budokai 1, Budokai 2, Infinite World y modelos de la
   comunidad), cápsulas, voces y gritos. Copia todo su contenido junto a
   `dbz3.exe`, instala Python 3.11+ y ejecuta `instalar_requisitos.bat` una vez

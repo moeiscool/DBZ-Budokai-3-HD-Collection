@@ -30,6 +30,8 @@ uint64_t ExtraUnlockMask();
 // Suma los trajes anadidos por mods a la tabla de trajes por casilla del select.
 void AddExtraCostumes(uint8_t* base);
 bool SlotHasExtraCostumes(uint32_t slot);
+// Trajes reales de un personaje anadido por roster.toml (0 = no es de un mod).
+int CostumeCountOf(uint32_t id);
 
 // Donor character ID declared for `id` (-1 if none).
 int DonorOf(uint32_t id);

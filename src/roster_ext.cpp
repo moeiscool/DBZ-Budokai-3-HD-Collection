@@ -119,6 +119,8 @@ rex::memory::Memory* g_memory = nullptr;
 std::atomic<int> g_donor[kIds];
 // trajes anadidos por mods a personajes del juego (traje.toml)
 std::atomic<int> g_extra_costumes[kIds];
+// trajes reales de cada personaje anadido por roster.toml (0 = no anadido)
+std::atomic<int> g_costume_count[kIds];
 // encuadre del select de los IDs >= 44 (14 valores en el formato de la tabla)
 std::map<uint32_t, std::array<uint32_t, 14>> g_selpos;
 // casilla anfitriona de cada ID nuevo (para ID -> slot)
@@ -472,20 +474,33 @@ void ApplyCharacter(Guest& g, const toml::table& t, const std::string& mod) {
     // bocas tiene trajes x bocas-por-traje entradas, no una por modelo, y escribir
     // en sitio pisaba la lista del ID siguiente).
     const uint32_t nl = std::max<uint32_t>(1, uint32_t(lips.size()));
-    const uint32_t list = g.Alloc(n * 12);
-    const uint32_t lips_list = g.Alloc(nl * 8);
+    // v1.4.1: las listas se rellenan hasta kPadCostumes trajes repitiendo el primero. Una
+    // casilla nueva usa los datos guardados de su anfitrion (ultimo traje elegido) y el
+    // numero de trajes del anfitrion al cambiar de traje: Janemba (1 traje, anfitrion
+    // Krillin) pedia el traje 2/3 y el juego leia fuera de la lista -> puntero nulo y
+    // cierre en el select (sub_8208DDF0 desde 0x82134A98, log de un usuario 2026-10-05).
+    constexpr uint32_t kPadCostumes = 8;
+    const uint32_t costumes = std::max<uint32_t>(1, n / per);
+    const uint32_t padded_models = std::max(n, kPadCostumes * per);
+    const uint32_t padded_lips = std::max(nl, kPadCostumes);
+    const uint32_t list = g.Alloc(padded_models * 12);
+    const uint32_t lips_list = g.Alloc(padded_lips * 8);
     if (!list || !lips_list) {
       REXLOG_ERROR("dbz3 roster [{}]: sin memoria para {} modelos", mod, n);
       return;
     }
     g.W32(c96 + 8, list);
     g.W32(c96 + 12, lips_list);
-    for (uint32_t k = 0; k < n; ++k) {
-      g.W32(list + 12 * k, uint32_t(models[k]));  // +4 cadenas de fisica, +8 cache: 0
+    for (uint32_t k = 0; k < padded_models; ++k) {
+      // trajes inexistentes = el traje 0 (misma forma)
+      const uint32_t src = k < n ? k : (k % per) % n;
+      g.W32(list + 12 * k, uint32_t(models[src]));  // +4 cadenas de fisica, +8 cache: 0
     }
-    for (uint32_t k = 0; k < nl; ++k) {
-      g.W32(lips_list + 8 * k, k < lips.size() ? uint32_t(lips[k]) : 0xFFFFFFFFu);
+    for (uint32_t k = 0; k < padded_lips; ++k) {
+      const uint32_t src = k < nl ? k : 0;
+      g.W32(lips_list + 8 * k, src < lips.size() ? uint32_t(lips[src]) : 0xFFFFFFFFu);
     }
+    g_costume_count[uint32_t(id) & 63].store(int(costumes));
     g.W8(c96 + 4, uint8_t(std::max<uint32_t>(1, n / per)));
     g.W8(c96 + 5, uint8_t(per));
     if (donor >= 0) {
@@ -620,6 +635,8 @@ uint64_t ExtraUnlockMask() { return g_unlock.load(); }
 
 std::atomic<uint64_t> g_extra_slots{0};
 
+int CostumeCountOf(uint32_t id) { return id < 64 ? g_costume_count[id].load() : 0; }
+
 void AddExtraCostumes(uint8_t* base) {
   uint64_t slots = 0;
   for (uint32_t id = 0; id < 44; ++id) {
@@ -727,6 +744,7 @@ void EnsureCapsules() {
 void ApplyAtLaunch(rex::memory::Memory* memory) {
   for (auto& d : g_donor) d.store(-1);
   for (auto& c : g_extra_costumes) c.store(0);
+  for (auto& c : g_costume_count) c.store(0);
   g_cells.clear();
   g_selpos.clear();
   g_host_slot.clear();
@@ -1374,8 +1392,21 @@ REX_HOOK_RAW(sub_82112AB0) {
 // Select: siguiente traje (r3 = casilla, r4 = trajes, r5 = actual, r6 = paso). El juego
 // no da la vuelta en la casilla de Goku (su traje 3 es de evento: salta 2 -> 4 y el 4 es
 // el ultimo). Con trajes anadidos: recorrido circular de todos, sin el 3 en Goku.
+int dbz3_select_active_cell();  // select_ext.cpp
+
 REX_HOOK_RAW(sub_8217A5A0) {
   const int slot = int16_t(ctx.r3.u32 & 0xFFFF);
+  // v1.4.1: en una casilla nueva se recorren SOLO los trajes del personaje nuevo (antes los
+  // del anfitrion: Janemba sobre Krillin ofrecia trajes que no tiene).
+  if (const int vc = dbz3_select_active_cell(); vc >= 0 && vc < dbz3::roster::VirtualCellCount()) {
+    const int n = dbz3::roster::CostumeCountOf(dbz3::roster::GetVirtualCell(vc).id);
+    if (n > 0) {
+      const int cur = int16_t(ctx.r5.u32 & 0xFFFF);
+      const int step = int16_t(ctx.r6.u32 & 0xFFFF);
+      ctx.r3.u64 = uint64_t(int64_t(((cur + step) % n + n) % n));
+      return;
+    }
+  }
   if (slot < 0 || !dbz3::roster::SlotHasExtraCostumes(uint32_t(slot))) {
     __imp__sub_8217A5A0(ctx, base);
     return;

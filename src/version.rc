@@ -20,13 +20,15 @@
 // (B1/B2/B3/IW), menu rapido en partida con mando (F1 / Back+Start) y panel de FPS
 // (portados de DBZ Burst Limit Recompiled y adaptados), FSR por debajo de la escala
 // interna (mas FPS) y ajustes de imagen en vivo; personajes nuevos de B1 (Zarbon, Dodoria).
+// v1.4.1 = rendimiento: temporizacion de alta resolucion (30 FPS en equipos potentes con
+// Windows 11), pulido del launcher y del kit de mods.
 #include <windows.h>
 
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 4
-#define VERSION_PATCH 0
+#define VERSION_PATCH 1
 #define VERSION_BUILD 0
-#define DBZ3_VERSION_STR "1.4.0"
+#define DBZ3_VERSION_STR "1.4.1"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, VERSION_BUILD

@@ -13,7 +13,8 @@
       DBZ3 HD Mod Kit window (mod center hd/modkit_gui.py, opened with DBZ3_ModKit.bat at
       the kit root) plus the standalone modder tools it exposes (KIT_EXTRA_TOOLS).
 
-Usage:  python tools/make_modpacks.py [--version 1.4.0]
+Usage:  python tools/make_modpacks.py [--version 1.4.1] [--solo kit|personajes]
+        (v1.4.1: the characters pack stays the 1.4.0 one on Google Drive -> --solo kit)
 """
 import argparse
 import ast
@@ -30,7 +31,8 @@ CHARACTERS = ["cut_janemba", "cut_android19", "cut_zarbon", "cut_dodoria", "cut_
               "cut_burter"]
 KIT_ENTRIES = ["roster_build", "importar", "swap_b3", "texture_b3", "texture_dump_import", "texture_pack",
                "capsulas", "gritos", "voces", "iso", "model_render",
-               "modkit_gui"]      # DBZ3 HD Mod Kit: the no-console window over all of these
+               "modkit_gui",      # DBZ3 HD Mod Kit: the no-console window over all of these
+               "diagnostico"]     # its Diagnostics page (reads a game log, explains it)
 # Standalone modder tools the Mod Kit window also exposes (advanced mode > Tools), with the
 # local modules they import (kit_modules follows them).
 KIT_EXTRA_TOOLS = ["name_banner", "portrait_hd", "extract_azt_afs", "awg_to_obj_b3", "awg0_export",
@@ -146,13 +148,17 @@ def kit_pack(ver, stage):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--version", default="1.4.0")
+    ap.add_argument("--version", default="1.4.1")
+    ap.add_argument("--solo", choices=("kit", "personajes"),
+                    help="build only one pack (the other one is reused from an earlier release)")
     a = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     stage = os.path.join(OUT, "_stage")
     if os.path.exists(stage):
         shutil.rmtree(stage)   # our own scratch folder from a previous run
     for name, fn in (("personajes", characters_pack), ("kit", kit_pack)):
+        if a.solo and a.solo != name:
+            continue
         out = fn(a.version, os.path.join(stage, name))
         print("%s: %s (%.1f MB)" % (name, out, os.path.getsize(out) / 1e6))
 

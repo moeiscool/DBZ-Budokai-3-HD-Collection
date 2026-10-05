@@ -208,7 +208,13 @@ X_STATUS HostPathFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
   int entry_index = -1;
 
   if (host_entry && (diag || has_mods)) {
-    const std::filesystem::path& path = *host_path;
+    // v1.4.1: la tabla virtual y los offsets se calculan sobre el fichero que de verdad
+    // esta abierto. Con un override de fichero completo (p. ej. un pack de musica que
+    // trae su propio adx_usa.afs con otra disposicion) el handle es el del mod; antes la
+    // tabla se construia con el AFS original y, en cuanto otro mod anadia entradas a ese
+    // AFS (las voces de los personajes nuevos), se leia el pack con los offsets del
+    // original: la musica salia vacia ("con el mod de personajes se me quita la musica").
+    const std::filesystem::path& path = file_handle_->path();
 
     // TEMP diagnostic: log every AFS read mapped to its entry index, so a play
     // session can reveal which data_cmn/data_eng entries each character/stage
