@@ -1,29 +1,29 @@
-# Layout del bin HD — campo a campo
+# HD bin layout — field by field
 
-> Actualizado: 2026-08-14. Detalle del bin Krillin visible (entrada 327, `rt_327.bin`).
+> Updated: 2026-08-14. Detail of the visible Krillin bin (entry 327, `rt_327.bin`).
 
 ---
 
-## 1. VISTA GENERAL DEL AMB (682528 bytes)
+## 1. AMB OVERVIEW (682528 bytes)
 
 ```
 0x00000  #AMB header (0x40)
-0x00040  #AWO (modelo) — 290784 bytes
-0x47020  #AZT (texturas) — 391680 bytes
+0x00040  #AWO (model) — 290784 bytes
+0x47020  #AZT (textures) — 391680 bytes
 ```
 
 ---
 
-## 2. ESTRUCTURA DEL AWO (Krillin)
+## 2. AWO STRUCTURE (Krillin)
 
-| Campo | Valor | Nota |
+| Field | Value | Note |
 |---|---|---|
 | numberOfBones | 51 | XKLL_BODY, KLL_WAIST, KLL_STMC... |
-| numberOfAWGs | 18 | AWG0=cuerpo, AWG1-10=dedos, AWG11-17=caras |
-| pointerAWGoffsets | 0x690 | tabla de 18 punteros |
-| ptrBoneNames | 0x6D8 | labels de 32B c/u |
+| numberOfAWGs | 18 | AWG0=body, AWG1-10=fingers, AWG11-17=faces |
+| pointerAWGoffsets | 0x690 | table of 18 pointers |
+| ptrBoneNames | 0x6D8 | 32-byte labels each |
 
-### AWGs del bin (offset → label → conteos)
+### AWGs in the bin (offset → label → counts)
 
 | AWG | Offset | Label | Bones | vb | face |
 |---|---|---|---|---|---|
@@ -48,40 +48,41 @@
 
 ---
 
-## 3. NOTA SOBRE vb vs sec34
+## 3. NOTE ON vb vs sec34
 
-- **vb2** (`ptrVertexBlock`, +0x28) = el buffer PRINCIPAL de vértices (2190 en
-  Krillin), stride 44, con **bone index en +28**. Es el buffer que skinnea el cuerpo.
-- **sec34** (`ptrFaceData`, +0x30) = buffer secundario (233), usado para
-  caras/partes estáticas.
-- El AGENTS llamaba "sec34" al buffer grande por error de nomenclatura.
-  En la template oficial, el grande es `VertexBlock`.
+- **vb2** (`ptrVertexBlock`, +0x28) = the MAIN vertex buffer (2190 in
+  Krillin), stride 44, with the **bone index at +28**. It is the buffer that
+  skins the body.
+- **sec34** (`ptrFaceData`, +0x30) = secondary buffer (233), used for
+  faces/static parts.
+- AGENTS called the large buffer "sec34" by a naming mistake. In the official
+  template, the large one is `VertexBlock`.
 
 ---
 
 ## 4. IB (index buffer)
 
-- En `unk_ptr_28` (+0x38 del AWG), `sizeOfunk_ptr_28` (+0x3C) = nº de u32.
-- Para Krillin AWG0: 5140 índices (con 0xFFFF como restart).
-- El guest dibuja el IB; los arms/mesh-ref definen la estructura.
+- In `unk_ptr_28` (+0x38 of the AWG), `sizeOfunk_ptr_28` (+0x3C) = number of u32.
+- For Krillin AWG0: 5140 indices (with 0xFFFF as restart).
+- The guest draws the IB; the arms/mesh-refs define the structure.
 
 ---
 
-## 5. VÉRTICE (stride 44) — VERIFICADO
+## 5. VERTEX (stride 44) — VERIFIED
 
 ```
-+00 nan (0xFFC00000 o similar)   +04 u  +08 v
++00 nan (0xFFC00000 or similar)   +04 u  +08 v
 +12 z_local  +16 x_local  +20 y_local
-+24 peso  +28 bone_index (u32)  +32 nz  +36 -ny  +40 nx
++24 weight  +28 bone_index (u32)  +32 nz  +36 -ny  +40 nx
 ```
 
-> Verificado empíricamente (el bone en +28 da valores 0-50 coherentes; en otras
-> posiciones daba absurdos).
+> Verified empirically (the bone at +28 gives consistent values 0-50; other
+> positions gave nonsense).
 
 ---
 
-## 6. COMPRESIÓN Y SLOT
+## 6. COMPRESSION AND SLOT
 
-- Bins del AFS: LZX `/N:2048` (magic `0F F5 12 EE`).
-- Entrada 327: slot = 105296 bytes → padded a 106496 (el guest lee 106496).
-- El bin del mod debe comprimirse `/N:2048` y paddearse a 106496.
+- AFS bins: LZX `/N:2048` (magic `0F F5 12 EE`).
+- Entry 327: slot = 105296 bytes → padded to 106496 (the guest reads 106496).
+- The mod's bin must be compressed with `/N:2048` and padded to 106496.

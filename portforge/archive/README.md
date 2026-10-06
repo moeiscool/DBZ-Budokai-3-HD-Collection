@@ -1,33 +1,34 @@
-# Archivo de versiones antiguas de PortForge
+# Archive of old PortForge versions
 
-Historico de las entradas que han pasado por el instalador de 1 clic
-(`../.forge.json`). **PortForge solo lee `../.forge.json`**, asi que este
-directorio no afecta a la instalacion: es un registro para no perder las
-entradas retiradas.
+History of the entries that have gone through the 1-click installer
+(`../.forge.json`). **PortForge only reads `../.forge.json`**, so this
+directory does not affect installation: it is a record so retired entries are
+not lost.
 
-- `forge-versions-old.json` — entradas retiradas, listas para copiar/pegar de
-  vuelta al array `builds` de `../.forge.json`.
-- `_retired` (dentro del JSON) — motivo de retirada de cada version.
+- `forge-versions-old.json` — retired entries, ready to copy/paste back into
+  the `builds` array of `../.forge.json`.
+- `_retired` (inside the JSON) — the reason each version was retired.
 
-## Estado actual (2026-10-04)
+## Current state (2026-10-04)
 
-Versiones **visibles** en PortForge (las tres ultimas funcionales):
+Versions **visible** in PortForge (the last three working ones):
 
-| Version | Notas |
+| Version | Notes |
 |---|---|
-| `1.4.0` | Actual (Latest). Default. Menu rapido en partida (F1 / Back+Start), panel de FPS F3 nuevo, video en vivo y «Mas FPS con FSR», launcher redisenado y con mando (arranque <1 s), personajes nuevos e importador (requieren la carpeta extraida: PortForge instala en modo ISO). |
-| `1.3.0` | Reparar instalacion, etiquetas de boton (Xbox/PS/Switch), DRED por defecto, `gamecontrollerdb.txt`, fix del extractor de texturas (#13), pulido y optimizacion del launcher. Respaldo inmediato. |
-| `1.2.9` | Diagnostico que se explica solo: avisos de fps sostenido, disco lento e instalacion mixta; `vram=`/`lim=` en la linea `perf`; guardia de VRAM. |
+| `1.4.0` | Current (Latest). Default. In-game quick menu (F1 / Back+Start), new F3 FPS panel, live video and "More FPS with FSR", redesigned launcher with controller support (starts in <1 s), new characters and importer (they need the extracted folder: PortForge installs in ISO mode). |
+| `1.3.0` | Repair installation, button labels (Xbox/PS/Switch), DRED by default, `gamecontrollerdb.txt`, texture extractor fix (#13), launcher polish and optimisation. Immediate fallback. |
+| `1.2.9` | Self-explanatory diagnostics: sustained-fps, slow-disk and mixed-installation warnings; `vram=`/`lim=` in the `perf` line; VRAM guard. |
 
-**Archivadas**: `1.2.8.2`, `1.2.8.1`, `1.2.8`, `1.2.7`, `1.2.5`, `1.2.6`, `1.2.4-EX`, `1.2.4`, `1.2.3`, `1.2.2-EX`, `1.2.2` (retirada), `1.2.1`, `1.1.4`, `1.1.2`.
+**Archived**: `1.2.8.2`, `1.2.8.1`, `1.2.8`, `1.2.7`, `1.2.5`, `1.2.6`, `1.2.4-EX`, `1.2.4`, `1.2.3`, `1.2.2-EX`, `1.2.2` (retired), `1.2.1`, `1.1.4`, `1.1.2`.
 
-## Como rehabilitar una version
+## How to bring a version back
 
-1. Abre `forge-versions-old.json` y copia el objeto de `builds` de la version.
-2. Pegalo en el array `builds` de `../.forge.json` (el orden es el de la lista;
-   la primera entrada es la que se ofrece por defecto junto a
+1. Open `forge-versions-old.json` and copy that version's `builds` object.
+2. Paste it into the `builds` array of `../.forge.json` (the order is the list
+   order; the first entry is the one offered by default together with
    `defaultVersion`).
-3. Comprueba que la URL `releases/download/<tag>/...` responde 200.
+3. Check that the `releases/download/<tag>/...` URL answers 200.
 
-> Nota: las versiones marcadas **NO reusar** en `_retired` fallan o son
-> incompatibles con el layout actual; no las rehabilites sin arreglarlas.
+> Note: versions marked **DO NOT REUSE** in `_retired` fail or are
+> incompatible with the current layout; do not bring them back without fixing
+> them.

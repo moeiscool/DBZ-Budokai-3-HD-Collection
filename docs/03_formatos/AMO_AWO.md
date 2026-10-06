@@ -1,115 +1,115 @@
-# Formato del modelo — PS2 (#AMO0) vs HD (#AWO)
+# Model format — PS2 (#AMO0) vs HD (#AWO)
 
-> Actualizado: 2026-08-14. Resumen accesible del formato. Detalle completo en `AWO_FORMAT.md` (raíz).
+> Updated: 2026-08-14. Accessible summary of the format. Full detail in `AWO_FORMAT.md` (repository root).
 
 ---
 
-## 1. RESUMEN
+## 1. SUMMARY
 
-El `#AWO` de Xbox 360 ES el mismo modelo `#AMO0`/`#AMG` de PS2, re-empaquetado:
+The Xbox 360 `#AWO` IS the same PS2 `#AMO0`/`#AMG` model, repackaged:
 - **Little-endian** (PS2) → **Big-endian** (360)
-- Magics renombrados: `#AMO0`→`#AWO`, `#AMG`→`#AWG`, `#AMT`→`#AZT`
-- Layout distinto: bloques secuenciales → tabla de offsets
+- Renamed magics: `#AMO0`→`#AWO`, `#AMG`→`#AWG`, `#AMT`→`#AZT`
+- Different layout: sequential blocks → offset table
 
-**NO hay re-rigging**: mismos huesos, mismas matrices de pose (51/51 idénticas
-en Krillin).
+**There is NO re-rigging**: same bones, same pose matrices (51/51 identical
+in Krillin).
 
 ---
 
-## 2. CONTENEDOR AMB
+## 2. AMB CONTAINER
 
 ```
 #AMB
   +0x0C entry_count
-  +0x20 tabla: (loc u32, size u32) × entry_count
-  entry0: #AWO  (modelo)
-  entry1: #AZT  (texturas)
+  +0x20 table: (loc u32, size u32) × entry_count
+  entry0: #AWO  (model)
+  entry1: #AZT  (textures)
 ```
 
 ---
 
-## 3. HEADER AWO
+## 3. AWO HEADER
 
-| Offset | Campo |
+| Offset | Field |
 |---|---|
-| +0x10 | numberOfBones (51 en Krillin) |
-| +0x14 | ptrtoConnections (jerarquía) |
-| +0x18 | numberOfAWGs (18 en Krillin) |
-| +0x1C | pointerAWGoffsets (tabla de offsets de AWGs) |
+| +0x10 | numberOfBones (51 in Krillin) |
+| +0x14 | ptrtoConnections (hierarchy) |
+| +0x18 | numberOfAWGs (18 in Krillin) |
+| +0x1C | pointerAWGoffsets (table of AWG offsets) |
 | +0x24 | ptrBoneNames |
-| +0x30 | AWOunk[bones] (32B c/u = zonas de hueso) |
+| +0x30 | AWOunk[bones] (32 B each = bone zones) |
 
-Luego: tabla `AWGptr[numberOfAWGs]` + `BoneNames[numberOfBones]` (32B c/u).
+Then: table `AWGptr[numberOfAWGs]` + `BoneNames[numberOfBones]` (32 B each).
 
 ---
 
-## 4. HEADER AWG (un mesh group)
+## 4. AWG HEADER (one mesh group)
 
-| Offset | Campo |
+| Offset | Field |
 |---|---|
 | +0x10 | numberOfBones |
 | +0x14 | rigging_data_ptr |
 | +0x1C | ptrBones |
-| +0x24 | unk_Count (bloques de 80B = zonas de ejes) |
-| +0x28 | ptrVertexBlock (vb2, buffer de vértices) |
-| +0x2C | VertexBlockSize (tamaño en bytes) |
+| +0x24 | unk_Count (80 B blocks = axis zones) |
+| +0x28 | ptrVertexBlock (vb2, vertex buffer) |
+| +0x2C | VertexBlockSize (size in bytes) |
 | +0x30 | ptrFaceData (sec34) |
 | +0x34 | FaceDataSize |
 | +0x38 | unk_ptr_28 (IB) |
-| +0x3C | sizeOfunk_ptr_28 (conteo IB) |
+| +0x3C | sizeOfunk_ptr_28 (IB count) |
 
-**IMPORTANTE**: los "contadores" de vértices/índices NO son campos directos —
-son TAMAÑOS en bytes (+0x2C, +0x34) y conteos de uint32 (+0x3C). El nº de
-vértices = tamaño / stride (44).
+**IMPORTANT**: the vertex/index "counters" are NOT direct fields — they are
+SIZES in bytes (+0x2C, +0x34) and uint32 counts (+0x3C). The number of
+vertices = size / stride (44).
 
 ---
 
-## 5. VÉRTICE HD (stride 44)
+## 5. HD VERTEX (stride 44)
 
 ```
 +00 nan (flag)    +04 u     +08 v
 +12 z_local       +16 x_local  +20 y_local
-+24 peso          +28 BONE(u32)  +32 nz  +36 -ny  +40 nx
++24 weight        +28 BONE(u32)  +32 nz  +36 -ny  +40 nx
 ```
 
-- El `+28` es el **bone index** (u32). Crítico: escribirlo bien (0 = BODY).
-- Posiciones **locales al hueso** (el guest skinnea con la matriz del hueso).
+- `+28` is the **bone index** (u32). Critical: write it correctly (0 = BODY).
+- Positions are **local to the bone** (the guest skins with the bone's matrix).
 
 ---
 
-## 6. FORMATO PS2 (para leer modelos fuente)
+## 6. PS2 FORMAT (for reading source models)
 
-### 6.1 Vértice PS2 (48 bytes, tipo B5)
+### 6.1 PS2 vertex (48 bytes, type B5)
 ```
 +00 pos XYZ (3×f32 LE)   +0C null   +10 normal XYZ
 +1C null   +20 UV (2×f32)   +28 null×8
 ```
-Otros tipos: B4=32B faciales, 90=16B sombras, 199=32B sin UV.
+Other types: B4=32 B facial, 90=16 B shadows, 199=32 B without UV.
 
-### 6.2 Submesh PS2 (sin index buffer explícito)
+### 6.2 PS2 submesh (no explicit index buffer)
 ```
-header 0x20: FaceType en +0x10 (1=triangle strip, 0=triplete), VertCount en +0x14
-luego VertCount vértices del tipo del part
+header 0x20: FaceType at +0x10 (1=triangle strip, 0=triplet), VertCount at +0x14
+then VertCount vertices of the part's type
 ```
-- FaceType 1 = triangle strip (winding alternado zig-zag)
-- FaceType 0 = tripletes (cada 3 vértices = 1 triángulo)
+- FaceType 1 = triangle strip (alternating zig-zag winding)
+- FaceType 0 = triplets (every 3 vertices = 1 triangle)
 
-### 6.3 Mesh part PS2
+### 6.3 PS2 mesh part
 ```
-header 0xA0: MeshType[8] (primer byte = tipo vértice), +0x90 = flag mesh_size
-   (mesh_size = (flag-0x60000000)*16, saltar el part)
+header 0xA0: MeshType[8] (first byte = vertex type), +0x90 = mesh_size flag
+   (mesh_size = (flag-0x60000000)*16, skip the part)
 ```
-El stride del vértice lo da MeshType[1].
+The vertex stride is given by MeshType[1].
 
 ---
 
-## 7. HERRAMIENTAS DE LECTURA
+## 7. READING TOOLS
 
-| Herramienta | Lee |
+| Tool | Reads |
 |---|---|
-| `awo_tools/analyze_bin_hd.py` | Parser histórico PS3; obsoleto |
-| `awo_tools/awg_to_obj_b3.py` | Exportador recomendado para bins B3 HD |
-| `awo_tools/awg0_export.py` | Exportador AWG0 recomendado para formatos A/C |
-| `awo_tools/parse_ps2_mesh.py` | Malla PS2 (#AMO0) → verts+IB |
-| `modding resources discord\research\B3_AMB_PS3.bt` | Template 010 Editor (referencia) |
-| `modding resources discord\research\00000002...b3.AMO.json` | Formato intermedio aerithdevs |
+| `awo_tools/analyze_bin_hd.py` | Historical PS3 parser; obsolete |
+| `awo_tools/awg_to_obj_b3.py` | Recommended exporter for B3 HD bins |
+| `awo_tools/awg0_export.py` | Recommended AWG0 exporter for formats A/C |
+| `awo_tools/parse_ps2_mesh.py` | PS2 mesh (#AMO0) → verts+IB |
+| `modding resources discord\research\B3_AMB_PS3.bt` | 010 Editor template (reference) |
+| `modding resources discord\research\00000002...b3.AMO.json` | aerithdevs intermediate format |

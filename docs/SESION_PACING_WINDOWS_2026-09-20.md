@@ -1,83 +1,87 @@
-# Pacing Windows tras la corrección Linux (2026-09-20)
+# Windows pacing after the Linux fix (2026-09-20)
 
-> Origen: tras arreglar el pacing Vulkan de Linux (`frame_cap` + FIFO por
-> defecto, ver `docs/LINUX.md`), se revisó si esa lección aplicaba a la build
-> Windows (D3D12). **Conclusión: no había nada que importar.** Este documento
-> deja registrado el análisis, qué se descartó y por qué el código queda igual.
+> Origin: after fixing Linux's Vulkan pacing (`frame_cap` + FIFO by default,
+> see `docs/LINUX.md`), we checked whether the lesson applied to the Windows
+> (D3D12) build. **Conclusion: there was nothing to bring over.** This document
+> records the analysis, what was discarded and why the code stays the same.
 
-## Resumen
+## Summary
 
-- Linux (Vulkan) **sí** tenía un bug real: `IMMEDIATE`/`MAILBOX` permitían un
-  bucle de presentación sin límite y el contador de Steam medía presents del
-  swapchain (cientos/miles de FPS). Se corrigió con FIFO por defecto y
-  `frame_cap` en `vulkan_presenter.cpp`.
-- Windows (D3D12) **no** sufre ese bug. No se cambió ni una línea.
-- Se consideró y **se descartó** mover el sleep de `frame_cap` a justo antes de
-  `Present`. Motivo abajo.
+- Linux (Vulkan) **did** have a real bug: `IMMEDIATE`/`MAILBOX` allowed an
+  unbounded presentation loop and Steam's counter measured swapchain presents
+  (hundreds/thousands of FPS). It was fixed with FIFO by default and
+  `frame_cap` in `vulkan_presenter.cpp`.
+- Windows (D3D12) does **not** suffer from that bug. Not a single line changed.
+- Moving the `frame_cap` sleep to just before `Present` was considered and
+  **discarded**. Reason below.
 
-## Por qué el bug de Linux no aplica a D3D12
+## Why the Linux bug does not apply to D3D12
 
-1. **No hay selección de present mode.** `IMMEDIATE`/`MAILBOX` son conceptos de
-   swapchain Vulkan. El presenter D3D12 usa siempre `Present(0)` con
-   `DXGI_SWAP_EFFECT_FLIP_DISCARD` (y `ALLOW_TEARING` si VRR está activo,
+1. **There is no present-mode selection.** `IMMEDIATE`/`MAILBOX` are Vulkan
+   swapchain concepts. The D3D12 presenter always uses `Present(0)` with
+   `DXGI_SWAP_EFFECT_FLIP_DISCARD` (and `ALLOW_TEARING` if VRR is on,
    `d3d12_allow_variable_refresh_rate_and_tearing`).
-2. **La presentación la marca el guest, no un bucle libre.** En partida el
-   `D3D12CommandProcessor::IssueSwap` de `rexgpu-xenos` pide el frame al ritmo
-   del guest (60 Hz fijos, cvar `vsync` blindado). No hay un repaint continuo
-   que dispare presents sin tope.
-3. **El `frame_cap` real ya existía.** `PaintAndPresentImpl` ya aplica
-   `frame_cap` (`dbz3_frame_cap`, default 60 en juego) durmiendo hasta el slot
-   de 1/FPS. Es exactamente el equivalente del fix de Linux.
+2. **Presentation is driven by the guest, not by a free loop.** In game,
+   `D3D12CommandProcessor::IssueSwap` in `rexgpu-xenos` requests the frame at
+   the guest's pace (a fixed 60 Hz, the `vsync` cvar is locked). There is no
+   continuous repaint firing unbounded presents.
+3. **The real `frame_cap` already existed.** `PaintAndPresentImpl` already
+   applies `frame_cap` (`dbz3_frame_cap`, default 60 in game) by sleeping until
+   the 1/FPS slot. It is exactly the equivalent of the Linux fix.
 
-Por tanto, un overlay en Windows (Steam/DXGI) no puede observar el mismo
-"contador inflado" que en Linux.
+So an overlay on Windows (Steam/DXGI) cannot observe the same "inflated
+counter" as on Linux.
 
-## Cambio considerado y descartado
+## Change considered and discarded
 
-Se evaluó mover el sleep de `frame_cap` desde el inicio de
-`PaintAndPresentImpl` a justo antes de `IDXGISwapChain::Present`, imitando la
-posición del fix Vulkan.
+Moving the `frame_cap` sleep from the start of `PaintAndPresentImpl` to just
+before `IDXGISwapChain::Present`, imitating the position of the Vulkan fix,
+was evaluated.
 
-**Se descartó**:
+**It was discarded**:
 
-- **No cambia la cadencia observable.** El throttle es de tasa fija en un bucle
-  serializado; adelantarlo o atrasarlo da los mismos presents/segundo.
-- **Empeora la latencia.** Con el sleep al principio, el frame se construye,
-  se envía y se presenta de inmediato. Con el sleep justo antes de `Present`, se
-  construye y envía el frame, y **después** se espera; eso añade retardo entre
-  el envío del command list y la presentación.
-- En Vulkan la position importa porque `vkQueuePresentKHR` es la frontera que
-  interceptan MangoHud/Steam; en D3D12 el equivalente conceptual (`Present`) ya
-  queda tras el throttle sin necesidad de moverlo.
+- **It does not change the observable cadence.** The throttle is a fixed rate
+  in a serialised loop; moving it earlier or later gives the same
+  presents/second.
+- **It worsens latency.** With the sleep at the start, the frame is built,
+  submitted and presented immediately. With the sleep just before `Present`,
+  the frame is built and submitted, and **then** waits; that adds delay
+  between submitting the command list and presenting.
+- In Vulkan the position matters because `vkQueuePresentKHR` is the boundary
+  MangoHud/Steam intercept; in D3D12 the conceptual equivalent (`Present`)
+  already comes after the throttle without moving it.
 
-El código de `d3d12_presenter.cpp` (SDK y `github/patches/`) queda **idéntico**
-al que ya se publicó en v1.2.6.
+The `d3d12_presenter.cpp` code (SDK and `github/patches/`) stays **identical**
+to what was published in v1.2.6.
 
-## Qué no se puede transferir de Linux
+## What cannot be transferred from Linux
 
-- **MangoHud es un overlay Linux** (`vkQueuePresentKHR`). No aplica a Windows;
-  no usarlo como prueba de la build D3D12.
-- **FIFO** es una decisión exclusiva del swapchain Vulkan.
-- El **contador de un overlay mide presents del host**, no swaps lógicos del
-  guest. Para rendimiento del juego, la referencia fiable es el diagnóstico
-  interno `dbz3: perf fps=... frames=... max_frame_ms=...` (`dbz3_perf_logging`,
-  tab Dev), no el overlay.
+- **MangoHud is a Linux overlay** (`vkQueuePresentKHR`). It does not apply to
+  Windows; do not use it as a test of the D3D12 build.
+- **FIFO** is a decision exclusive to the Vulkan swapchain.
+- An **overlay counter measures host presents**, not the guest's logical
+  swaps. For game performance, the reliable reference is the internal
+  diagnostic `dbz3: perf fps=... frames=... max_frame_ms=...`
+  (`dbz3_perf_logging`, Dev tab), not the overlay.
 
-## Notas de diagnóstico en Windows
+## Diagnostic notes on Windows
 
-- **En partida**: `frame_cap=60` en juego (lo fija el launcher). No hay bucle
-  libre.
-- **En el launcher**: `frame_cap` se mantiene a **0/uncapped** a propósito
-  (`settings.cpp`); es lo que evita el cuelgue a >60 Hz documentado en el
-  histórico. Si el contador de Steam muestra FPS altos **en el launcher** (menú
-  de configuración), es esperado y no afecta al juego.
-- `fg=0/1` en la línea `perf` distingue "ventana sin foco" (Windows/DWM limita a
-  la mitad, 60→30) de "va lento" real.
+- **In game**: `frame_cap=60` in game (set by the launcher). There is no free
+  loop.
+- **In the launcher**: `frame_cap` is kept at **0/uncapped** on purpose
+  (`settings.cpp`); that is what avoids the hang at >60 Hz documented in the
+  history. If Steam's counter shows high FPS **in the launcher** (settings
+  menu), that is expected and does not affect the game.
+- `fg=0/1` in the `perf` line distinguishes "unfocused window" (Windows/DWM
+  halves it, 60→30) from a real "it runs slow".
 
-## Resultado
+## Result
 
-- **Sin cambios de código en Windows.**
-- **Sin recompilación y sin tocar el release v1.2.6** (el exe y las DLL siguen
-  siendo los publicados).
-- Documentación: este fichero + la sección "MangoHud y Steam FPS" de
+- **No code changes on Windows.**
+- **No rebuild and the v1.2.6 release untouched** (the exe and the DLLs are
+  still the published ones).
+- Documentation: this file + the "MangoHud and Steam FPS" section of
   `docs/LINUX.md`.
+
+> The PS5 build (`docs/PS5.md`) uses the Vulkan presenter with DBZ3's
+> `frame_cap` pacing kept intact (merged with mcla-recomp's PS5 paint logging).

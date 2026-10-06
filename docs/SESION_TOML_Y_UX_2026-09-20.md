@@ -1,81 +1,83 @@
-# Sesión 2026-09-20 — Autorreparación del TOML + UX anti-abuso de la escala
+# Session 2026-09-20 — TOML self-repair + UX against misuse of the scale
 
-> Cierra los problemas reales de los logs de SSGPrinceVegeta (v1.2.1) y el
-> malentendido del consumo de GPU. **Sin commit+push hasta validación del usuario.**
+> Closes the real problems in SSGPrinceVegeta's logs (v1.2.1) and the
+> misunderstanding about GPU usage. **No commit+push until the user validates.**
 
-## 1. Problemas reales en los logs de Prince Vegeta (v1.2.1)
+## 1. Real problems in Prince Vegeta's logs (v1.2.1)
 
-Revisados sus 27 logs (`Logs SSGPrinceVegeta/`), solo aparecen **dos** errores
-únicos:
+Of his 27 logs reviewed (`Logs SSGPrinceVegeta/`), only **two** unique errors
+appear:
 
-1. `Failed to parse config ... unknown escape sequence '\G'` (en casi todos).
-   Ruta `E:\Game Roms\...` guardada sin escapar → **se pierden TODOS los ajustes**.
-2. `XThread::Execute - No function registered at 820D54C8` = arrancaba el menú de
-   la HD Collection (ya cubierto por la autodetección de xex de la v1.2.2).
+1. `Failed to parse config ... unknown escape sequence '\G'` (in almost all).
+   Path `E:\Game Roms\...` saved unescaped → **ALL settings are lost**.
+2. `XThread::Execute - No function registered at 820D54C8` = it was booting the
+   HD Collection menu (already covered by the xex auto-detection in v1.2.2).
 
 Config: `preset=ultra internal_scale=3x msaa aniso=5 fsr=quality sharp=0.2
-vrr cap=60` + endpoint de audio `VB-Audio Virtual Cable` + `master_vol=0`.
-`ultra` ya no existe → ahora es alias de `quality` (que baja la escala a 1x);
-para conservar su 3x se usa `manual` + escala 3x.
+vrr cap=60` + audio endpoint `VB-Audio Virtual Cable` + `master_vol=0`.
+`ultra` no longer exists → it is now an alias of `quality` (which lowers the
+scale to 1x); to keep his 3x, use `manual` + 3x scale.
 
-## 2. Autorreparación del TOML (launcher, no SDK)
+## 2. TOML self-repair (launcher, not SDK)
 
-Antes: si el toml no parseaba, `rex::cvar::LoadConfig` tragaba la excepción y
-seguía con **defaults**, perdiendo la config en silencio (y el cierre
-autoguardaba encima → destruía el fichero).
+Before: if the toml did not parse, `rex::cvar::LoadConfig` swallowed the
+exception and carried on with **defaults**, silently losing the config (and
+the auto-save on close wrote over it → destroying the file).
 
-Ahora (`src/launcher/settings.cpp`):
+Now (`src/launcher/settings.cpp`):
 
-- `TomlParses(path)`: valida con **toml++** leyendo el **texto** del fichero, no
-  `parse_file(path.string())` (la ruta en Windows es ANSI → una carpeta con
-  no-ASCII daría un falso "corrupto").
-- Si no parsea → `EscapeTomlStrings(path)` (idempotente) y reintenta:
-  - **reparado** → `ConfigLoadState::kRepaired` (aviso **verde**).
-  - **sigue roto** → `ConfigLoadState::kInvalid`, **copia a
-    `dbz3_user.toml.bak`** y no carga (aviso **rojo**); el autoguardado del
-    cierre puede escribir defaults pero el original queda en `.bak`.
-- `LastConfigLoadState()` → el launcher lo pinta **arriba de los tabs**
-  (`launcher_state.cpp`, junto al aviso de datos del juego).
-- ⚠️ `LoadUserSettings` corre **dos veces** por arranque (OnConfigurePaths +
-  OnPreSetup). El estado `kRepaired`/`kInvalid` **se preserva** entre llamadas
-  (si no, el segundo pase lo pisa con `kOk` y el aviso no se ve).
-- `#include <toml++/toml.hpp>` disponible vía `rex::runtime` (no toca CMake).
+- `TomlParses(path)`: validates with **toml++** reading the file's **text**,
+  not `parse_file(path.string())` (the path on Windows is ANSI → a folder with
+  non-ASCII characters would give a false "corrupt").
+- If it does not parse → `EscapeTomlStrings(path)` (idempotent) and retry:
+  - **repaired** → `ConfigLoadState::kRepaired` (**green** notice).
+  - **still broken** → `ConfigLoadState::kInvalid`, **copied to
+    `dbz3_user.toml.bak`** and not loaded (**red** notice); the auto-save on
+    close may write defaults, but the original stays in `.bak`.
+- `LastConfigLoadState()` → the launcher shows it **above the tabs**
+  (`launcher_state.cpp`, next to the game-data notice).
+- ⚠️ `LoadUserSettings` runs **twice** per startup (OnConfigurePaths +
+  OnPreSetup). The `kRepaired`/`kInvalid` state is **preserved** between calls
+  (otherwise the second pass overwrites it with `kOk` and the notice is not
+  shown).
+- `#include <toml++/toml.hpp>` is available through `rex::runtime` (no CMake
+  change).
 
-Verificado: toml corrupto → reparado (`\\` escapado) e **idempotente**; toml
-irreparable → `.bak` creado y original intacto; captura del launcher con el
-aviso verde y el naranja.
+Verified: corrupt toml → repaired (`\\` escaped) and **idempotent**;
+unrepairable toml → `.bak` created and the original untouched; launcher
+capture with the green and the orange notice.
 
-## 3. UX anti-abuso de la escala interna (el consumo NO son las texturas HD)
+## 3. UX against misuse of the internal scale (the cost is NOT the HD textures)
 
-Medido (RTX 4070 SUPER, combate, `dbz3_175..178`):
+Measured (RTX 4070 SUPER, fight, `dbz3_175..178`):
 
-| Config | GPU | Potencia | VRAM |
+| Config | GPU | Power | VRAM |
 |---|---|---|---|
-| **1x + FSR** (nativo) | **22-23 %** | **29-30 W** | 1.35 GB |
-| 3x interno (supersampling) | 51 % | 50 W | 2.9 GB |
-| 3x + HD x4 (versión vieja) | **80 %** | **132 W** | 3.1 GB |
+| **1x + FSR** (native) | **22-23 %** | **29-30 W** | 1.35 GB |
+| 3x internal (supersampling) | 51 % | 50 W | 2.9 GB |
+| 3x + HD x4 (old version) | **80 %** | **132 W** | 3.1 GB |
 
-El consumo de su captura (80 %/132 W) era la **versión vieja con x4 HD**.
-`draw_resolution_scale` hace que el guest **renderice de verdad a Nx**
-(supersampling real); el FSR queda **inerte** (frontbuffer ≥ salida) y **no hay
-pasada extra** (`presenter.cpp:1065`). **No hay bug.**
+The usage in his capture (80 %/132 W) was the **old version with HD x4**.
+`draw_resolution_scale` makes the guest **really render at Nx** (true
+supersampling); FSR is left **inert** (frontbuffer ≥ output) and **there is no
+extra pass** (`presenter.cpp:1065`). **There is no bug.**
 
-Acción (petición del usuario "mantener 3x pero avisar fuerte"), en el tab Video:
+Action (the user's request "keep 3x but warn loudly"), in the Video tab:
 
-- Aviso naranja **envuelto** cuando `scale > 1` ("la GPU trabajara mucho mas…").
-- **Botón "Volver a nativo (1x)"** de un clic (escala 1x + persiste).
-- Etiquetas del combo con coste: "1x (nativa 720p) - recomendado" … "4x … solo
-  GPUs de gama alta".
-- Tooltip del preset: **ningún preset sube la escala**.
-- Tooltip del MSAA: coste moderado, se puede quitar con escala alta.
+- **Wrapped** orange notice when `scale > 1` ("the GPU will work much harder…").
+- **"Back to native (1x)"** one-click button (1x scale + persisted).
+- Combo labels with their cost: "1x (native 720p) - recommended" … "4x … only
+  high-end GPUs".
+- Preset tooltip: **no preset raises the scale**.
+- MSAA tooltip: moderate cost, can be dropped with a high scale.
 
 ## 4. i18n
 
-Strings nuevos ES/EN/IT/DE/FR en `i18n.cpp` (aviso supersampling, botón nativo,
-etiquetas de escala, tooltips, avisos de config recuperada/inválida).
+New ES/EN/IT/DE/FR strings in `i18n.cpp` (supersampling notice, native button,
+scale labels, tooltips, recovered/invalid config notices).
 
-## 5. Pendiente
+## 5. Pending
 
-- **Validación visual del usuario** del HUD (clamp anti-ringing + min size) —
-  no capturable offscreen.
-- **Commit+push** solo con el OK del usuario.
+- **The user's visual validation** of the HUD (anti-ringing clamp + min size) —
+  cannot be captured offscreen.
+- **Commit+push** only with the user's OK.

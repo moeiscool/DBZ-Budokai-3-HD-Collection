@@ -1,20 +1,21 @@
-# Cómo compilar
+# How to build
 
-> Actualizado: 2026-08-14.
+> Updated: 2026-08-14. For the PS5 build see `docs/PS5.md`; for Linux,
+> `docs/LINUX.md`.
 
 ---
 
-## 1. COMPILAR EL JUEGO (release)
+## 1. BUILD THE GAME (release)
 
 ```powershell
 cmake --build "out\build\win-amd64-release"
 ```
 
-El build usa el SDK **instalado** en `rexglue\` (no el fuente `rexglue-sdk\`).
+The build uses the SDK **installed** in `rexglue\` (not the `rexglue-sdk\` source).
 
 ---
 
-## 2. COMPILAR EL SDK (rexglue-sdk) → produce rexruntime.dll
+## 2. BUILD THE SDK (rexglue-sdk) → produces rexruntime.dll
 
 ```powershell
 cmake -G Ninja -S rexglue-sdk -B rexglue-sdk\out\build-win-vulkan `
@@ -24,67 +25,77 @@ cmake -G Ninja -S rexglue-sdk -B rexglue-sdk\out\build-win-vulkan `
   -DREXGLUE_ENABLE_FIDELITYFX=ON -DREXGLUE_USE_VULKAN=ON `
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-march=x86-64-v3"
 
-# Compilar solo el runtime (rápido, incremental)
+# Build only the runtime (fast, incremental)
 ninja -C rexglue-sdk\out\build-win-vulkan rexruntime
 ```
 
-El DLL resultante está en `rexglue-sdk\out\win-amd64\rexruntime.dll`.
+The resulting DLL is in `rexglue-sdk\out\win-amd64\rexruntime.dll`.
 
-### Instalarlo en el build del juego
+### Install it into the game build
 ```powershell
 Copy-Item "rexglue-sdk\out\win-amd64\rexruntime.dll" "out\build\win-amd64-release\rexruntime.dll" -Force
 ```
 
-> ⚠️ Si modificas `rexglue-sdk-0.10/src/filesystem/afs.cpp` (el hook de mods), tienes
-> que recompilar el SDK Y copiar el DLL al build. El build del juego NO se
-> recompila solo para cambios del SDK.
+> ⚠️ If you modify `rexglue-sdk-0.10/src/filesystem/afs.cpp` (the mod hook), you
+> have to rebuild the SDK AND copy the DLL into the build. The game build is
+> NOT rebuilt by itself for SDK changes.
 
 ---
 
-## 3. COMPRIMIR/DESCOMPRIMIR BINS (LZX)
+## 3. COMPRESS/DECOMPRESS BINS (LZX)
 
-Herramientas en `mod center\Xbox 360 Compression - Decompression tool from the XBOX Development Kit\`.
+Tools in `mod center\Xbox 360 Compression - Decompression tool from the XBOX Development Kit\`.
 
 ```powershell
-# Comprimir (¡usar /N:2048! el tamaño del bloque del juego)
+# Compress (use /N:2048! the game's block size)
 xbcompress.exe /N:2048 <src.bin> <dst.lzx>
 
-# Descomprimir
+# Decompress
 xbdecompress.exe <src.lzx> <dst.bin>
 ```
 
 ---
 
-## 4. BUILD TRACY (profiling)
+## 4. TRACY BUILD (profiling)
 
 ```powershell
 cmake --build "out\build\win-amd64-tracy"
 ```
-- Usa DLLs instrumentadas (rexruntimerd.dll, rexgpu-xenosrd.dll, TracyClientrd.dll).
-- Para profilar: `tracy-capture.exe -o out.tracy` mientras juegas, luego
-  `tracy-csvexport.exe` para análisis.
+- Uses instrumented DLLs (rexruntimerd.dll, rexgpu-xenosrd.dll, TracyClientrd.dll).
+- To profile: `tracy-capture.exe -o out.tracy` while playing, then
+  `tracy-csvexport.exe` for analysis.
 
 ---
 
-## 5. EMPAQUETAR UN RELEASE
+## 5. PACKAGE A RELEASE
 
 ```powershell
-cmake --build "out\build\win-amd64-dual"          # ⚠️ el exe de release sale de AQUÍ (core dual)
+cmake --build "out\build\win-amd64-dual"          # ⚠️ the release exe comes from HERE (dual core)
 powershell -ExecutionPolicy Bypass -File tools\sync_github.ps1
-powershell -ExecutionPolicy Bypass -File tools\make_release.ps1      # lee la versión de src\version.rc
+powershell -ExecutionPolicy Bypass -File tools\make_release.ps1      # reads the version from src\version.rc
 powershell -ExecutionPolicy Bypass -File tools\verify_release.ps1 -Version v1.2.2
 ```
-- Versión: se sube en `src/version.rc` (VERSION_PATCH + DBZ3_VERSION_STR).
-- El stage (`github\release-stage\`) y el zip salen del **build dual**; las DLL
-  del `rexglue-sdk-0.10\out\win-amd64-baseline\`.
-- `verify_release.ps1` comprueba VERSIONINFO, hashes de DLL vs SDK, `mods/` vacía
-  y que el zip no lleve assets del juego ni residuos de ejecución.
-- Publicar: `gh release create vX.Y.Z <zip> --notes-file <notas> --latest`.
+- Version: bumped in `src/version.rc` (VERSION_PATCH + DBZ3_VERSION_STR).
+- The stage (`github\release-stage\`) and the zip come from the **dual build**;
+  the DLLs from `rexglue-sdk-0.10\out\win-amd64-baseline\`.
+- `verify_release.ps1` checks VERSIONINFO, DLL hashes vs the SDK, an empty
+  `mods/`, and that the zip carries no game assets or run leftovers.
+- Publish: `gh release create vX.Y.Z <zip> --notes-file <notes> --latest`.
 
 ---
 
-## 6. PRECAUCIÓN
+## 6. PS5 BUILD
 
-- El build release es el que se usa para jugar. Modifica el SDK con cuidado.
-- Hacer backup del `rexruntime.dll` antes de reemplazar (ya hay `.bak_afstest`).
-- Ver `docs/01_estructura/ARBOL.md` para la ubicación de cada cosa.
+The jailbroken-PS5 build is separate and runs on an Arch Linux host:
+`bash ps5/make_ps5.sh --iso <your.iso> [--console <ip>]`. It clones the SDK,
+copies in `patches/rexglue-sdk/`, applies `ps5/patches/`, recompiles the game
+from your own executable and packages a homebrew title. Full guide:
+`docs/PS5.md`; internals: `ps5/README.md`.
+
+---
+
+## 7. CAUTION
+
+- The release build is the one used for playing. Modify the SDK carefully.
+- Back up `rexruntime.dll` before replacing it (there is already a `.bak_afstest`).
+- See `docs/01_estructura/ARBOL.md` for where everything lives.

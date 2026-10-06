@@ -1,25 +1,25 @@
-# Sesión Babidi — validación de fuente PS2 — 2026-09-08
+# Babidi session — PS2 source validation — 2026-09-08
 
-## Resultado
+## Result
 
-La fase no llegó a generar geometría ni mod. La entrada seleccionada no es una
-fuente PS2 compatible con el extractor.
+The phase did not get as far as generating geometry or a mod. The selected
+entry is not a PS2 source compatible with the extractor.
 
-| Archivo | Entrada | Resultado descomprimido |
+| File | Entry | Decompressed result |
 |---|---:|---|
 | `ps2_games/Budokai 3 Greatest Hits (USA)/USR/data_cmn.afs` | 96 | `#AMB` + `#AWO` + `#AWG` + `#AZT`, big-endian |
 | `ps2_games/Budokai 2 (USA)/USR/data_cmn.afs` | 282 | `#AMB` + `#AWO` + `#AWG`, big-endian |
 
-El extractor `port_ps2_b3_extract.py` esperaba `#AMO0/#AMG` little-endian y
-fallaba al interpretar offsets HD como punteros PS2. Se añadió una detección
-explícita para abortar con un mensaje claro en vez de producir un traceback de
-buffer.
+The extractor `port_ps2_b3_extract.py` expected little-endian `#AMO0/#AMG` and
+failed when interpreting HD offsets as PS2 pointers. Explicit detection was
+added so it aborts with a clear message instead of producing a buffer
+traceback.
 
-## Conclusión
+## Conclusion
 
-- No se puede verificar todavía el rig de Babidi PS2 desde estos AFS.
-- No se generó ningún JSON, bin o mod.
-- No se debe tratar una entrada `#AWO` como si fuera `#AMO0` mediante swaps de
-  endianness: son layouts diferentes.
-- Próximo paso: localizar una fuente PS2 real (`#AMO0/#AMG`) o recuperar los
-  bins PS2 de referencia documentados (`b327_ps2.bin`, etc.).
+- Babidi's PS2 rig cannot be verified from these AFS files yet.
+- No JSON, bin or mod was generated.
+- An `#AWO` entry must not be treated as if it were `#AMO0` by swapping
+  endianness: they are different layouts.
+- Next step: locate a real PS2 source (`#AMO0/#AMG`) or recover the documented
+  PS2 reference bins (`b327_ps2.bin`, etc.).

@@ -1,76 +1,76 @@
-# Mods nativos
+# Native mods
 
-Los mods nativos cambian el progreso o el comportamiento del juego. Son una
-categoria distinta de los mods AFS de modelos, texturas, audio y movesets.
+Native mods change the game's progress or behaviour. They are a different
+category from the AFS mods for models, textures, audio and movesets.
 
-## Catalogo inicial
+## Initial catalogue
 
-El launcher ya reserva el catalogo para:
+The launcher already reserves the catalogue for:
 
-- `Guardar al 100%`: objetos, tecnicas y contenido permanente.
-- `Vida infinita`: vida del jugador durante los combates.
-- `Ki infinito`: ki del jugador durante los combates.
+- `Save at 100%`: items, techniques and permanent content.
+- `Infinite health`: the player's health during fights.
+- `Infinite ki`: the player's ki during fights.
 
-Estos candidatos aparecen como **En investigacion** hasta que se valide su
-implementacion en la version Xbox 360/ReXGlue. No se aplican offsets de
-GameShark de PS2 directamente: esos codigos parchean la memoria MIPS de PS2 y
-no son offsets del save ni del guest PowerPC.
+These candidates appear as **Under investigation** until their implementation
+is validated on the Xbox 360/ReXGlue version. PS2 GameShark offsets are not
+applied directly: those codes patch the PS2's MIPS memory and are neither save
+offsets nor PowerPC guest offsets.
 
-## Investigacion Xenia
+## Xenia research
 
-Xenia Canary mantiene un repositorio separado de parches:
+Xenia Canary keeps a separate patch repository:
 
 - `xenia-canary/game-patches`
-- Formato: `patches/<TITLE_ID> - <nombre>.patch.toml`
-- Las entradas contienen escrituras `be8`, `be16`, `be32`, `be64`, `array`,
-  `f32`, `f64` o strings en direcciones del guest.
+- Format: `patches/<TITLE_ID> - <name>.patch.toml`
+- Entries contain `be8`, `be16`, `be32`, `be64`, `array`, `f32`, `f64` or
+  string writes at guest addresses.
 
-El juego de este proyecto tiene el Title ID `4E4D0856`. La busqueda del
-repositorio oficial no contiene ninguna entrada `4E4D0856` ni un parche de
-Budokai 3. Las entradas de Dragon Ball encontradas son de *Burst Limit*
-(`424107DC`) y no son reutilizables.
+This project's game has Title ID `4E4D0856`. A search of the official
+repository finds no `4E4D0856` entry and no Budokai 3 patch. The Dragon Ball
+entries found are for *Burst Limit* (`424107DC`) and are not reusable.
 
-El ReXGlue usado por este proyecto tampoco incluye el lector de
-`patch.toml` de Xenia Canary. El Xenia original tiene ademas un mecanismo
-distinto de parche XEX (`default.xexp`), pero eso no equivale a un cheat y no se
-puede copiar directamente al codegen dual de este proyecto.
+The ReXGlue used by this project does not include Xenia Canary's `patch.toml`
+reader either. The original Xenia also has a different XEX patch mechanism
+(`default.xexp`), but that is not a cheat and cannot be copied directly into
+this project's dual codegen.
 
-Por eso `Vida infinita` y `Ki infinito` aparecen como **Sin codigo encontrado**.
-No existe actualmente una instruccion del tipo "activa este cheat y tendras
-todo" que podamos recomendar honestamente para este port.
+That is why `Infinite health` and `Infinite ki` appear as **No code found**.
+There is currently no "turn on this cheat and you get everything" instruction
+we could honestly recommend for this port.
 
-La via Xenia sigue siendo viable como referencia de formato: si se descubre un
-parche para `4E4D0856`, habria que convertir sus escrituras a hooks/cambios del
-guest recompilado, comprobar US y EU y encapsularlo en un mod nativo propio.
+The Xenia route is still viable as a format reference: if a patch for
+`4E4D0856` is found, its writes would have to be converted into hooks/changes
+of the recompiled guest, checked on US and EU, and wrapped in a native mod of
+our own.
 
-## Guardados
+## Saves
 
-El runtime almacena el contenido del juego bajo `user_data/dbz3/`, con una
-carpeta de perfil, title id, tipo de contenido y nombre de paquete. El archivo
-de progreso observado es `DBZ3/data.bin` y comienza por `#SPF 1.0`.
+The runtime stores the game's content under `user_data/dbz3/`, with a profile
+folder, title id, content type and package name. The observed progress file is
+`DBZ3/data.bin` and starts with `#SPF 1.0`.
 
-Antes de implementar un modificador se deben obtener saves diferenciales del
-port: partida nueva, compra de una capsula, compra de una tecnica, desbloqueo
-de un personaje y save completo. Asi se pueden identificar flags y checksums
-sin asumir que el formato PS2 sea reutilizable.
+Before implementing a modifier, differential saves of the port must be
+obtained: new game, buying a capsule, buying a technique, unlocking a
+character and a complete save. That way flags and checksums can be identified
+without assuming the PS2 format is reusable.
 
-El launcher detecta los `data.bin` reconocibles y permite crear una copia
-`data.bin.native.bak`. La copia de seguridad es previa a cualquier futuro
-transformador y no modifica el save original.
+The launcher detects recognisable `data.bin` files and lets you create a
+`data.bin.native.bak` copy. The backup comes before any future transformer and
+does not modify the original save.
 
-## Regla de seguridad
+## Safety rule
 
-Un mod nativo no se considerara listo hasta que:
+A native mod will not be considered ready until it:
 
-1. Cree una copia de seguridad automatica.
-2. Valide el formato y la region del save.
-3. Escriba de forma atomica.
-4. Permita restaurar la copia anterior.
-5. Se compruebe que el juego carga, guarda y vuelve a leer el progreso.
+1. Creates an automatic backup.
+2. Validates the save's format and region.
+3. Writes atomically.
+4. Lets you restore the previous copy.
+5. Is checked so the game loads, saves and reads the progress back.
 
-Para cheats de memoria, ademas:
+For memory cheats, in addition:
 
-6. El parche debe corresponder al Title ID `4E4D0856`, al hash/versión exacta
-   del XEX y a la región correcta.
-7. Debe probarse en memoria del guest; una dirección PS2 o una dirección de
-   otro juego de Xenia no sirve.
+6. The patch must match Title ID `4E4D0856`, the exact XEX hash/version and the
+   correct region.
+7. It must be tested in guest memory; a PS2 address or another Xenia game's
+   address is no good.

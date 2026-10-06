@@ -1,98 +1,98 @@
-# Integración de herramientas de modding al entorno HD
+# Integrating modding tools into the HD environment
 
-> Auditoría inicial: 2026-09-08. No se han movido ni borrado herramientas.
-> Se conservan las fuentes PS2 como referencia y se exponen solo los flujos
-> validados para X360/HD.
+> Initial audit: 2026-09-08. No tools have been moved or deleted. The PS2
+> sources are kept as reference and only the flows validated for X360/HD are
+> exposed.
 
-## Principio
+## Principle
 
-`mod center/` mezcla herramientas PS2, GameCube, Shin Budokai, B3/IW y X360.
-`modding resources*` mezcla recursos, tutoriales y herramientas de
-Xenoverse/SDBH. No son un toolkit homogéneo. Copiarlo entero al release
-introduciría formatos erróneos, runtimes Python duplicados y ejecutables no
-relacionados con HD.
+`mod center/` mixes PS2, GameCube, Shin Budokai, B3/IW and X360 tools.
+`modding resources*` mixes resources, tutorials and Xenoverse/SDBH tools. They
+are not a homogeneous toolkit. Copying them wholesale into the release would
+bring in wrong formats, duplicated Python runtimes and executables unrelated
+to HD.
 
-La integración debe tener tres niveles:
+The integration must have three levels:
 
-| Nivel | Contenido | Acción |
+| Level | Contents | Action |
 |---|---|---|
-| `hd/` | Herramientas validadas sobre B3 HD/X360 | Integrar y documentar |
-| `bridge/` | Conversores de entrada hacia el pipeline HD | Adaptar con pruebas |
-| `reference/` | PS2/SLXS/BPL/IW y herramientas históricas | Conservar fuera del flujo HD |
+| `hd/` | Tools validated on B3 HD/X360 | Integrate and document |
+| `bridge/` | Input converters towards the HD pipeline | Adapt with tests |
+| `reference/` | PS2/SLXS/BPL/IW and historical tools | Keep outside the HD flow |
 
-## Candidatos HD
+## HD candidates
 
-| Herramienta | Estado | Integración propuesta |
+| Tool | State | Proposed integration |
 |---|---|---|
-| `xbcompress.exe` / `xbdecompress.exe` | Validada | Wrapper con `/N:2048`, magic y tamaño |
-| `swap_b3.py` | Validada | Instalador de override por entrada |
-| `texture_b3.py` | Validada | Pipeline AZT/DXT3/BC2 |
-| `awg_to_obj_b3.py` | Validada | Exportador principal B3 HD |
-| `awg0_export.py` | Validada | Verificación de formatos A/C |
-| `awg_cara_export.py` | Validada | Verificación de AWGs faciales |
-| `afs_scan.py` / `stage_analyze.py` | Validada para RE | Auditores, no editores destructivos |
-| `catalog_b3.cat` + `data_cmn_map.txt` | Datos del proyecto | Catálogo estructurado/versionado |
+| `xbcompress.exe` / `xbdecompress.exe` | Validated | Wrapper with `/N:2048`, magic and size |
+| `swap_b3.py` | Validated | Per-entry override installer |
+| `texture_b3.py` | Validated | AZT/DXT3/BC2 pipeline |
+| `awg_to_obj_b3.py` | Validated | Main B3 HD exporter |
+| `awg0_export.py` | Validated | Checking formats A/C |
+| `awg_cara_export.py` | Validated | Checking face AWGs |
+| `afs_scan.py` / `stage_analyze.py` | Validated for RE | Auditors, not destructive editors |
+| `catalog_b3.cat` + `data_cmn_map.txt` | Project data | Structured/versioned catalogue |
 
-## Candidatos bridge
+## Bridge candidates
 
-| Herramienta/recurso | Entrada | Utilidad HD | Trabajo necesario |
+| Tool/resource | Input | HD usefulness | Work needed |
 |---|---|---|---|
-| `Model-Rig Extractor` | PS2/Budokai | Labels, huesos y correspondencias | Salida JSON, sin escribir AWO |
-| `EMD/ESK → FBX` | SDBH/Xenoverse | Geometría fuente | Validar ejes y nombres |
-| `EMD to AMG` / `OBJ to AMG` | PS2 AMG | Etapa intermedia | Separarla del empaquetado HD |
-| Blender 2.78 FBX bridge | FBX | Edición de fuente | Entrada opcional documentada |
-| `parse_ps2_mesh.py`, `pose_matrix.py`, `rig_mapeo.py` | PS2 | Investigación del port | JSON reproducible |
+| `Model-Rig Extractor` | PS2/Budokai | Labels, bones and correspondences | JSON output, without writing AWO |
+| `EMD/ESK → FBX` | SDBH/Xenoverse | Source geometry | Validate axes and names |
+| `EMD to AMG` / `OBJ to AMG` | PS2 AMG | Intermediate stage | Separate it from HD packing |
+| Blender 2.78 FBX bridge | FBX | Source editing | Documented optional input |
+| `parse_ps2_mesh.py`, `pose_matrix.py`, `rig_mapeo.py` | PS2 | Port research | Reproducible JSON |
 
-## No presentar como HD
+## Do not present as HD
 
-- SLXS Editor, BPL Editor y editores SLUS: estructuras PS2, no tablas del XEX HD.
-- AMO/AMG/AMT packers, Model Part Editor y Bone Addition Tool: escriben PS2,
-  no `#AWO/#AWG/#AZT` de X360.
-- Shin Budokai, GameCube y herramientas IW PS2: referencia o bridge, no flujo HD.
-- `analyze_bin_hd.py`: parser histórico de layout PS3, obsoleto.
-- `build_awo_v20.py`, `build_awo_v22.py`, `build_awo_from_json.py` e
-  `inject_a18*.py`: experimentales; no son flujo de entrega.
+- SLXS Editor, BPL Editor and SLUS editors: PS2 structures, not HD XEX tables.
+- AMO/AMG/AMT packers, Model Part Editor and Bone Addition Tool: they write
+  PS2, not X360 `#AWO/#AWG/#AZT`.
+- Shin Budokai, GameCube and PS2 IW tools: reference or bridge, not the HD flow.
+- `analyze_bin_hd.py`: historical PS3 layout parser, obsolete.
+- `build_awo_v20.py`, `build_awo_v22.py`, `build_awo_from_json.py` and
+  `inject_a18*.py`: experimental; not a delivery flow.
 
-## Recursos con valor
+## Valuable resources
 
-### Alta prioridad
+### High priority
 
-- `modding resources update/`: listas B3/GH, IDs de cápsulas y breakdowns de
-  `data_usa.afs`; consolidar en `docs/03_formatos/` sin borrar originales.
-- Tutorial X360 de compresión: cruzarlo con el uso validado de LZX `/N:2048`.
-- Tutorial B3HD de texturas: cruzarlo con `texture_b3.py` y AZT.
-- Investigación Discord: bin lists, AFL y breakdowns para RE, no automatización HD.
+- `modding resources update/`: B3/GH lists, capsule IDs and `data_usa.afs`
+  breakdowns; consolidate into `docs/03_formatos/` without deleting originals.
+- X360 compression tutorial: cross-check it with the validated use of LZX `/N:2048`.
+- B3HD texture tutorial: cross-check it with `texture_b3.py` and AZT.
+- Discord research: bin lists, AFL and breakdowns for RE, not HD automation.
 
-### Prioridad media
+### Medium priority
 
-- Notas `Infinite World to Budokai 3 Moveset Ports`: conservar correspondencias,
-  sin asumir conversión directa IW→B3 HD.
-- `EmdFbx-and-FbxEmd-LibXenoverse`: evaluar como bridge de geometría.
-- `lean bone tutorial`: extraer documentación útil, no su runtime Python completo.
+- `Infinite World to Budokai 3 Moveset Ports` notes: keep the
+  correspondences, without assuming a direct IW→B3 HD conversion.
+- `EmdFbx-and-FbxEmd-LibXenoverse`: evaluate as a geometry bridge.
+- `lean bone tutorial`: extract the useful documentation, not its whole
+  Python runtime.
 
-### Baja prioridad
+### Low priority
 
-- SDBH World Mission (`.emm/.emd/.emb/.esk/.ean`): fuente para candidatos de port.
-- ZIP/RAR, vídeos, PDFs y ejecutables de Discord: catalogar por hash antes de duplicar.
+- SDBH World Mission (`.emm/.emd/.emb/.esk/.ean`): source for port candidates.
+- Discord ZIP/RAR, videos, PDFs and executables: catalogue by hash before duplicating.
 
-## Limpieza e integración
+## Cleanup and integration
 
-1. Excluir `__pycache__`, `.pyc`, `Temp`, logs y outputs de tutoriales.
-2. No copiar runtimes Python embebidos; usar Python del proyecto para bridges.
-3. Añadir a `mod center hd/` solo scripts fuente pequeños, CLI y rutas relativas.
-4. Cada herramienta integrada debe declarar entrada, salida, región, formato,
-   compresión y reversibilidad.
-5. Calcular hash y registrar origen antes de mover o deduplicar recursos.
+1. Exclude `__pycache__`, `.pyc`, `Temp`, logs and tutorial outputs.
+2. Do not copy embedded Python runtimes; use the project's Python for bridges.
+3. Add to `mod center hd/` only small source scripts, CLI, relative paths.
+4. Each integrated tool must declare input, output, region, format,
+   compression and reversibility.
+5. Compute a hash and record the origin before moving or deduplicating resources.
 
-## Primer entregable
+## First deliverable
 
-`mod center hd/tools_manifest.json` ya contiene las categorías `hd`, `bridge` y
-`reference`. Validarlo con:
+`mod center hd/tools_manifest.json` already contains the `hd`, `bridge` and
+`reference` categories. Validate it with:
 
 ```powershell
 python "mod center hd/tools_manifest_check.py"
 ```
 
-El siguiente paso es añadir wrappers para compresión, exportación OBJ, texturas,
-swaps y verificación. `mod center/` seguirá siendo el archivo completo de
-referencia.
+The next step is adding wrappers for compression, OBJ export, textures, swaps
+and verification. `mod center/` will remain the complete reference archive.
