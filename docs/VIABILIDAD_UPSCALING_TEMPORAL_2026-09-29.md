@@ -1,182 +1,194 @@
-# Viabilidad de upscaling temporal en dbz3 (DLSS / DLAA / FSR3 / Frame Gen)
+# Viability of temporal upscaling in dbz3 (DLSS / DLAA / FSR3 / Frame Gen)
 
-> Investigación 2026-09-29, a raíz de dos recompilaciones hermanas:
-> [`zolaware/reblue`](https://github.com/zolaware/reblue) (Blue Dragon) y
+> Research 2026-09-29, prompted by two sibling recompilations:
+> [`zolaware/reblue`](https://github.com/zolaware/reblue) (Blue Dragon) and
 > [`freefrank/LostOdysseyRecomp`](https://github.com/freefrank/LostOdysseyRecomp).
-> **Conclusión corta**: DLSS/DLAA/FSR3 temporal/Frame Gen **no son viables hoy**
-> en dbz3 sin construir el contrato temporal (color a resolución interna + depth
-> + motion vectors + jitter) y, en la práctica, sin disponer de la capa GPU. Lo
-> que sí es aprovechable de esos repos ya se ha adoptado (DRED +
-> gamecontrollerdb) o queda como candidato (§6).
+> **Short conclusion**: temporal DLSS/DLAA/FSR3/Frame Gen are **not viable
+> today** in dbz3 without building the temporal contract (colour at internal
+> resolution + depth + motion vectors + jitter) and, in practice, without
+> owning the GPU layer. What is usable from those repos has already been
+> adopted (DRED + gamecontrollerdb) or remains a candidate (§6).
+>
+> **Later update:** after this study the project started building
+> `rexgpu-xenos` from its own SDK branch and v1.4.2 shipped DLSS/FSR 3 as a
+> beta (`docs/PLAN_1.4.2_DLSS_FSR3.md`). None of it applies to the PS5 build.
 
-## 1. Base de cada proyecto (por qué no es una comparación 1:1)
+## 1. Base of each project (why it is not a 1:1 comparison)
 
-| | dbz3 (este proyecto) | reblue | LostOdysseyRecomp |
+| | dbz3 (this project) | reblue | LostOdysseyRecomp |
 |---|---|---|---|
-| Recompilador | ReXGlue 0.10 | **ReXGlue 0.10** | XenonRecomp + XenosRecomp |
-| Capa GPU | `rexgpu-xenos.dll` (Xenia), **no propia** | **propia** (`src/gpu/*`, fork de `plume`) | **propia** (`gpu/*`, `plume`) |
-| DLSS / DLAA | — | — | **Sí** (NGX 310.9.1: SR + DLAA) |
-| FSR | **FSR1** espacial (EASU/RCAS) + CAS en el presentador | — (solo MSAA/SSAA) | FSR 3.1 (upscaler) **+ FSR Frame Gen** |
-| Frame Gen | — | — | DLSS-G (Streamline) + FSR FG, **diferido** |
-| TAA propio | — | — | experimental |
+| Recompiler | ReXGlue 0.10 | **ReXGlue 0.10** | XenonRecomp + XenosRecomp |
+| GPU layer | `rexgpu-xenos.dll` (Xenia), **not its own** | **its own** (`src/gpu/*`, a fork of `plume`) | **its own** (`gpu/*`, `plume`) |
+| DLSS / DLAA | — | — | **Yes** (NGX 310.9.1: SR + DLAA) |
+| FSR | spatial **FSR1** (EASU/RCAS) + CAS in the presenter | — (MSAA/SSAA only) | FSR 3.1 (upscaler) **+ FSR Frame Gen** |
+| Frame Gen | — | — | DLSS-G (Streamline) + FSR FG, **deferred** |
+| Own TAA | — | — | experimental |
 
-**Dato clave**: reblue arranca del **mismo SDK que dbz3** (`reblue_manifest.toml`
-→ `sdk_version = "0.10.0"`, `REXCVAR_*`, `rexglue_setup_target`) pero **sustituye
-el plugin GPU** (`rexglue_setup_target(<target> [GPU_PLUGINS xenos])`): usa su
-propio `src/gpu/` sobre `plume`. Eso es lo que le permite MSAA/SSAA "de verdad",
-`render_scale` por debajo del 100 % y hooks de resolución de salida. **No es un
-flag de configuración: es otra capa de render.**
+**Key fact**: reblue starts from **the same SDK as dbz3**
+(`reblue_manifest.toml` → `sdk_version = "0.10.0"`, `REXCVAR_*`,
+`rexglue_setup_target`) but **replaces the GPU plugin**
+(`rexglue_setup_target(<target> [GPU_PLUGINS xenos])`): it uses its own
+`src/gpu/` on top of `plume`. That is what lets it do "real" MSAA/SSAA,
+`render_scale` below 100 % and output-resolution hooks. **It is not a config
+flag: it is another render layer.**
 
-LostOdysseyRecomp ni siquiera usa ReXGlue: es XenonRecomp/XenosRecomp + plume
-(la línea de UnleashedRecomp). Es el que tiene el pipeline temporal completo, pero
-sobre una GPU propia.
+LostOdysseyRecomp does not even use ReXGlue: it is XenonRecomp/XenosRecomp +
+plume (the UnleashedRecomp line). It is the one with the complete temporal
+pipeline, but on its own GPU.
 
-## 2. Por qué FSR1 sí funciona en dbz3 y FSR3/DLSS no
+## 2. Why FSR1 works in dbz3 and FSR3/DLSS do not
 
-- **Lo que tenemos hoy**: `rexglue-sdk-0.10/src/ui/presenter.cpp` aplica
-  **FSR1 espacial** (`guest_output_ffx_fsr_easu_ps` + `..._rcas_ps`) y **CAS**
-  (`guest_output_ffx_cas_*`) sobre la imagen ya resuelta del guest. Es un filtro
-  **espacial de un solo frame**: no necesita depth, ni movimiento, ni jitter.
-- **Lo que exige un upscaler temporal** (FSR3/DLSS/DLAA/FG): color a **resolución
-  de render** (no presentación), **depth** de la misma pasada, **motion vectors**
-  con signo convencional (pasado←presente, en píxeles de render), **jitter** de
-  cámara no aplicado a la UI/sombras/motion, y metadatos de color-exposición.
-  Nada de eso lo entrega hoy el presentador: solo recibe la imagen final con la
-  UI ya compuesta.
-- **El FFX SDK presente incluye FSR3/FG**, pero el build los deja fuera:
-  `rexglue-sdk-0.10/cmake/rexglue_fidelityfx.cmake` fuerza
-  `FFX_API_ENABLE_FRAMEGEN_PROVIDER OFF` y solo se empaquetan los shaders FSR1
-  EASU/RCAS + CAS. Habilitar FSR3 exigiría, además del SDK, los inputs de arriba.
-- **Ya hay un stub temporal en el SDK, pero degradado a espacial**: el código
-  `DispatchTemporalUpscaler` existe en `src/ui/d3d12/d3d12_presenter.cpp` /
-  `vulkan_presenter.cpp`, pero por frame hace `reset=true`, pasa el color como
-  depth **y** como motion vectors con `jitter=0` (el propio `presenter.cpp` lo
-  advierte). `present_fsr_quality_mode` (FSR2/3) solo alimenta esa ruta, por eso
-  el launcher lo mantiene oculto. Base previa: `ANALISIS_ESCALADO_RENDIMIENTO_2026-09-14.md`.
+- **What we have today**: `rexglue-sdk-0.10/src/ui/presenter.cpp` applies
+  **spatial FSR1** (`guest_output_ffx_fsr_easu_ps` + `..._rcas_ps`) and **CAS**
+  (`guest_output_ffx_cas_*`) on the guest's already-resolved image. It is a
+  **single-frame spatial** filter: it needs no depth, no motion, no jitter.
+- **What a temporal upscaler demands** (FSR3/DLSS/DLAA/FG): colour at **render
+  resolution** (not presentation), **depth** from the same pass, **motion
+  vectors** with the conventional sign (past←present, in render pixels),
+  camera **jitter** not applied to UI/shadows/motion, and colour-exposure
+  metadata. The presenter delivers none of that today: it only receives the
+  final image with the UI already composed.
+- **The FFX SDK present includes FSR3/FG**, but the build leaves them out:
+  `rexglue-sdk-0.10/cmake/rexglue_fidelityfx.cmake` forces
+  `FFX_API_ENABLE_FRAMEGEN_PROVIDER OFF` and only the FSR1 EASU/RCAS + CAS
+  shaders are packed. Enabling FSR3 would require, besides the SDK, the inputs
+  above.
+- **There is already a temporal stub in the SDK, but degraded to spatial**:
+  the `DispatchTemporalUpscaler` code exists in
+  `src/ui/d3d12/d3d12_presenter.cpp` / `vulkan_presenter.cpp`, but every frame
+  it does `reset=true`, passes the colour as depth **and** as motion vectors
+  with `jitter=0` (`presenter.cpp` itself warns about it).
+  `present_fsr_quality_mode` (FSR2/3) only feeds that path, which is why the
+  launcher keeps it hidden. Earlier basis:
+  `ANALISIS_ESCALADO_RENDIMIENTO_2026-09-14.md`.
 
-## 3. Lo que documenta LostOdysseyRecomp (la lección más valiosa)
+## 3. What LostOdysseyRecomp documents (the most valuable lesson)
 
-Su `docs/notes/temporal-upscaling-feasibility.md` es, literalmente, el plan de lo
-que nos tocaría. Puntos que aplican tal cual a dbz3:
+Its `docs/notes/temporal-upscaling-feasibility.md` is, literally, the plan of
+what we would have to do. Points that apply as is to dbz3:
 
-- Poseer los shaders traducidos, el dispatch de draws, las superficies de depth y
-  las command lists **es condición necesaria**; dbz3 **no** las posee (viven
-  dentro de `rexgpu-xenos.dll`).
-- Un filtro **post-presentación** "tiene un contrato sustancialmente más débil":
-  no puede dar depth/objeto-movimiento/jitter fiables.
-- **"Optical flow y vectores a cero no son motion vectors nativos"**: etiquetarlos
-  como tal está prohibido en su propio criterio de aceptación.
-- **Riesgo #1 = fronteras escena/UI y movimiento de objeto/skin**. En sus palabras:
-  "una vez demostrado, el adaptador D3D12 del SDK es costo moderado; la
-  incertidumbre alta es la identidad/historia de objeto y la frontera escena/UI,
-  que **requieren RE específico del juego**; ningún DLL ni flag de post-proceso
-  recupera su semántica".
-- Su estado real (2026-09-27): DLSS SR ejecutando en RTX 5080 (Quality
-  `1707x960 -> 2560x1440`), pero **Gate 3 no aprobado**, sin aceptación visual,
-  **Frame Gen diferido** y **redistribución de NGX sin resolver** (licencia
-  propietaria). Es decir: incluso con la capa GPU propia, es un proyecto de meses
-  y todavía experimental.
+- Owning the translated shaders, the draw dispatch, the depth surfaces and
+  the command lists **is a necessary condition**; dbz3 does **not** own them
+  (they live inside `rexgpu-xenos.dll`).
+- A **post-presentation** filter "has a substantially weaker contract": it
+  cannot give reliable depth/object motion/jitter.
+- **"Optical flow and zero vectors are not native motion vectors"**: labelling
+  them as such is forbidden by its own acceptance criterion.
+- **Risk #1 = scene/UI boundaries and object/skin motion**. In its words:
+  "once proven, the SDK's D3D12 adapter is a moderate cost; the high
+  uncertainty is the object identity/history and the scene/UI boundary, which
+  **require game-specific RE**; no DLL or post-process flag recovers their
+  semantics".
+- Its real state (2026-09-27): DLSS SR running on an RTX 5080 (Quality
+  `1707x960 -> 2560x1440`), but **Gate 3 not passed**, no visual acceptance,
+  **Frame Gen deferred** and **NGX redistribution unresolved** (proprietary
+  licence). That is: even with its own GPU layer, it is a months-long project
+  and still experimental.
 
-**Para dbz3 esto se traduce en**: hacer DLSS/FG implicaría (a) exponer
-color/depth/MV desde `rexgpu-xenos`, con RE del guest para la identidad de
-objeto/skin, o (b) reemplazar el backend GPU por uno propio tipo `plume` (lo que
-hizo reblue). Ninguna de las dos es "integrar una librería".
+**For dbz3 this translates into**: doing DLSS/FG would mean (a) exposing
+colour/depth/MV from `rexgpu-xenos`, with guest RE for object/skin identity,
+or (b) replacing the GPU backend with one of our own like `plume` (what
+reblue did). Neither is "integrating a library".
 
-## 4. Contrato temporal que habría que construir (si algún día se retoma)
+## 4. The temporal contract that would have to be built (if it is ever resumed)
 
-1. **Frontera escena/UI**: identificar el resolve de escena (color+depth) y el
-   primer draw de UI posterior, por frame y por familia de escena.
-2. **Depth y proyección**: depth de la misma pasada, convención (dbz3 usa
-   reversed-Z en el guest), near/far, y reproyección con la cámara.
-3. **Movimiento**: un campo de movimiento **hacia atrás** en píxeles de render.
-   Cámara sola = solo geometría estática; hace falta movimiento de huesos/skin.
-4. **Jitter**: desplazamiento de sub-píxel **solo** a la escena; nunca a UI,
-   clears, sombras ni full-screen triangles.
-5. **Color/exposición**: distinguir escena HDR/SDR y pre-exposición antes de
-   derivar constantes del SDK.
-6. **Resolución interna**: renderizar la escena a la resolución interna del modo
-   (Quality/Balanced/Performance) y redimensionar consistentemente viewports,
-   scissors, resolves y constantes de espacio de pantalla.
+1. **Scene/UI boundary**: identify the scene resolve (colour+depth) and the
+   first UI draw after it, per frame and per scene family.
+2. **Depth and projection**: depth from the same pass, the convention (dbz3
+   uses reversed-Z in the guest), near/far, and reprojection with the camera.
+3. **Motion**: a **backward** motion field in render pixels. Camera only =
+   static geometry only; bone/skin motion is needed.
+4. **Jitter**: a sub-pixel offset **only** for the scene; never for UI,
+   clears, shadows or full-screen triangles.
+5. **Colour/exposure**: distinguish HDR/SDR scene and pre-exposure before
+   deriving the SDK's constants.
+6. **Internal resolution**: render the scene at the mode's internal resolution
+   (Quality/Balanced/Performance) and resize viewports, scissors, resolves and
+   screen-space constants consistently.
 
-## 5. Lo que SÍ se puede hacer con lo que ya hay (sin tocar la GPU)
+## 5. What CAN be done with what is already there (without touching the GPU)
 
-- **FSR1 + CAS** (ya presente): el upscaling espacial de salida y la nitidez.
-- **`draw_resolution_scale`**: supersampling real del guest (2x/3x). Coste real
-  medido: 3x ≈ 51 % GPU vs 1x+FSR ≈ 22 %. Por eso `1x` es el default.
+- **FSR1 + CAS** (already present): spatial output upscaling and sharpness.
+- **`draw_resolution_scale`**: real supersampling of the guest (2x/3x). Real
+  measured cost: 3x ≈ 51 % GPU vs 1x+FSR ≈ 22 %. That is why `1x` is the default.
 - **FXAA/dither** (`swap_post_effect`, `dbz3_present_dither`).
-- **Texturas HD** (`dbz3_hd_textures`) como palanca de nitidez sin coste temporal.
+- **HD textures** (`dbz3_hd_textures`) as a sharpness lever without a temporal cost.
 
-## 6. Aprendizajes de reblue adoptables en dbz3
+## 6. Learnings from reblue adoptable in dbz3
 
-**Ya adoptado (2026-09-29):**
-- **DRED desacoplado de la capa debug**: cvar `d3d12_dred` (ON por defecto). El
-  reporte de *device lost* nombra la queue/list (breadcrumbs) y las allocation
-  nodes del page fault. Ver `github/patches/README.md` §2026-09-29.
-- **`gamecontrollerdb.txt`** enviado junto al exe (el runtime ya tiene la cvar
-  `hid_mappings_file`): el backend SDL reconoce mandos genéricos.
+**Already adopted (2026-09-29):**
+- **DRED decoupled from the debug layer**: cvar `d3d12_dred` (ON by default).
+  The *device lost* report names the queue/list (breadcrumbs) and the page
+  fault's allocation nodes. See `github/patches/README.md` §2026-09-29.
+- **`gamecontrollerdb.txt`** shipped next to the exe (the runtime already has
+  the `hid_mappings_file` cvar): the SDL backend recognises generic pads.
 
-**Ya adoptado (2026-09-30, QoL del launcher — solo host):**
-- **Etiquetas de botón (glyphs)**: cvar `dbz3_input_glyphs` (Xbox / PlayStation /
-  Switch). La pestaña **Controles** cambia los nombres junto a cada keybind
-  (`LT` vs `L2` vs `ZL`, `D-Pad Up`, `LS-Up`, ...) usando el helper
-  `ButtonGlyph()` de `src/launcher/launcher_state.cpp`. Es solo cosmético: **no
-  toca el mapeo del runtime** (a diferencia del glyph set de reblue, que
-  reescribe bloques de una hoja DDS del guest vía hooks).
-- **"Reparar instalación"** (`dbz3::settings::RepairInstallation()`): botón en el
-  pie del launcher y bandera de un solo uso `dbz3_repair` (CLI
-  `--dbz3_repair=true` / `REX_DBZ3_REPAIR=1`) que reabre el launcher y muestra un
-  informe en un popup. Pone en cuarentena un `dbz3_user.toml` ilegible
-  (`*.invalid`) y reescribe ajustes limpios, verifica `rexruntime.dll`,
-  `rexgpu-xenos.dll`, `amd_fidelityfx_dx12.dll` y `gamecontrollerdb.txt`, y
-  asegura la carpeta de datos de usuario. **No toca `us/eu/`, `mods/` ni las
-  cachés.** Validado en runtime (uno de los informes dejó el `.invalid` de un
-  toml roto y regeneró el bueno).
+**Already adopted (2026-09-30, launcher QoL — host only):**
+- **Button labels (glyphs)**: cvar `dbz3_input_glyphs` (Xbox / PlayStation /
+  Switch). The **Controls** tab changes the names next to each keybind (`LT`
+  vs `L2` vs `ZL`, `D-Pad Up`, `LS-Up`, ...) using the helper `ButtonGlyph()`
+  in `src/launcher/launcher_state.cpp`. It is only cosmetic: it **does not
+  touch the runtime's mapping** (unlike reblue's glyph set, which rewrites
+  blocks of a guest DDS sheet via hooks).
+- **"Repair installation"** (`dbz3::settings::RepairInstallation()`): a button
+  in the launcher's footer and a one-shot flag `dbz3_repair` (CLI
+  `--dbz3_repair=true` / `REX_DBZ3_REPAIR=1`) that reopens the launcher and
+  shows a report in a popup. It quarantines an unreadable `dbz3_user.toml`
+  (`*.invalid`) and rewrites clean settings, checks `rexruntime.dll`,
+  `rexgpu-xenos.dll`, `amd_fidelityfx_dx12.dll` and `gamecontrollerdb.txt`,
+  and makes sure the user data folder exists. **It does not touch `us/eu/`,
+  `mods/` or the caches.** Validated at runtime (one of the reports left the
+  `.invalid` of a broken toml and regenerated the good one).
 
-**Descartado (con motivo):**
-- **PSO precache/predictor/recorder** (reblue `src/gpu/pipeline/pso_*`): el
-  predictor y la disciplina de precache son agnósticos, pero el *build* de cada
-  PSO depende de **plume** (`RenderGraphicsPipelineDesc`,
-  `CreateHostGraphicsPipeline`). Contra `rexgpu-xenos` (Xenia) habría que
-  reimplementar `Build` y el formato de caché; no es una tarea de launcher.
-- **Hooks de resolución de salida** (reblue `src/gpu/hooks/output.cpp`): RE de
-  guest con direcciones concretas de Blue Dragon (`0x82DDA670`, viewports,
-  `VisualRender::ctor`, ...). No aplica a DBZ3; exigiría localizar los
-  equivalentes del motor de Budokai (investigación, no QoL).
-- **`frame_interp`** (reblue `src/engine/frame_interp.cpp`, 3.000+ líneas):
-  desacopla render de la simulación a 30 Hz del guest con decenas de gates.
-  Es RE de guest por juego; DBZ3 ya corre a 60 Hz fijos.
-- **Idioma de UI vs voces**: reblue separa `bd_language` (`user_language`, boot)
-  de `bd_opt_voice_type` (opción in-game contra `[Voice]` de `bd_boot.ini`). En
-  DBZ3 el idioma de texto ya se controla (`dbz3_language`); el de voces vive en
-  el motor del guest y requeriría localizar su opción (RE).
-- **Perfiles**: reblue usa un directorio por perfil (`profiles/<name>` con su
-  toml/saves/mods). Nuestro launcher ya tiene perfiles **de mods**
-  (`dbz3_mod_profile` + `mods/profiles.txt`); un sistema de perfiles de ajustes
-  completo es un rediseño de datos, no una mejora de un día.
+**Discarded (with a reason):**
+- **PSO precache/predictor/recorder** (reblue `src/gpu/pipeline/pso_*`): the
+  predictor and the precache discipline are agnostic, but each PSO's *build*
+  depends on **plume** (`RenderGraphicsPipelineDesc`,
+  `CreateHostGraphicsPipeline`). Against `rexgpu-xenos` (Xenia) `Build` and
+  the cache format would have to be reimplemented; it is not a launcher task.
+- **Output-resolution hooks** (reblue `src/gpu/hooks/output.cpp`): guest RE
+  with concrete Blue Dragon addresses (`0x82DDA670`, viewports,
+  `VisualRender::ctor`, ...). It does not apply to DBZ3; it would require
+  locating the Budokai engine's equivalents (research, not QoL).
+- **`frame_interp`** (reblue `src/engine/frame_interp.cpp`, 3,000+ lines):
+  decouples rendering from the guest's 30 Hz simulation with dozens of gates.
+  It is per-game guest RE; DBZ3 already runs at a fixed 60 Hz.
+- **UI language vs voices**: reblue separates `bd_language` (`user_language`,
+  boot) from `bd_opt_voice_type` (an in-game option against `[Voice]` of
+  `bd_boot.ini`). In DBZ3 the text language is already controlled
+  (`dbz3_language`); the voice one lives in the guest's engine and would
+  require locating its option (RE).
+- **Profiles**: reblue uses one directory per profile (`profiles/<name>` with
+  its toml/saves/mods). Our launcher already has **mod** profiles
+  (`dbz3_mod_profile` + `mods/profiles.txt`); a complete settings-profile
+  system is a data redesign, not a one-day improvement.
 
-**Candidatos siguientes (coste medio, sin rehacer la GPU):**
-- **PSO precache adaptado a Xenia** (solo si se decide tocar `rexgpu-xenos`).
-- **Perfiles de ajustes** (snapshots con nombre del `dbz3_user.toml`).
+**Next candidates (medium cost, without redoing the GPU):**
+- **PSO precache adapted to Xenia** (only if touching `rexgpu-xenos` is decided).
+- **Settings profiles** (named snapshots of `dbz3_user.toml`).
 
-## 7. Riesgos y licencias
+## 7. Risks and licences
 
-- **NVIDIA NGX/DLSS**: SDK propietario; LostOdysseyRecomp deja la redistribución
-  de `nvngx_dlss.dll` **sin resolver**. No empaquetar sin resolverlo.
-- **FSR**: redistribuible bajo la licencia del AMD FSR/FidelityFX SDK (ya
-  embarcamos `amd_fidelityfx_dx12.dll`).
-- **Código de terceros**: reblue es **BSD-3-Clause**, LostOdysseyRecomp es
-  **GPLv3**. Si se reutiliza código, respetar licencia y atribución.
+- **NVIDIA NGX/DLSS**: proprietary SDK; LostOdysseyRecomp leaves the
+  redistribution of `nvngx_dlss.dll` **unresolved**. Do not package it without
+  resolving that.
+- **FSR**: redistributable under the AMD FSR/FidelityFX SDK licence (we
+  already ship `amd_fidelityfx_dx12.dll`).
+- **Third-party code**: reblue is **BSD-3-Clause**, LostOdysseyRecomp is
+  **GPLv3**. If code is reused, respect licence and attribution. (The PS5
+  port, adapted from the GPL-3 mcla-recomp, is kept in the GPL-3 `ps5/` folder
+  for this reason.)
 - **GameControllerDB**: zlib (https://github.com/mdqinc/SDL_GameControllerDB).
 
-## 8. Recomendación
+## 8. Recommendation
 
-Mantener la estrategia **espacial** (FSR1/CAS/FXAA + escala interna + texturas HD)
-como entrega. Tratar el upscaling temporal como **investigación acotada** con las
-fases de §4, y **solo** retomarlo si se decide (a) instrumentar `rexgpu-xenos`
-para color/depth/MV con RE del guest, o (b) migrar a un backend GPU propio. No
-prometer DLSS/FSR3/Frame Gen al usuario.
+Keep the **spatial** strategy (FSR1/CAS/FXAA + internal scale + HD textures)
+as the deliverable. Treat temporal upscaling as **bounded research** with the
+phases in §4, and **only** resume it if it is decided to (a) instrument
+`rexgpu-xenos` for colour/depth/MV with guest RE, or (b) migrate to our own
+GPU backend. Do not promise DLSS/FSR3/Frame Gen to the user.
 
-## 9. Referencias
+## 9. References
 
 - `zolaware/reblue` — `src/gpu/settings.cpp`, `src/gpu/output*.cpp`,
   `src/gpu/dred.*`, `src/gpu/pipeline/pso_*`, `config/hooks/*.toml`.
@@ -185,6 +197,6 @@ prometer DLSS/FSR3/Frame Gen al usuario.
   `frame_generation_*.cpp`, `streamline_runtime.cpp`,
   `docs/notes/temporal-upscaling-feasibility.md`,
   `docs/notes/native-dlss-validation.md`, `cmake/Lo{Dlss,Fsr,Streamline}.cmake`.
-- Local (solo mientras exista el clon): `%TEMP%\opencode\repos\`.
-- Propio: `rexglue-sdk-0.10/cmake/rexglue_fidelityfx.cmake`,
+- Local (only while the clone exists): `%TEMP%\opencode\repos\`.
+- Ours: `rexglue-sdk-0.10/cmake/rexglue_fidelityfx.cmake`,
   `rexglue-sdk-0.10/src/ui/presenter.cpp`.
