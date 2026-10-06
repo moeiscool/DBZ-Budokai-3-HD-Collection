@@ -1,118 +1,120 @@
-# GUÍA DE MODEL SWAPS Y PORTS — DBZ Budokai 3 HD Collection
+# MODEL SWAPS AND PORTS GUIDE — DBZ Budokai 3 HD Collection
 
-> 2026-08-17. Documento vivo para el proyecto B3. Consolida el conocimiento
-> validado en el proyecto hermano **B1** (mismo runtime ReXGlue, MISMO formato
-> HD) y lo adapta a B3. Antes de nada: **lea las lecciones del B1 en
-> `C:\Users\javie\Desktop\PROYECTOS IA\DBZ Budokai HD Collection\AGENTS.md`**
-> (especialmente lecciones 8-15) — este documento es el resumen operativo.
+> 2026-08-17. Living document for the B3 project. It consolidates the knowledge
+> validated in the sister project **B1** (same ReXGlue runtime, SAME HD format)
+> and adapts it to B3. Before anything else: **read the B1 lessons in the B1
+> project's `AGENTS.md`** (especially lessons 8-15) — this document is the
+> operational summary.
 
 ---
 
-## 1. RESUMEN EJECUTIVO
+## 1. EXECUTIVE SUMMARY
 
-| Swap | Estado | Herramienta |
+| Swap | State | Tool |
 |---|---|---|
-| **B1 → B1** (dentro del B1) | ✅ **100% FUNCIONAL** (Android 19 → Tenshinhan) | `swap_b1.py` (proyecto B1) |
-| **B3 → B1** (port de modelos) | ✅ **100% FUNCIONAL** (Dr. Gero → Tenshinhan) | `install_b3_to_b1.py` + `launcher_mod_pipeline.py` (proyecto B1) |
-| **B3 → B3** (dentro del B3) | ✅ **100% FUNCIONAL** (Cell Forma 2 → Krillin, 2026-09-10) | `swap_b3.py` |
-| **B1 → B3** (port inverso) | 🔬 No probado aún; mismo principio + conversión de sellos inversa | Hoja de ruta §7 |
+| **B1 → B1** (inside B1) | ✅ **100% WORKING** (Android 19 → Tenshinhan) | `swap_b1.py` (B1 project) |
+| **B3 → B1** (model port) | ✅ **100% WORKING** (Dr. Gero → Tenshinhan) | `install_b3_to_b1.py` + `launcher_mod_pipeline.py` (B1 project) |
+| **B3 → B3** (inside B3) | ✅ **100% WORKING** (Cell Form 2 → Krillin, 2026-09-10) | `swap_b3.py` |
+| **B1 → B3** (reverse port) | 🔬 Not tried yet; same principle + reverse seal conversion | Roadmap §7 |
 
-**El hallazgo que lo cambió todo** (lección 9 del B1, 16/08): el runtime HD
-**NO valida conteos fijos del slot**. Instala un bin `#AWO` COMPLETO de otro
-personaje y el runtime lo dibuja tal cual (mesh group, IB, bones, UVs). Lo
-único que exige: que **geom (`#AWO`/`#AMB`) y tex (`#AZT`) sean del MISMO
-personaje**.
-
----
-
-## 2. CÓMO FUNCIONAN LOS MODEL SWAPS (el principio)
-
-### 2.1 Qué hace el runtime
-
-Cuando el combate carga un personaje, el runtime lee sus bins del AFS y los
-renderiza **sin reinterpretarlos**: usa el mesh group, el index buffer, los
-bones y las UVs **que vienen dentro del bin instalado**. Por eso:
-
-- **Swap de bin completo** (la vía correcta): el modelo nuevo se ve perfecto
-  porque su topología/IB viajan en el bin.
-- **Inyección parcial** (la vía vieja, DESCARTADA): sobrescribir solo las
-  coordenadas del sec34 de un bin nativo → el runtime dibuja la **topología
-  del anfitrión** sobre las coordenadas nuevas → **deformación**.
-- **Reconstrucción desde cero con IB propio** (v20/v22 del B3): caos, el
-  runtime usa su propio IB.
-
-### 2.2 Requisitos del swap
-
-1. **Par geom + tex del MISMO personaje**: el bin de geometría y su textura
-   deben corresponder al mismo personaje. Un `#AWO` de X con `#AZT` de Y →
-   **crash 0xC0000005** (mismatch de textura).
-2. **Sellos del bin correctos** para el juego destino:
-   - B1: flag AWG `+0x0C` = `0x2`; type2 mesh = `0x1BD`/`0x11BD`; sombra `0x190`.
-   - B3: flag AWG `+0x0C` = `0x4`; type2 mesh = `0x29BD`.
-   - Portar B3→B1 requiere convertir los sellos (ver §5).
-3. **Materiales compatibles** (solo B3→B1): escala 4×128.0 + pesos
-   `0.85/0.80/0.70/1.0` (torso) o `0.85/0.85/0.80/1.0` (extremidades) + type2
-   `0x11BD` para shader con specular.
-4. **Textura opaca** (solo B3→B1): el runtime B1 espera AZT con alpha DXT3 a
-   `0xFF` (el B3 usa alpha variable → cuerpo negro).
-
-### 2.3 El runtime anima por labels
-
-El runtime B1/B3 anima **por coincidencia de labels** entre el `#AWO` (modelo)
-y el `#ACM` (esqueleto) del slot. Los bones del AWO sin label coincidente
-quedan en bind pose. Para el Gero portado al slot Tenshinhan, los labels del
-rig no coinciden con el `#ACM` del slot → algunos bones (boca, pelo) no se
-animan perfecto. **No bloquea el swap** (el modelo renderiza), pero limita la
-animación.
+**The finding that changed everything** (B1 lesson 9, 16/08): the HD runtime
+**does NOT validate fixed slot counts**. Install a COMPLETE `#AWO` bin of
+another character and the runtime draws it as is (mesh group, IB, bones, UVs).
+The only requirement: that **geom (`#AWO`/`#AMB`) and tex (`#AZT`) belong to
+the SAME character**.
 
 ---
 
-## 3. EL FORMATO HD (igual en B1 y B3 — verificado 17/08)
+## 2. HOW MODEL SWAPS WORK (the principle)
 
-### 3.1 Archivos del personaje (data_cmn.afs / data_sp.afs)
+### 2.1 What the runtime does
 
-| Magic | Rol | B1 slots (ej. TSH) |
+When a battle loads a character, the runtime reads its bins from the AFS and
+renders them **without reinterpreting them**: it uses the mesh group, the
+index buffer, the bones and the UVs **that come inside the installed bin**.
+That is why:
+
+- **Full-bin swap** (the correct path): the new model looks perfect because
+  its topology/IB travel inside the bin.
+- **Partial injection** (the old path, DISCARDED): overwriting only the sec34
+  coordinates of a native bin → the runtime draws the **host's topology** on
+  the new coordinates → **deformation**.
+- **Rebuild from scratch with its own IB** (B3 v20/v22): chaos, the runtime
+  uses its own IB.
+
+### 2.2 Swap requirements
+
+1. **geom + tex pair of the SAME character**: the geometry bin and its texture
+   must correspond to the same character. An `#AWO` of X with an `#AZT` of Y →
+   **crash 0xC0000005** (texture mismatch).
+2. **Correct bin seals** for the target game:
+   - B1: AWG flag `+0x0C` = `0x2`; mesh type2 = `0x1BD`/`0x11BD`; shadow
+     `0x190`.
+   - B3: AWG flag `+0x0C` = `0x4`; mesh type2 = `0x29BD`.
+   - Porting B3→B1 requires converting the seals (see §5).
+3. **Compatible materials** (B3→B1 only): scale 4×128.0 + weights
+   `0.85/0.80/0.70/1.0` (torso) or `0.85/0.85/0.80/1.0` (limbs) + type2
+   `0x11BD` for the specular shader.
+4. **Opaque texture** (B3→B1 only): the B1 runtime expects an AZT with DXT3
+   alpha at `0xFF` (B3 uses variable alpha → black body).
+
+### 2.3 The runtime animates by labels
+
+The B1/B3 runtime animates **by matching labels** between the slot's `#AWO`
+(model) and `#ACM` (skeleton). AWO bones without a matching label stay in bind
+pose. For Gero ported to the Tenshinhan slot, the rig labels do not match the
+slot's `#ACM` → some bones (mouth, hair) are not animated perfectly. **It does
+not block the swap** (the model renders), but it limits the animation.
+
+---
+
+## 3. THE HD FORMAT (same in B1 and B3 — verified 17/08)
+
+### 3.1 Character files (data_cmn.afs / data_sp.afs)
+
+| Magic | Role | B1 slots (e.g. TSH) |
 |---|---|---|
-| `#ACM` | esqueleto + expresiones | 2445 |
-| `#CCM` | comandos/moveset | 2446 |
-| `#CSK` | tabla de animaciones (2037, mismas IDs en todos) | 2448 |
-| `#AWO` | modelo (mesh group + IB + bones + UVs) | 2450 |
-| `#AZT` | texturas | 2451 |
+| `#ACM` | skeleton + expressions | 2445 |
+| `#CCM` | commands/moveset | 2446 |
+| `#CSK` | animation table (2037, same IDs in all) | 2448 |
+| `#AWO` | model (mesh group + IB + bones + UVs) | 2450 |
+| `#AZT` | textures | 2451 |
 
-En **B3**, el modelo vive en un contenedor `#AMB` que incluye `#AWO` + `#AZT`
-juntos (una sola entrada AFS). Verificado: el Gero B3 = bin 91 (`#AMB` con
+In **B3**, the model lives in an `#AMB` container that includes `#AWO` +
+`#AZT` together (a single AFS entry). Verified: Gero B3 = bin 91 (`#AMB` with
 `X20G_BODY`, 2501 verts, 16 AWGs, 46 bones).
 
-### 3.2 Vértice (stride 44) — MODELO VERIFICADO 2026-09-11 (ventanas GPU)
+### 3.2 Vertex (stride 44) — MODEL VERIFIED 2026-09-11 (GPU windows)
 
-> ✅ El GPU NO dibuja con "descriptores A/B + sec34/vb2 separados" (§3.3/§3.4 son
-> metadata, no el dibujo). El vertex buffer es una **copia VERBATIM de la región
-> contigua `[vb0, ib)` del AWO** (`vb0 = ib - N*44`, `ib = AWG0+g(0x30)`), de **N
-> ventanas de 44 B autocontenidas**, y el **IB** (`AWG0+g(0x30)`) indexa ventanas.
-> Confirmado en juego: permutar ventanas + remapear IB = identidad **total**
-> (geometría + texturas, T11). Herramienta: `awo_tools/awg_vertex_buffer.py`.
+> ✅ The GPU does NOT draw with "A/B descriptors + separate sec34/vb2" (§3.3/§3.4
+> are metadata, not the drawing). The vertex buffer is a **VERBATIM copy of the
+> contiguous region `[vb0, ib)` of the AWO** (`vb0 = ib - N*44`,
+> `ib = AWG0+g(0x30)`), of **N self-contained 44 B windows**, and the **IB**
+> (`AWG0+g(0x30)`) indexes windows. Confirmed in game: permuting windows +
+> remapping the IB = **total** identity (geometry + textures, T11). Tool:
+> `awo_tools/awg_vertex_buffer.py`.
 
 ```
 +00 pos.x  +04 pos.y  +08 pos.z   (3 float32 BE)   vfetch fmt 57 (32_32_32_FLOAT)
 +12 weight (float32, ~1.0)                          fmt 36 (32_FLOAT)
-+16 BONE   (u32; 1 byte usado)                      fmt 6  (8_8_8_8)
++16 BONE   (u32; 1 byte used)                       fmt 6  (8_8_8_8)
 +20 nrm.x  +24 nrm.y  +28 nrm.z   (3 float32)        fmt 57
 +32 0xFFFFFFFF
 +36 uv.x   +40 uv.y               (2 float32)        fmt 37 (32_32_FLOAT)
 ```
-`N = max(índice del IB) + 1`. El IB es int16 BE, índices de ventana 0..N-1.
+`N = max(IB index) + 1`. The IB is int16 BE, window indices 0..N-1.
 
-> ⚠️ El layout de "sec34" de abajo (`+36 blend, +40 uv`) NO es el del GPU; el uv
-> va en **+36**. La rejilla `sec+2` está desalineada +428 B respecto a las
-> ventanas (de ahí el antiguo "skew UV"). Ver
+> ⚠️ The "sec34" layout below (`+36 blend, +40 uv`) is NOT the GPU's; the uv
+> is at **+36**. The `sec+2` grid is misaligned by +428 B relative to the
+> windows (hence the old "UV skew"). See
 > `docs/07_ports/SESION_GPU_DRAW_2026-09-11.md` §6-8.
 
-### 3.2b (histórico) sec34 del tool — metadata, no dibujo
+### 3.2b (historical) the tool's sec34 — metadata, not drawing
 
 ```
-+00 pos.x  +04 pos.y  +08 pos.z          (floats BE)
++00 pos.x  +04 pos.y  +08 pos.z          (BE floats)
 +12 weight (0.7/0.8/0.9/1.0)
-+16 BONE index (u32, válido 1-46)
++16 BONE index (u32, valid 1-46)
 +20 nrm.x  +24 nrm.y  +28 nrm.z
 +32 0xFFFFFFFF
 +36 blend/scale
@@ -120,227 +122,235 @@ juntos (una sola entrada AFS). Verificado: el Gero B3 = bin 91 (`#AMB` con
 ```
 `n_sec = sec_size // 44`.
 
-> ⚠️ ANTES usábamos un layout viejo `[nan,u,v,z,x,y,peso,bone,nz,-ny,nx]` (sesión
-> 5 del B1). Fue CORREGIDO en la v10. **No usar el layout viejo.**
+> ⚠️ We used to use an old layout `[nan,u,v,z,x,y,weight,bone,nz,-ny,nx]` (B1
+> session 5). It was CORRECTED in v10. **Do not use the old layout.**
 
-### 3.3 Offsets del header AWG0 (+0x50) — RELATIVOS al AWG0
+### 3.3 AWG0 header offsets (+0x50) — RELATIVE to AWG0
 
 ```
 +0x28 sec_off   → sec_abs = AWG0 + val     (n_sec = sec_size//44)
 +0x2C sec_size
-+0x30 post_off  → post_abs = AWG0 + val    (IB u16 + sub-mesh)
++0x30 post_off  → post_abs = AWG0 + val    (u16 IB + sub-mesh)
 +0x34 post_size → n_ib = post_size//2
-+0x38 siguiente zona (REL AWG0)
-+0x3C bones count   +0x40 nombre (16B)
++0x38 next zone (REL AWG0)
++0x3C bones count   +0x40 name (16B)
 ```
 
-> ⚠️ Los scripts viejos del B3 leían `sc=+0x34`, `vb=+0x2C`, `ib=+0x30`
-> (formato pre-v10). **CORREGIDO** en `awg_to_obj.py` (17/08).
+> ⚠️ The old B3 scripts read `sc=+0x34`, `vb=+0x2C`, `ib=+0x30` (pre-v10
+> format). **CORRECTED** in `awg_to_obj.py` (17/08).
 
-### 3.4 Mesh group y arms
+### 3.4 Mesh group and arms
 
-- Cada `#AWG` tiene: header (quat local, pos local, sello, arm_ptr, child/
-  sibling/parent) + mesh parts (type2, stride, materiales).
-- Los `arm` (20B: `[bone, fin, 0, ini, 0]`) apuntan a rangos del IB.
-- Los mesh parts de sombra (`0x190`/`0x204`) marcan límites del IB.
+- Each `#AWG` has: header (local quat, local pos, seal, arm_ptr, child/
+  sibling/parent) + mesh parts (type2, stride, materials).
+- The `arm`s (20B: `[bone, end, 0, start, 0]`) point to IB ranges.
+- Shadow mesh parts (`0x190`/`0x204`) mark IB limits.
 
 ---
 
-## 4. EL CATÁLOGO DE PERSONAJES (base de todo swap)
+## 4. THE CHARACTER CATALOGUE (the base of every swap)
 
-El proyecto B1 escanea los AFS y genera un catálogo:
+The B1 project scans the AFS and generates a catalogue:
 `mod center hd/cache/characters.cat`:
 
 ```
-juego|label|nombre|slot_geom|slot_tex|slot_acm|slot_csk|verts|awgs
+game|label|name|slot_geom|slot_tex|slot_acm|slot_csk|verts|awgs
 B1|XTSH_BODY|Tenshinhan|2450|2451|2449|0|4272|23
 B3|X20G_BODY|Dr. Gero|91|0|0|0|2501|16
 ```
 
-- **B1**: 26 personajes jugables (`XGOK_BODY`=Goku, `XTRX_BODY`=Trunks,
+- **B1**: 26 playable characters (`XGOK_BODY`=Goku, `XTRX_BODY`=Trunks,
   `X19G_BODY`=Android 19...).
-- **B3**: 56 personajes (`XGOK_BODY`, `XVGT_BODY`, `XPIC_BODY`, `XTSH_BODY`,
-  `XFRZ_BODY`, `XCEL_BODY`...). El `slot_geom` del B3 = índice del `#AMB`.
+- **B3**: 56 characters (`XGOK_BODY`, `XVGT_BODY`, `XPIC_BODY`, `XTSH_BODY`,
+  `XFRZ_BODY`, `XCEL_BODY`...). B3's `slot_geom` = the index of the `#AMB`.
 
-Generación: `python launcher_mod_pipeline.py catalog`
-(script del proyecto B1, reutilizable — apunta a ambos AFS).
+Generation: `python launcher_mod_pipeline.py catalog` (a B1 project script,
+reusable — it points at both AFS). (B3 now has its own catalogue:
+`mod center hd/catalog_b3.cat`, 183 entries.)
 
 ---
 
-## 5. CÓMO HACER LOS SWAPS (pipeline paso a paso)
+## 5. HOW TO DO THE SWAPS (step-by-step pipeline)
 
-### 5.1 Port B3 → B1 (VALIDADO: Gero → Tenshinhan)
+### 5.1 B3 → B1 port (VALIDATED: Gero → Tenshinhan)
 
 ```
-python launcher_mod_pipeline.py port --b3 X20G_BODY --dest 2450 --tex 2451 --mod mi_port
+python launcher_mod_pipeline.py port --b3 X20G_BODY --dest 2450 --tex 2451 --mod my_port
 ```
-1. Extrae el `#AMB` del bin B3 (91) y descomprime.
-2. `extract_amb_awo.py` → `#AWO` + `#AZT` del AMB.
+1. Extracts the `#AMB` of the B3 bin (91) and decompresses it.
+2. `extract_amb_awo.py` → `#AWO` + `#AZT` of the AMB.
 3. `install_b3_to_b1.py`:
-   - `port_b3_to_b1_v2.py`: flag AWG `0x4→0x2`, type2 `0x29BD→0x1BD`/`0x11BD`,
-     materiales B1 (escala 4×128, pesos, sombra `0x190`).
-   - AZT alpha DXT3 → `0xFF`.
-   - Compresión LZX `/N:2048` + padding al slot + round-trip verificado.
-   - Instala en `mods/<mod>/us/data_sp.afs/<2450>/geom.bin` y `2451/tex.bin`
-     y activa el mod.
-4. Reiniciar el juego → el modelo nuevo renderiza en combate.
+   - `port_b3_to_b1_v2.py`: AWG flag `0x4→0x2`, type2 `0x29BD→0x1BD`/`0x11BD`,
+     B1 materials (scale 4×128, weights, shadow `0x190`).
+   - AZT DXT3 alpha → `0xFF`.
+   - LZX compression `/N:2048` + padding to the slot + verified round-trip.
+   - Installs into `mods/<mod>/us/data_sp.afs/<2450>/geom.bin` and
+     `2451/tex.bin` and enables the mod.
+4. Restart the game → the new model renders in battle.
 
-### 5.2 Swap B1 → B1 (VALIDADO: Android 19 → Tenshinhan)
+### 5.2 B1 → B1 swap (VALIDATED: Android 19 → Tenshinhan)
 
 ```
-python launcher_mod_pipeline.py swap --origen X19G_BODY --dest 2450 --tex 2451 --mod mi_swap
+python launcher_mod_pipeline.py swap --origen X19G_BODY --dest 2450 --tex 2451 --mod my_swap
 ```
-Extrae el par geom+tex del origen (49/48 o 45/46), comprime, padda y lo
-instala en los slots del destino.
+Extracts the source's geom+tex pair (49/48 or 45/46), compresses, pads and
+installs it in the target's slots.
 
-### 5.3 Swap B3 → B3 — ✅ VALIDADO (Cell Forma 2 → Krillin, 2026-09-10)
+### 5.3 B3 → B3 swap — ✅ VALIDATED (Cell Form 2 → Krillin, 2026-09-10)
 
-El `#AMB` del B3 ya contiene AWO+AZT del MISMO personaje → un swap dentro del
-B3 es **sustituir la entrada del AFS** (el AMB de X en la entrada de Y). El
-runtime dibuja el AMB nuevo completo (mesh group, IB, bones, UVs), 100%
-funcional (boca incluida).
+B3's `#AMB` already contains AWO+AZT of the SAME character → a swap inside B3
+is **replacing the AFS entry** (X's AMB in Y's entry). The runtime draws the
+whole new AMB (mesh group, IB, bones, UVs), 100% working (mouth included).
 
 ```powershell
 python "mod center hd\swap_b3.py" --list
 python "mod center hd\swap_b3.py" --origen 147 --dest 327 --mod cell_native
 ```
 
-- `--origen`/`--dest` = **número de bin = índice de entrada AFS**
-  (`catalog_b3.cat`: `bin|nombre|label|variante|jugable`).
-- Instala `mods/<mod>/us/data_cmn.afs/<dest>/geom.bin` (override por entrada,
-  ~120 KB; el runtime aplica mid-insert virtual si excede `to_read`).
-- Detalle completo: `docs/07_ports/SESION_SWAP_NATIVO_2026-09-10.md`.
-- ⚠️ **Un solo mod activo por slot** (el runtime sirve el primero por orden
-  alfabético).
+- `--origen`/`--dest` = **bin number = AFS entry index**
+  (`catalog_b3.cat`: `bin|name|label|variant|playable`).
+- Installs `mods/<mod>/us/data_cmn.afs/<dest>/geom.bin` (per-entry override,
+  ~120 KB; the runtime applies the virtual mid-insert if it exceeds
+  `to_read`).
+- Full detail: `docs/07_ports/SESION_SWAP_NATIVO_2026-09-10.md`.
+- ⚠️ **Only one active mod per slot** (the runtime serves the first in
+  alphabetical order).
+- Mods made this way also work on the PS5 build (copy them to
+  `/data/dbz3/mods/`); the swap tool itself runs on the PC.
 
-> **Nota**: esto es un *swap nativo HD→HD*, NO una *conversión PS2→HD*. Para
-> modelos que no existen en HD, ver `docs/07_ports/PLAN_PS2_B3/PLAN.md`.
+> **Note**: this is a *native HD→HD swap*, NOT a *PS2→HD conversion*. For
+> models that do not exist in HD, see `docs/07_ports/PLAN_PS2_B3/PLAN.md`.
 
-### 5.4 Port B1 → B3 (inverso, no probado)
+### 5.4 B1 → B3 port (reverse, not tried)
 
-Mismo principio con conversión inversa de sellos:
-- flag AWG `0x2→0x4`, type2 `0x1BD/0x11BD→0x29BD`, materiales B3 (escala 1.0),
-  AZT con alpha variable (no forzar a 0xFF).
-- El par geom (`#AWO` B1) + tex (`#AZT` B1) del MISMO personaje → empaquetar en
-  `#AMB` o instalar por entrada.
+Same principle with reverse seal conversion:
+- AWG flag `0x2→0x4`, type2 `0x1BD/0x11BD→0x29BD`, B3 materials (scale 1.0),
+  AZT with variable alpha (do not force to 0xFF).
+- The geom (`#AWO` B1) + tex (`#AZT` B1) pair of the SAME character → pack into
+  `#AMB` or install per entry.
 
 ---
 
-## 6. HERRAMIENTAS DEL PROYECTO B3 — ESTADO Y DIAGNÓSTICO
+## 6. B3 PROJECT TOOLS — STATE AND DIAGNOSIS
 
-### 6.1 Tabla de estado (17/08)
+### 6.1 State table (17/08)
 
-| Herramienta | Estado | Problema |
+| Tool | State | Problem |
 |---|---|---|
-| `awg_to_obj.py` | ✅ **ARREGLADA** (17/08) | Usaba offsets viejos del header (`+0x34`/`+0x2C`/`+0x30`) y layout viejo del vértice (`nan,u,v,z,x,y...`). Corregida a `+0x28..+0x34` y layout v10+. Detecta `#AWO` directo o `#AMB`. Verificado: Gero → 2501 verts / 5443 IB / 1814 caras. |
-| `obj_to_awg.py` | 🔧 requiere fix | Mismo bug de offsets/layout. Además, la vía de retopología que usa quedó **superada** (no hace falta si usas swap nativo). |
-| `build_awo_v20/v22.py` | ❌ superado | Intentaba reconstruir con "conteos fijos" (sec34=1956, IB=5140). El runtime NO exige conteos fijos (lección 9). |
-| `build_awo_from_json.py` | ❌ superado | Retargeting binario con matrices → shear/deformación (lecciones 10-12). |
-| `inject_a18.py` / `inject_a18_v21.py` | ❌ superado | Inyección parcial de coordenadas → deforma (el runtime usa su topología). |
-| `empaquetar_v20.py` | ❌ superado | Empaca sec34/vb2/ib viejos. |
-| `emd_to_awo_hd.py` | 🔬 incompleta | Parsing de EMD SDBH a medias; la vía EMD ya no es necesaria (el B3 HD ya tiene los modelos en `#AMB`). |
-| `json_to_obj.py` / `fbx_*.py` | 🔬 helper | Utilidades auxiliares para el flujo viejo. |
+| `awg_to_obj.py` | ✅ **FIXED** (17/08) | Used old header offsets (`+0x34`/`+0x2C`/`+0x30`) and the old vertex layout (`nan,u,v,z,x,y...`). Fixed to `+0x28..+0x34` and the v10+ layout. Detects direct `#AWO` or `#AMB`. Verified: Gero → 2501 verts / 5443 IB / 1814 faces. |
+| `obj_to_awg.py` | 🔧 needs a fix | Same offsets/layout bug. Also, the retopology path it uses is **superseded** (not needed if you use the native swap). |
+| `build_awo_v20/v22.py` | ❌ superseded | Tried to rebuild with "fixed counts" (sec34=1956, IB=5140). The runtime does NOT require fixed counts (lesson 9). |
+| `build_awo_from_json.py` | ❌ superseded | Binary retargeting with matrices → shear/deformation (lessons 10-12). |
+| `inject_a18.py` / `inject_a18_v21.py` | ❌ superseded | Partial coordinate injection → deforms (the runtime uses its topology). |
+| `empaquetar_v20.py` | ❌ superseded | Packs old sec34/vb2/ib. |
+| `emd_to_awo_hd.py` | 🔬 incomplete | Half-done SDBH EMD parsing; the EMD path is no longer needed (B3 HD already has the models in `#AMB`). |
+| `json_to_obj.py` / `fbx_*.py` | 🔬 helper | Auxiliary utilities for the old flow. |
 
-### 6.2 Bug común de TODOS los scripts viejos
+### 6.2 Bug common to ALL the old scripts
 
-1. **Offsets del header AWG0 equivocados** (lección 8 del B1): leían el sec34
-   desde `+0x34` (que en realidad es `post_size`). El header correcto es:
-   `sec_off=+0x28`, `sec_size=+0x2C`, `post_off=+0x30`, `post_size=+0x34`,
-   **relativos al AWG0**.
-2. **Layout del vértice equivocado** (lección 5→v10): el layout correcto es
+1. **Wrong AWG0 header offsets** (B1 lesson 8): they read sec34 from `+0x34`
+   (which is really `post_size`). The correct header is: `sec_off=+0x28`,
+   `sec_size=+0x2C`, `post_off=+0x30`, `post_size=+0x34`, **relative to
+   AWG0**.
+2. **Wrong vertex layout** (lesson 5→v10): the correct layout is
    `pos(0/4/8) weight(12) bone(16) nrm(20/24/28) 0xFFFFFFFF(32) blend(36)
    uv(40)`.
 
 ---
 
-## 7. HOJA DE RUTA PARA HACER FUNCIONAL EL B3 (orden sugerido)
+## 7. ROADMAP TO MAKE B3 WORK (suggested order)
 
-### Paso 1 — Sistema de mods del B3 (override por entrada AFS) [imprescindible]
+### Step 1 — B3 mod system (per-AFS-entry override) [essential]
 
-Hoy el B3 solo reemplaza **archivos completos** (`PrepareRegionData` copia
-`mods/<mod>/us/<archivo>` sobre el `us/`). Para model swaps se necesita el
-override **por entrada AFS** que ya tiene el B1.
+Today B3 only replaces **whole files** (`PrepareRegionData` copies
+`mods/<mod>/us/<file>` over `us/`). Model swaps need the **per-AFS-entry**
+override that B1 already has. (Done later: AGENTS §6.)
 
-Opciones:
-- **A (rápida)**: copiar `src/mods.cpp`/`mods.h` del B1 al B3 + la UI de la
-  pestaña Mods del B1. El override de entradas vive en el SDK
+Options:
+- **A (quick)**: copy B1's `src/mods.cpp`/`mods.h` to B3 + B1's Mods tab UI.
+  The entry override lives in the SDK
   (`rexglue-sdk/src/filesystem/devices/host_path_file.cpp` →
-  `AfsFindModOverride`) — si el B3 usa el mismo SDK con ese cambio, el hook ya
-  funciona; hay que verificar que `rexruntime.dll` del B3 lo incluya.
-- **B (sin recompilar el SDK)**: empaquetar el AFS con la entrada sustituida
-  (tools de AFS packer) y usar el override por archivo completo existente.
-  Más lento de iterar, pero no toca el runtime.
+  `AfsFindModOverride`) — if B3 uses the same SDK with that change, the hook
+  already works; check that B3's `rexruntime.dll` includes it.
+- **B (without rebuilding the SDK)**: pack the AFS with the replaced entry (AFS
+  packer tools) and use the existing whole-file override. Slower to iterate,
+  but does not touch the runtime.
 
-### Paso 2 — Herramienta `swap_b3.py` (swap dentro del B3)
+### Step 2 — `swap_b3.py` tool (swap inside B3)
 
-Nuevo script (o extensión de `launcher_mod_pipeline.py`):
-- `catalog --b3` (ya existe → 56 personajes).
-- `swap3 --origen <label> --dest <bin>`: extrae el `#AMB` del origen del
-  `data_cmn.afs` del B3, comprime `/N:2048`, padda al tamaño del slot destino
-  e instala en `mods/<mod>/us/data_cmn.afs/<bin>/geom.bin`.
-- Validar con un swap conocido (ej. Android 19 → Krillin) en runtime.
+New script (or extension of `launcher_mod_pipeline.py`):
+- `catalog --b3` (already exists → 56 characters).
+- `swap3 --origen <label> --dest <bin>`: extracts the source's `#AMB` from B3's
+  `data_cmn.afs`, compresses `/N:2048`, pads to the target slot's size and
+  installs into `mods/<mod>/us/data_cmn.afs/<bin>/geom.bin`.
+- Validate with a known swap (e.g. Android 19 → Krillin) at runtime.
 
-### Paso 3 — Corregir el resto de extractores del B3
+### Step 3 — Fix the rest of B3's extractors
 
-- `obj_to_awg.py`: aplicar el mismo fix de offsets/layout que `awg_to_obj.py`
-  (útil si algún día se quiere retopología manual, aunque ya no es la vía).
-- Marcar los scripts `build_awo_*`/`inject_*` como obsoletos (moverlos a
+- `obj_to_awg.py`: apply the same offsets/layout fix as `awg_to_obj.py`
+  (useful if manual retopology is ever wanted, although it is no longer the
+  path).
+- Mark the `build_awo_*`/`inject_*` scripts as obsolete (move them to
   `mod center hd/obsoletos/`).
 
-### Paso 4 — Port B1 → B3 (inverso)
+### Step 4 — B1 → B3 port (reverse)
 
-Crear `port_b1_to_b3.py`:
-- Conversión inversa de sellos (flag `0x2→0x4`, type2 `0x1BD→0x29BD`,
-  materiales B3 escala 1.0, AZT con alpha original).
-- Empaquetar AWO+AZT B1 en `#AMB` o instalar por entrada.
-- Probar con un personaje B1 jugable (ej. Tenshinhan HD) en un slot B3.
+Create `port_b1_to_b3.py`:
+- Reverse seal conversion (flag `0x2→0x4`, type2 `0x1BD→0x29BD`, B3 materials
+  scale 1.0, AZT with original alpha).
+- Pack the B1 AWO+AZT into `#AMB` or install per entry.
+- Test with a playable B1 character (e.g. Tenshinhan HD) in a B3 slot.
 
-### Paso 5 — Integrar todo en el launcher del B3
+### Step 5 — Integrate everything into the B3 launcher
 
-Portar la pestaña "Mods → Model pipeline" del B1 (catálogo + combos + botón
-portar/swapar) al B3. Reutilizar `mod_pipeline.{h,cpp}` del B1.
+Port B1's "Mods → Model pipeline" tab (catalogue + combos + port/swap button)
+to B3. Reuse B1's `mod_pipeline.{h,cpp}`.
 
-### Paso 6 — (Opcional) Ports de movesets
+### Step 6 — (Optional) Moveset ports
 
-El moveset del B3 → B1 se descartó (lección 13: el `#ACM` del slot no es
-sustituible sin RE completa de sus poses). Para swaps de modelos esto NO es
-necesario.
+The B3 → B1 moveset was discarded (lesson 13: the slot's `#ACM` cannot be
+replaced without full RE of its poses). This is NOT needed for model swaps.
 
 ---
 
-## 7b. PORT PS2→B3 HD — VÍA B (ventanas + IB) ❌ NO RENDERIZA (2026-09-12)
+## 7b. PS2→B3 HD PORT — PATH B (windows + IB) ❌ DOES NOT RENDER (2026-09-12)
 
-Para modelos que **NO existen en HD** (si existen → swap nativo, §5).
-⚠️ **Estado**: la geometría se emite **exacta** y llega al GPU, pero el modelo
-**explota** al renderizar (el guest trocea el IB por los descriptores/rangos de
-parte de la plantilla, que no casan con la topología PS2). **NO usar como
-entrega**; falta reconstruir los rangos A/B + mesh-refs.
+For models that **do NOT exist in HD** (if they exist → native swap, §5).
+⚠️ **State**: the geometry is emitted **exactly** and reaches the GPU, but the
+model **explodes** when rendered (the guest splits the IB by the template's
+descriptors/part ranges, which do not match the PS2 topology). **Do NOT use as
+a delivery**; the A/B ranges + mesh-refs still need rebuilding. (Later
+findings: AGENTS §3.4.10 — B3 HD skins on the CPU.)
 
-1. Extraer el PS2: `python ports/port_ps2_b3_extract.py <ps2.amb|amo0> <extract.json>`
-   (model-space + skin + labels).
-2. Elegir plantilla HD con **mismo esqueleto (labels) y textura**.
-3. Portar: `python ports/port_b3_windows.py <extract.json> <plantilla.bin> <out.amb>
-   [--fit|--no-grow]` → emite **ventanas 44 B + IB** (mapea huesos por label).
-   `--fit` = cluster-decimate si no cabe; sin `--fit` crece (`grow`, experimental).
-4. Empaquetar: LZX `/N:2048` + pad a `ceil(comp/0x1000)*0x1000` (ver `swap_b3.py`),
-   override en `mods/<mod>/us/data_cmn.afs/<entry>/geom.bin`.
+1. Extract the PS2: `python ports/port_ps2_b3_extract.py <ps2.amb|amo0>
+   <extract.json>` (model space + skin + labels).
+2. Choose an HD template with the **same skeleton (labels) and texture**.
+3. Port: `python ports/port_b3_windows.py <extract.json> <template.bin>
+   <out.amb> [--fit|--no-grow]` → emits **44 B windows + IB** (maps bones by
+   label). `--fit` = cluster-decimate if it does not fit; without `--fit` it
+   grows (`grow`, experimental).
+4. Pack: LZX `/N:2048` + pad to `ceil(comp/0x1000)*0x1000` (see `swap_b3.py`),
+   override in `mods/<mod>/us/data_cmn.afs/<entry>/geom.bin`.
 
-**Modelo del vertex buffer** (ver §3.2): el GPU dibuja una copia verbatim de
-`[vb0, ib)`, N ventanas de 44 B (`pos@0,w@12,bone@16,nrm@20,marker@32,uv@36`) +
-IB (lista, prim=4). Semántica: `pos=inv(world[bone])·model` y
-`nrm=inv(world[bone]).R·model_nrm`, **orden natural**. Herramienta canónica:
+**Vertex buffer model** (see §3.2): the GPU draws a verbatim copy of
+`[vb0, ib)`, N windows of 44 B (`pos@0,w@12,bone@16,nrm@20,marker@32,uv@36`) +
+IB (list, prim=4). Semantics: `pos=inv(world[bone])·model` and
+`nrm=inv(world[bone]).R·model_nrm`, **natural order**. Canonical tool:
 `awo_tools/awg_vertex_buffer.py`.
-⚠️ **NO validado en juego** (2026-09-12): el port renderiza **explotado** pese a
-que la geometría es exacta y llega al GPU (ver `SESION_VIA_B_RENDER_2026-09-12.md`).
+⚠️ **NOT validated in game** (2026-09-12): the port renders **exploded** even
+though the geometry is exact and reaches the GPU (see
+`SESION_VIA_B_RENDER_2026-09-12.md`).
 
-## 8. REFERENCIAS
+## 8. REFERENCES
 
-- **Metodología de swaps** (B1): `docs/tutoriales/MODEL_SWAPS_METODOLOGIA.md`.
-- **Sesión del port Gero B3→B1**: `docs/re/SESION10_PORT_B3_B1_FUNCIONAL.md`.
-- **Sesión de swaps B1→B1**: `docs/re/SESION9_MODEL_SWAPS_B1_B1.md`.
-- **Animaciones/movesets HD**: `docs/re/ANIMACIONES_MOVESETS_HD.md`.
-- **Lecciones clave**: `AGENTS.md` (lecciones 1-15) del proyecto B1.
-- **Catálogo de personajes**: `mod center hd/cache/characters.cat` (B1).
-- **Pipeline funcional (B1)**: `mod center hd/launcher_mod_pipeline.py`,
+- **Swap methodology** (B1): `docs/tutoriales/MODEL_SWAPS_METODOLOGIA.md`.
+- **Gero B3→B1 port session**: `docs/re/SESION10_PORT_B3_B1_FUNCIONAL.md`.
+- **B1→B1 swaps session**: `docs/re/SESION9_MODEL_SWAPS_B1_B1.md`.
+- **HD animations/movesets**: `docs/re/ANIMACIONES_MOVESETS_HD.md`.
+- **Key lessons**: the B1 project's `AGENTS.md` (lessons 1-15).
+- **Character catalogue**: `mod center hd/cache/characters.cat` (B1).
+- **Working pipeline (B1)**: `mod center hd/launcher_mod_pipeline.py`,
   `mod center hd/swaps/swap_b1.py`,
   `mod center hd/conversores/install_b3_to_b1.py`.
+
+(The references in this section are paths in the B1 project.)
