@@ -69,7 +69,8 @@ def render_like(ref, text, font):
     try:
         f = ImageFont.truetype(font, 64)
     except OSError:             # font missing on this PC: any bold system font, then Pillow's
-        f = next((ImageFont.truetype(c, 64) for c in ("arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf")
+        f = next((ImageFont.truetype(c, 64) for c in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mod center hd", "fonts",
+                                               "Roboto-Bold.ttf"), "arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf")
                   if _has_font(c)), None) or ImageFont.load_default()
     tmp = Image.new("RGBA", (64 * len(text) + 40, 120), (0, 0, 0, 0))
     ImageDraw.Draw(tmp).text((10, 10), text, font=f, fill=(255, 255, 255, 255),

@@ -3905,17 +3905,7 @@ void LauncherDialog::DrawNewCharactersTab() {
         "JUGAR. Tus partidas guardadas no se tocan.",
         "If something goes wrong: untick the character under \"Installed\" (back to how it was) "
         "and press PLAY. Your saves are never touched."));
-    // v1.4.1: los personajes nuevos solo existen en el nucleo US/NA (las tablas que se
-    // amplian son las del ejecutable US); con el default.xex europeo el juego arranca
-    // normal pero sin ellos, y antes no se decia en ninguna parte.
-    if (dbz3::settings::CurrentBootSource().status == dbz3::settings::XexStatus::kEu) {
-      ImGui::Dummy(ImVec2(0, 4));
-      ImGui::TextColored(ui::kError, "%s  %s", ICON_WARN, i18n::T(
-          "Tu juego es la version europea (EU/PAL): los personajes nuevos solo funcionan con la "
-          "version US/NA. El juego arrancara normal, pero sin ellos.",
-          "Your game is the European version (EU/PAL): new characters only work with the US/NA "
-          "version. The game will start normally, but without them."));
-    }
+    // v1.4.2.2: los personajes nuevos funcionan tambien con el ejecutable europeo (EU/PAL).
     // v1.4.2.1: la causa mas comun de "no salen los personajes": jugar desde el ISO.
     if (dbz3::settings::IsIsoMode()) {
       ImGui::Dummy(ImVec2(0, 4));

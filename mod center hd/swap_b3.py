@@ -66,6 +66,9 @@ XBDECOMPRESS = os.path.join(TOOLS_DIR, 'xbdecompress.exe')
 DEFAULT_AFS = _first_existing(
     os.path.join(ROOT, 'assets', 'us', 'data_cmn.afs'),
     os.path.join(ROOT, 'us', 'data_cmn.afs'),
+    # instalacion solo europea (EU/PAL): data_cmn.afs es identico entrada a entrada
+    os.path.join(ROOT, 'assets', 'eu', 'data_cmn.afs'),
+    os.path.join(ROOT, 'eu', 'data_cmn.afs'),
 )
 
 

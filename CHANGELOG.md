@@ -6,6 +6,10 @@ are summarized at the end; the full history (in Spanish) is in
 
 Downloads: [latest release](../../releases/latest).
 
+## v1.4.2.2 (2026-10-07)
+- New characters now work with the European (EU/PAL) executable too (region-aware guest addresses and hooks; roster_build reads eu/ and data_eng).
+- The Kit ships Roboto Bold (Apache 2.0) as its font fallback.
+
 ## v1.4.2.1 (2026-10-07)
 - New characters not showing: the rebuild crashed with "OSError: cannot open resource" when Arial Rounded (an Office font) was missing; fonts now fall back.
 - The New characters tab warns when playing from the ISO (mods are not loaded) or with the EU version.

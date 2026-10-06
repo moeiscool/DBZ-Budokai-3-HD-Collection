@@ -116,6 +116,9 @@ def kit_pack(ver, stage):
     studio = os.path.join(ROOT, "mod center hd", "studio")   # Studio de camaras (paquete)
     if os.path.isdir(studio):
         shutil.copytree(studio, os.path.join(mch, "studio"), ignore=shutil.ignore_patterns("__pycache__"))
+    fonts = os.path.join(ROOT, "mod center hd", "fonts")      # fuente propia: nunca "cannot open resource"
+    if os.path.isdir(fonts):
+        shutil.copytree(fonts, os.path.join(mch, "fonts"))
     for f in KIT_DATA:
         shutil.copyfile(os.path.join(ROOT, "mod center hd", f), os.path.join(mch, f))
     for f in os.listdir(XDK):

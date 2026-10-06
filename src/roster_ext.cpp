@@ -77,6 +77,7 @@
 #include <toml++/toml.hpp>
 
 #include "generated/dbz3_init.h"
+#include "guest_region.h"
 
 #include <algorithm>
 #include <array>
@@ -102,12 +103,14 @@ constexpr uint32_t kHudFace = 0x82373D68;
 constexpr uint32_t kVoicePtr = 0x823280B0;   // u32 por ID -> s32[n] indices ADX
 constexpr uint32_t kVoiceCount = 0x82328298; // s32 n por ID
 constexpr uint32_t kSelectPos = 0x82372950;
-constexpr uint32_t kSlotToId = 0x82020618;
-constexpr uint32_t kSlotToIdB = 0x82021470;  // copias usadas por otros modos/confirmacion
-constexpr uint32_t kSlotToIdC = 0x82024760;
-constexpr uint32_t kIdToSlot = 0x82020668;
+// .rdata: en la imagen EU/PAL estas cuatro se mueven (SelectImage, guest_region.h)
+uint32_t kSlotToId = 0x82020618;
+uint32_t kSlotToIdB = 0x82021470;  // copias usadas por otros modos/confirmacion
+uint32_t kSlotToIdC = 0x82024760;
+uint32_t kIdToSlot = 0x82020668;
 constexpr uint32_t kPortraits = 0x82372818;  // u32 [39][2] retrato del select por slot
 constexpr uint32_t kSignature = 0x82020700;  // "_charasel.cpp"
+constexpr uint32_t kSignatureEu = 0x82020708;
 constexpr int kIds = 64;
 constexpr int kSelectPosIds = 44;           // la entrada 44 es "sin personaje"
 constexpr uint32_t kSkcHdrPtr = 0x82375608;  // -> cabecera del #SKC
@@ -801,11 +804,19 @@ void ApplyAtLaunch(rex::memory::Memory* memory) {
   if (!memory) return;
   Guest g(memory);
   g_memory = memory;
-  if (std::memcmp(g.P(kSignature), "_charasel.cpp", 13) != 0 ||
+  // Imagen US/NA o EU/PAL (nucleo dual): mismas tablas de .data; las de .rdata movidas.
+  const bool eu = std::memcmp(g.P(kSignatureEu), "_charasel.cpp", 13) == 0;
+  if ((!eu && std::memcmp(g.P(kSignature), "_charasel.cpp", 13) != 0) ||
       std::memcmp(g.P(g.U32(kChar96 + 22 * 96)), "GULDO", 5) != 0) {
-    REXLOG_INFO("dbz3 roster: imagen no US (o desconocida): sin extension de plantilla");
+    REXLOG_INFO("dbz3 roster: imagen desconocida: sin extension de plantilla");
     return;
   }
+  dbz3::g_guest_eu = eu;
+  kSlotToId = dbz3::GuestAddr(0x82020618, 0x82020620);
+  kSlotToIdB = dbz3::GuestAddr(0x82021470, 0x82021460);
+  kSlotToIdC = dbz3::GuestAddr(0x82024760, 0x82024778);
+  kIdToSlot = dbz3::GuestAddr(0x82020668, 0x82020670);
+  REXLOG_INFO("dbz3 roster: imagen {}", eu ? "EU/PAL" : "US/NA");
   std::error_code ec;
   for (const auto& info : ListMods()) {
     if (!info.enabled) continue;
@@ -956,14 +967,14 @@ int HostSlotOf(uint32_t id) {
 }  // namespace dbz3::roster
 
 // ---------------------------------------------------------------------------
-// Hooks (US codegen)
+// Hooks (US codegen + its EU/PAL twin, guest_region.h)
 // ---------------------------------------------------------------------------
 
 // Load-system init: r10 -> u32[r9] maximum file count per AFS partition
 // (data_cmn 4000, data_usi 2720, adx 4560, lang 112, yah). The ADXF partition
 // info buffer is sized from these; entries appended by mods (virtual AFS) need
 // more room.
-REX_HOOK_RAW(sub_82083618) {
+DBZ3_HOOK(sub_82083618, dbz3eu_sub_82083618) {
   const uint32_t n = ctx.r9.u32;
   const uint32_t arr = ctx.r10.u32;
   if (n > 0 && n < 16 && arr) {
@@ -972,15 +983,15 @@ REX_HOOK_RAW(sub_82083618) {
       if (v > 0 && v < 8192) REX_STORE_U32(arr + 4 * i, 8192);
     }
   }
-  __imp__sub_82083618(ctx, base);
+  orig(ctx, base);
 }
 
 // Select: builds the per-mode availability state (r3); +56 = u64 mask of
 // unlocked character IDs. Roster characters are always available.
-REX_HOOK_RAW(sub_8217A1C0) {
+DBZ3_HOOK(sub_8217A1C0, dbz3eu_sub_8217A178) {
   dbz3::roster::EnsureCapsules();
   const uint32_t st = ctx.r3.u32;
-  __imp__sub_8217A1C0(ctx, base);
+  orig(ctx, base);
   const uint64_t extra = dbz3::roster::ExtraUnlockMask();
   if (extra && st) {
     REX_STORE_U64(st + 56, REX_LOAD_U64(st + 56) | extra);
@@ -998,7 +1009,7 @@ thread_local int t_sel_ids[4] = {-1, -1, -1, -1};
 thread_local bool t_in_setup = false;
 }  // namespace
 
-REX_HOOK_RAW(sub_820FE668) {
+DBZ3_HOOK(sub_820FE668, dbz3eu_sub_820FE768) {
   const uint32_t sel = ctx.r3.u32;
   for (uint32_t k = 0; k < 4; ++k) {
     const int id = sel ? int(REX_LOAD_U16(sel + 32 + 80 * k)) : -1;
@@ -1006,11 +1017,11 @@ REX_HOOK_RAW(sub_820FE668) {
   }
   dbz3::roster::EnsureCapsules();
   t_in_setup = true;
-  __imp__sub_820FE668(ctx, base);
+  orig(ctx, base);
   t_in_setup = false;
 }
 
-REX_HOOK_RAW(sub_821007E8) {
+DBZ3_HOOK(sub_821007E8, dbz3eu_sub_821008E8) {
   const uint32_t rec = ctx.r3.u32;
   const uint32_t cfg = REX_LOAD_U32(kBattleCfgPtr);
   if (t_in_setup && cfg && rec >= cfg + 1696 && (rec - cfg - 1696) % 80 == 0) {
@@ -1023,13 +1034,13 @@ REX_HOOK_RAW(sub_821007E8) {
       for (uint32_t b = 0; b < 14; ++b) REX_STORE_U8(rec + 54 + b, REX_LOAD_U8(c96 + 82 + b));
     }
   }
-  __imp__sub_821007E8(ctx, base);
+  orig(ctx, base);
 }
 
 // Animation player: r3 = model instance, r4 = motion index. In the select screen
 // the index is the CHARACTER ID inside the common select pose banks (data_cmn
 // 3881-3883), which have no pose for the cut IDs: use the donor's pose.
-REX_HOOK_RAW(sub_82136328) {
+DBZ3_HOOK(sub_82136328, dbz3eu_sub_82136430) {
   const uint32_t inst = ctx.r3.u32;
   if (inst && ctx.r4.u32 < 64) {
     const uint32_t mt = REX_LOAD_U32(inst + 656);
@@ -1045,15 +1056,15 @@ REX_HOOK_RAW(sub_82136328) {
       }
     }
   }
-  __imp__sub_82136328(ctx, base);
+  orig(ctx, base);
 }
 
 // Select preview model (r3 = task, +48 = model object: +178 player, +180 character
 // ID, +196..+220 position/scale/rotation read from 0x82372950[ID][player]). That
 // table ends at ID 44: IDs >= 44 get their framing from roster.toml.
-REX_HOOK_RAW(sub_8217FF20) {
+DBZ3_HOOK(sub_8217FF20, dbz3eu_sub_8217FED8) {
   const uint32_t obj = ctx.r3.u32 ? REX_LOAD_U32(ctx.r3.u32 + 48) : 0;
-  __imp__sub_8217FF20(ctx, base);
+  orig(ctx, base);
   if (!obj) return;
   const int16_t id = int16_t(REX_LOAD_U16(obj + 180));
   uint32_t v[7];
@@ -1065,7 +1076,7 @@ REX_HOOK_RAW(sub_8217FF20) {
 
 // ID -> slot (r3 = ID; the table at 0x82020668 has 44 entries but IDs < 64 are read
 // from it): roster IDs >= 44 answer their host slot.
-REX_HOOK_RAW(sub_82159A88) {
+DBZ3_HOOK(sub_82159A88, dbz3eu_sub_82159A48) {
   const uint32_t id = ctx.r3.u32;
   if (id >= 44 && id < 64) {
     const int slot = dbz3::roster::HostSlotOf(id);
@@ -1074,29 +1085,29 @@ REX_HOOK_RAW(sub_82159A88) {
       return;
     }
   }
-  __imp__sub_82159A88(ctx, base);
+  orig(ctx, base);
 }
 
 // Fichas de habilidades del combate (r3 = ?, recorre los jugadores): entradas de la
 // tabla ID -> ficha para los personajes nuevos (ver SkillTable).
-REX_HOOK_RAW(sub_820E6D70) {
+DBZ3_HOOK(sub_820E6D70, dbz3eu_sub_820E6E60) {
   dbz3::roster::SkillTable(true);
-  __imp__sub_820E6D70(ctx, base);
+  orig(ctx, base);
   dbz3::roster::SkillTable(false);
 }
 
 // Carga la ficha k (r3): las propias de los personajes nuevos (k >= 1001) se cargan por
 // el hueco 1 de la lista de registros, cambiado solo durante la llamada.
-REX_HOOK_RAW(sub_821B5FC0) {
+DBZ3_HOOK(sub_821B5FC0, dbz3eu_sub_821B4DA8) {
   const uint32_t rec = dbz3::roster::SkillRecordFor(ctx.r3.u32);
   if (!rec) {
-    __imp__sub_821B5FC0(ctx, base);
+    orig(ctx, base);
     return;
   }
   const uint32_t old = dbz3::roster::SkillSlot1();
   dbz3::roster::SetSkillSlot1(rec);
   ctx.r3.u64 = 1;
-  __imp__sub_821B5FC0(ctx, base);
+  orig(ctx, base);
   dbz3::roster::SetSkillSlot1(old);
 }
 
@@ -1118,7 +1129,7 @@ bool ListedCapsule(uint8_t* base, uint32_t rec, uint64_t owner_bit, uint32_t tab
 
 // Lista visible de la pestana (9 capsulas desde el desplazamiento). Misma logica que el
 // original (sub_821B6ED8) con el catalogo entero.
-REX_HOOK_RAW(sub_821B6ED8) {
+DBZ3_HOOK(sub_821B6ED8, dbz3eu_sub_821B5CC0) {
   const uint32_t st = ctx.r3.u32;
   const uint32_t tab = REX_LOAD_U32(st + 36);
   const uint64_t bit = uint64_t(1) << (int32_t(REX_LOAD_U32(st + 28)) & 63);
@@ -1144,7 +1155,7 @@ REX_HOOK_RAW(sub_821B6ED8) {
 }
 
 // Total de la pestana y cursor sobre la capsula r4 (sub_821B6FE8, catalogo entero).
-REX_HOOK_RAW(sub_821B6FE8) {
+DBZ3_HOOK(sub_821B6FE8, dbz3eu_sub_821B5DD0) {
   const uint32_t st = ctx.r3.u32;
   const int32_t want = ctx.r4.s32;
   const uint32_t recs = REX_LOAD_U32(kSkcRecs);
@@ -1180,7 +1191,7 @@ REX_HOOK_RAW(sub_821B6FE8) {
 
 // Carga de una lista en el editor (r3 = jugador*2, r4 = u32 n + 7 u32): el original
 // descarta las capsulas >= 595; se rehace la lista equipada con el catalogo entero.
-REX_HOOK_RAW(sub_821B7290) {
+DBZ3_HOOK(sub_821B7290, dbz3eu_sub_821B6078) {
   const uint32_t player = ctx.r3.u32;
   const uint32_t src = ctx.r4.u32;
   uint32_t list[8] = {};
@@ -1193,9 +1204,9 @@ REX_HOOK_RAW(sub_821B7290) {
       if (v >= 595 && v < n) extra = true;
     }
   }
-  __imp__sub_821B7290(ctx, base);
+  orig(ctx, base);
   if (!extra) return;
-  const uint32_t st = REX_LOAD_U32(0x8247971C) + 460 * (player >> 1) + 68;
+  const uint32_t st = REX_LOAD_U32(dbz3::GuestAddr(0x8247971C, 0x8247970C)) + 460 * (player >> 1) + 68;
   const uint32_t recs = REX_LOAD_U32(kSkcRecs);
   uint32_t vals[7], kept = 0, slots = 0;
   for (uint32_t k = 0; k < 7; ++k) {
@@ -1212,13 +1223,13 @@ REX_HOOK_RAW(sub_821B7290) {
 // personaje con un indice de sprite de la tabla u8 0x82373D38[ID] (44 entradas; los IDs
 // recortados tienen 0xFF y los 44-63 leen fuera) -> puntero nulo y cierre. Durante la
 // llamada los personajes nuevos usan la cara de su donante (+28 solo se lee ahi).
-REX_HOOK_RAW(sub_821B8FC8) {
+DBZ3_HOOK(sub_821B8FC8, dbz3eu_sub_821B7DB0) {
   const uint32_t st = ctx.r3.u32;
   const uint32_t id = st ? REX_LOAD_U32(st + 28) : 0xFFFFFFFFu;
   const int donor = id < 64 ? dbz3::roster::DonorOf(id) : -1;
   const bool swap = donor >= 0 && (id >= 44 || REX_LOAD_U8(0x82373D38 + id) == 0xFF);
   if (swap) REX_STORE_U32(st + 28, uint32_t(donor));
-  __imp__sub_821B8FC8(ctx, base);
+  orig(ctx, base);
   if (swap) REX_STORE_U32(st + 28, id);
 }
 
@@ -1275,7 +1286,7 @@ void ProxyEnd(uint8_t* base) {
 }
 }  // namespace
 
-REX_HOOK_RAW(sub_821B7C50) {
+DBZ3_HOOK(sub_821B7C50, dbz3eu_sub_821B6A38) {
   const uint32_t st = ctx.r3.u32;
   const uint32_t n = dbz3::roster::CapsuleCount();
   const uint32_t cnt = st && n > 595 && t_proxy_n == 0 ? std::min<uint32_t>(REX_LOAD_U32(st + 188), 7) : 0;
@@ -1285,10 +1296,10 @@ REX_HOOK_RAW(sub_821B7C50) {
     if (list[k] >= 595 && list[k] < n) REX_STORE_U32(st + 192 + 4 * k, ProxyFor(base, list[k], list));
   }
   if (t_proxy_n == 0) {
-    __imp__sub_821B7C50(ctx, base);
+    orig(ctx, base);
     return;
   }
-  __imp__sub_821B7C50(ctx, base);
+  orig(ctx, base);
   for (uint32_t k = 0; k < cnt; ++k) REX_STORE_U32(st + 192 + 4 * k, RealOf(REX_LOAD_U32(st + 192 + 4 * k)));
   ProxyEnd(base);
 }
@@ -1296,14 +1307,14 @@ REX_HOOK_RAW(sub_821B7C50) {
 // Antes del combate en el modo 5 (cfg +2018) sub_820FE3D8 limpia las listas de
 // capsulas de la seleccion (r3: jugadores de 80 B, +68 n, +70 7 x s16) y borra las >= 595:
 // mismas capsulas prestadas durante la llamada.
-REX_HOOK_RAW(sub_820FE3D8) {
+DBZ3_HOOK(sub_820FE3D8, dbz3eu_sub_820FE4D8) {
   const uint32_t sel = ctx.r3.u32;
   const uint32_t n = dbz3::roster::CapsuleCount();
   int players = sel ? int16_t(REX_LOAD_U16(sel + 336)) : 0;
   if (players <= 0) players = 2;
   players = std::min(players, 4);
   if (!sel || n <= 595 || t_proxy_n != 0) {
-    __imp__sub_820FE3D8(ctx, base);
+    orig(ctx, base);
     return;
   }
   std::vector<uint32_t> used;
@@ -1317,7 +1328,7 @@ REX_HOOK_RAW(sub_820FE3D8) {
       if (v >= 595 && v < n) REX_STORE_U16(a, uint16_t(ProxyFor(base, v, used)));
     }
   }
-  __imp__sub_820FE3D8(ctx, base);
+  orig(ctx, base);
   if (t_proxy_n == 0) return;
   for (int p = 0; p < players; ++p) {
     for (uint32_t k = 0; k < 7; ++k) {
@@ -1328,7 +1339,7 @@ REX_HOOK_RAW(sub_820FE3D8) {
   ProxyEnd(base);
 }
 
-REX_HOOK_RAW(sub_82146430) {
+DBZ3_HOOK(sub_82146430, dbz3eu_sub_821A1F00) {
   for (int i = 0; i < t_proxy_n; ++i) {
     if (ctx.r5.u32 == t_proxy_from[i]) {
       ctx.r5.u64 = t_proxy_to[i];
@@ -1336,7 +1347,7 @@ REX_HOOK_RAW(sub_82146430) {
       break;
     }
   }
-  __imp__sub_82146430(ctx, base);
+  orig(ctx, base);
 }
 
 // Panel de descripcion de "Edit Skills" (sub_821BB680: r4 = capsula; carga data_usi
@@ -1351,17 +1362,17 @@ thread_local uint32_t t_desc_fid = 0;
 thread_local uint32_t t_desc_from = 0;
 }  // namespace
 
-REX_HOOK_RAW(sub_821B7218) {
+DBZ3_HOOK(sub_821B7218, dbz3eu_sub_821B6000) {
   const uint32_t ret = uint32_t(ctx.lr);
-  __imp__sub_821B7218(ctx, base);
+  orig(ctx, base);
   t_desc_real = 0;
-  if (ret == 0x821B98E8 && ctx.r3.s32 >= 595 && dbz3::roster::g_cap_desc.count(ctx.r3.u32)) {
+  if (ret == dbz3::GuestAddr(0x821B98E8, 0x821B86D0) && ctx.r3.s32 >= 595 && dbz3::roster::g_cap_desc.count(ctx.r3.u32)) {
     t_desc_real = ctx.r3.u32;
     ctx.r3.u64 = kDescStand;
   }
 }
 
-REX_HOOK_RAW(sub_821BB680) {
+DBZ3_HOOK(sub_821BB680, dbz3eu_sub_821BA468) {
   uint32_t fid = 0;
   if (t_desc_real && ctx.r4.u32 == kDescStand) {
     ctx.r4.u64 = t_desc_real;
@@ -1372,15 +1383,15 @@ REX_HOOK_RAW(sub_821BB680) {
   t_desc_real = 0;
   t_desc_from = fid ? 0x10000u | (2079u + ctx.r4.u32) : 0;
   t_desc_fid = fid ? 0x10000u | fid : 0;
-  __imp__sub_821BB680(ctx, base);
+  orig(ctx, base);
   t_desc_from = t_desc_fid = 0;
 }
 
 // Carga de un fichero (r3 = 0x10000 | indice de data_usi): durante el panel de una
 // capsula nueva, 2079 + ID se cambia por su descripcion.
-REX_HOOK_RAW(sub_82083968) {
+DBZ3_HOOK(sub_82083968, dbz3eu_sub_82083968) {
   if (t_desc_from && ctx.r3.u32 == t_desc_from) ctx.r3.u64 = t_desc_fid;
-  __imp__sub_82083968(ctx, base);
+  orig(ctx, base);
 }
 
 // Puntos de anclaje del luchador (sub_82112AB0: golpes/efectos pegados a un hueso). El juego
@@ -1426,9 +1437,9 @@ void FixAnchorTable(uint8_t* base, uint32_t pl) {
 }
 }  // namespace
 
-REX_HOOK_RAW(sub_82112AB0) {
+DBZ3_HOOK(sub_82112AB0, dbz3eu_sub_82112BB0) {
   FixAnchorTable(base, ctx.r3.u32);
-  __imp__sub_82112AB0(ctx, base);
+  orig(ctx, base);
 }
 
 // Select: siguiente traje (r3 = casilla, r4 = trajes, r5 = actual, r6 = paso). El juego
@@ -1436,7 +1447,7 @@ REX_HOOK_RAW(sub_82112AB0) {
 // el ultimo). Con trajes anadidos: recorrido circular de todos, sin el 3 en Goku.
 int dbz3_select_active_cell();  // select_ext.cpp
 
-REX_HOOK_RAW(sub_8217A5A0) {
+DBZ3_HOOK(sub_8217A5A0, dbz3eu_sub_8217A558) {
   const int slot = int16_t(ctx.r3.u32 & 0xFFFF);
   // v1.4.1: en una casilla nueva se recorren SOLO los trajes del personaje nuevo (antes los
   // del anfitrion: Janemba sobre Krillin ofrecia trajes que no tiene).
@@ -1450,7 +1461,7 @@ REX_HOOK_RAW(sub_8217A5A0) {
     }
   }
   if (slot < 0 || !dbz3::roster::SlotHasExtraCostumes(uint32_t(slot))) {
-    __imp__sub_8217A5A0(ctx, base);
+    orig(ctx, base);
     return;
   }
   const int count = int16_t(ctx.r4.u32 & 0xFFFF);

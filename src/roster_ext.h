@@ -2,7 +2,7 @@
 //
 // A mod may ship mods/<mod>/roster.toml. At launch (guest image loaded, guest
 // thread not yet running) the declared characters are written into the guest's
-// per-character tables (US image only; verified by signature). See
+// per-character tables (US or EU/PAL image; verified by signature, guest_region.h). See
 // roster_ext.cpp for the table map and the file format.
 #pragma once
 
@@ -21,7 +21,7 @@ namespace dbz3::roster {
 void GuardGeneratedMod();
 
 // Reads every enabled mod's roster.toml and patches the guest tables. Safe to
-// call once per launch; does nothing (and logs why) on a non-US image.
+// call once per launch; does nothing (and logs why) on an unknown image.
 void ApplyAtLaunch(rex::memory::Memory* memory);
 
 // Character IDs the roster mods made playable (bit per ID), OR-ed into the

@@ -9,7 +9,11 @@ Estructura de la rueda (1448 B, sub_8217E6D8):
   +1136 posiciones[39] x 8 B (u16 +2 visible, u32 +4 angulo)
 Ampliada (2368 B): celdas[64] en +44 (hasta +1836) y posiciones[64] en +1840.
 
-  python tools/gen_select_wheel.py        # regenera src/select_wheel_gen.inc
+  python tools/gen_select_wheel.py        # regenera src/select_wheel_gen.inc (US)
+                                          # y src/select_wheel_gen_eu.inc (EU/PAL)
+El EU sale de generated_eu/ (nombres dbz3eu_sub_<dir EU>, mismo codigo y mismos
+desplazamientos de la estructura); EU_ADDR = direccion EU de cada funcion US
+(verificada por codigo y llamadores: D:/DBZ3HD/work/eu/INFORME.md).
 """
 import os
 import re
@@ -18,6 +22,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GEN = os.path.join(ROOT, "generated")
 OUT = os.path.join(ROOT, "src", "select_wheel_gen.inc")
+GEN_EU = os.path.join(ROOT, "generated_eu")
+OUT_EU = os.path.join(ROOT, "src", "select_wheel_gen_eu.inc")
+EU_ADDR = {"8217D710": "8217D6C8", "8217DB20": "8217DAD8", "8217DC38": "8217DBF0",
+           "8217DE80": "8217DE38", "8217E410": "8217E3C8", "8217E6D8": "8217E690"}
 POS_OLD, POS_NEW = 1136, 1840
 SIZE_NEW = 2368
 
@@ -33,32 +41,41 @@ SUBS = {
 }
 
 
-def body(name):
-    for f in sorted(os.listdir(GEN)):
-        if not re.match(r"dbz3_recomp\.\d+\.cpp$", f):
+def body(name, gen_dir=GEN, sym="sub_"):
+    for f in sorted(os.listdir(gen_dir)):
+        if not re.match(r"dbz3(_eu)?_recomp\.\d+\.cpp$", f):
             continue
-        txt = open(os.path.join(GEN, f), encoding="utf-8").read()
-        m = re.search(r"^DEFINE_REX_FUNC\(sub_%s\) \{\n(.*?)^\}\n" % name, txt, re.S | re.M)
+        txt = open(os.path.join(gen_dir, f), encoding="utf-8").read()
+        m = re.search(r"^DEFINE_REX_FUNC\(%s%s\) \{\n(.*?)^\}\n" % (sym, name), txt, re.S | re.M)
         if m:
             return m.group(1)
-    raise SystemExit("no encuentro sub_%s en generated/" % name)
+    raise SystemExit("no encuentro %s%s en %s" % (sym, name, gen_dir))
 
 
 def main():
-    out = ["// GENERADO por tools/gen_select_wheel.py a partir de generated/ (US). NO EDITAR.",
+    gen(GEN, OUT, "sub_", "Wheel_", "generated/ (US)", lambda n: n)
+    gen(GEN_EU, OUT_EU, "dbz3eu_sub_", "WheelEu_", "generated_eu/ (EU/PAL)", EU_ADDR.__getitem__)
+
+
+def gen(gen_dir, out_path, sym, prefix, src, addr):
+    out = ["// GENERADO por tools/gen_select_wheel.py a partir de %s. NO EDITAR." % src,
            "// Funciones de la rueda del select con la estructura ampliada a 64 celdas",
            "// (posiciones %d -> %d, tamano 1448 -> %d). Los ganchos estan en select_ext.cpp."
            % (POS_OLD, POS_NEW, SIZE_NEW), ""]
+    funcs, called = [], set()
     for name, subs in SUBS.items():
-        b = body(name).replace("\tREX_FUNC_PROLOGUE();\n", "")
+        b = body(addr(name), gen_dir, sym).replace("\tREX_FUNC_PROLOGUE();\n", "")
         for rx, rep, n in subs:
             b, k = re.subn(rx, rep, b)
             if k != n:
-                raise SystemExit("sub_%s: %r aparece %d veces (esperado %d)" % (name, rx, k, n))
+                raise SystemExit("%s%s: %r aparece %d veces (esperado %d)" % (sym, addr(name), rx, k, n))
         b = "\n".join(l for l in b.splitlines() if not l.strip().startswith("//"))
-        out.append("static void Wheel_%s(PPCContext& ctx, uint8_t* base) {\n%s\n}\n" % (name, b))
-    open(OUT, "w", encoding="utf-8", newline="\n").write("\n".join(out))
-    print("->", OUT)
+        if sym != "sub_":  # el EU no incluye su cabecera (choca con la US): declara lo que llama
+            called |= set(re.findall(r"\b(dbz3eu_\w+)\(ctx, base\)", b))
+        funcs.append("static void %s%s(PPCContext& ctx, uint8_t* base) {\n%s\n}\n" % (prefix, name, b))
+    out += ["REX_EXTERN(%s);" % c for c in sorted(called)] + ([""] if called else []) + funcs
+    open(out_path, "w", encoding="utf-8", newline="\n").write("\n".join(out))
+    print("->", out_path)
 
 
 if __name__ == "__main__":

@@ -11,13 +11,15 @@
 //   sub_82180AA0  - selection update: reads P1/P2 char base indices at
 //                   0x8238B670/0x8238B674 (stride 184 over 0x8238B780)
 //
-// The originals are kept behind __imp__ and re-run unchanged.
+// The originals are kept behind __imp__ and re-run unchanged. Only sub_8217A920 (it also
+// applies the extra costumes) is hooked in the EU/PAL image too; the rest are US-only traces.
 
 #include <rex/hook.h>
 #include <rex/cvar.h>
 
 #include "generated/dbz3_init.h"
 #include "roster_ext.h"
+#include "guest_region.h"
 
 #include <cstdio>
 #include <fstream>
@@ -133,11 +135,11 @@ void dbz3_trace_sub_8217F520(PPCContext& ctx, uint8_t* base) {
 // +192/193/194) into the runtime table. Dumps the state so we can see which
 // slots get unlocked.
 //------------------------------------------------------------------------------
-REX_HOOK_RAW(sub_8217A920) {
+DBZ3_HOOK(sub_8217A920, dbz3eu_sub_8217A8D8) {
   const bool trace = dbz3::TraceEnabled();
   if (trace) {
-    uint32_t st = dbz3::kUnlockStruct;
-    uint32_t src_off = dbz3::kAvailSrc;
+    uint32_t st = dbz3::GuestAddr(dbz3::kUnlockStruct, 0x824BA100);
+    uint32_t src_off = dbz3::GuestAddr(dbz3::kAvailSrc, 0x820206C8);
     std::string line = "A920 unlock:";
     line += " f20=" + dbz3::Dec(REX_LOAD_U8(st + 20)) +
             " f21=" + dbz3::Dec(REX_LOAD_U8(st + 21)) +
@@ -148,7 +150,7 @@ REX_HOOK_RAW(sub_8217A920) {
     line += " r3=" + dbz3::Hx(ctx.r3.u32);
     dbz3::TraceLine(line);
   }
-  __imp__sub_8217A920(ctx, base);
+  orig(ctx, base);
   dbz3::roster::AddExtraCostumes(base);
 }
 

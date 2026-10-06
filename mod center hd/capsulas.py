@@ -42,13 +42,15 @@ REC = 40
 NAME_FONT = "C:/Windows/Fonts/ARLRDBD.TTF"
 # Not every PC has every font (Arial Rounded comes with Office): fall back instead of failing
 # the whole build with "OSError: cannot open resource".
+# Shipped with the Kit (Apache 2.0), so a missing system font can never stop a build.
+BUNDLED_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "Roboto-Bold.ttf")
 FONT_FALLBACKS = ("ARLRDBD.TTF", "arialbd.ttf", "comicbd.ttf", "arial.ttf", "segoeuib.ttf",
                   "DejaVuSans-Bold.ttf", "DejaVuSans.ttf")
 
 
 def load_font(path, size):
     """ImageFont.truetype(path) or the first font that exists; Pillow's default as last resort."""
-    for p in (path,) + FONT_FALLBACKS:
+    for p in (path, BUNDLED_FONT) + FONT_FALLBACKS:
         for cand in (p, os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts", os.path.basename(p))):
             try:
                 return ImageFont.truetype(cand, size)

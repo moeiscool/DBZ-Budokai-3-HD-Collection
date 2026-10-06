@@ -1,4 +1,4 @@
-// dbz3 - Select wheel extension (US image): capacity 39 -> 64 cells and NEW cells
+// dbz3 - Select wheel extension (US or EU/PAL image, guest_region.h): capacity 39 -> 64 cells and NEW cells
 // declared by roster mods (roster_ext, `celda = true`).
 //
 // Wheel data (allocated by sub_8217E6D8, 1448 B; 2368 B here):
@@ -21,6 +21,7 @@
 #include <rex/logging.h>
 
 #include "generated/dbz3_init.h"
+#include "guest_region.h"
 
 #include <algorithm>
 #include <array>
@@ -47,7 +48,9 @@ constexpr uint32_t kCellSize = 28;
 constexpr uint32_t kPosBase = 1840;
 constexpr uint32_t kRealSlots = 39;   // 38 personajes + aleatorio
 constexpr uint32_t kRandomSlot = 38;
-constexpr uint32_t kSlotToId[3] = {0x82020618, 0x82021470, 0x82024760};
+constexpr uint32_t kSlotToIdUs[3] = {0x82020618, 0x82021470, 0x82024760};
+constexpr uint32_t kSlotToIdEu[3] = {0x82020620, 0x82021460, 0x82024778};
+uint32_t SlotToId(int k) { return dbz3::GuestAddr(kSlotToIdUs[k], kSlotToIdEu[k]); }
 constexpr uint32_t kPortraits = 0x82372818;
 
 std::mutex g_mu;
@@ -110,7 +113,7 @@ constexpr uint32_t kIconImageBase = 61;
 constexpr uint32_t kNameImageBase = 105;
 constexpr uint32_t kImages = 145;
 constexpr uint32_t kSelectGlobal = 0x8245F190;  // +16 = recurso de sprites del select
-constexpr uint32_t kSpriteScale = 0x8201F60C;   // float que pasa sub_8217E090
+constexpr uint32_t kSpriteScale = 0x8201F60C;   // float que pasa sub_8217E090 (EU: 0x8201F604)
 
 struct BuiltImage {
   uint32_t buf = 0;
@@ -190,7 +193,7 @@ void Restore(uint8_t* base) {
     for (int k = 0; k < 7; ++k) REX_STORE_U16(t_list_at + 2 * k, t_host_list[k]);
     t_list_at = 0;
   }
-  for (int k = 0; k < 3; ++k) REX_STORE_U16(kSlotToId[k] + 2 * c.alias, t_saved_ids[k]);
+  for (int k = 0; k < 3; ++k) REX_STORE_U16(SlotToId(k) + 2 * c.alias, t_saved_ids[k]);
   if (t_name_slot) REX_STORE_U32(t_name_slot, t_name_saved);
   t_name_slot = 0;
   t_active = -1;
@@ -202,8 +205,8 @@ void Apply(uint8_t* base, int vc) {
   if (vc < 0) return;
   const auto& c = GetVirtualCell(vc);
   for (int k = 0; k < 3; ++k) {
-    t_saved_ids[k] = REX_LOAD_U16(kSlotToId[k] + 2 * c.alias);
-    REX_STORE_U16(kSlotToId[k] + 2 * c.alias, uint16_t(c.id));
+    t_saved_ids[k] = REX_LOAD_U16(SlotToId(k) + 2 * c.alias);
+    REX_STORE_U16(SlotToId(k) + 2 * c.alias, uint16_t(c.id));
   }
   if (GuestPtr(t_save_buf) && c.alias < kRandomSlot) {
     t_list_at = t_save_buf + kSaveCustom + 14 * c.alias;
@@ -246,14 +249,28 @@ void Leave(uint8_t* base) {
 int dbz3_select_active_cell() { return t_active; }
 
 #include "select_wheel_gen.inc"
+#if defined(DBZ3_DUAL_REGION)
+#include "select_wheel_gen_eu.inc"
+#endif
+#define DBZ3_WHEEL(a) DBZ3_CALL2(Wheel_##a, WheelEu_##a)
 
-REX_HOOK_RAW(sub_8217D710) { Wheel_8217D710(ctx, base); }
-REX_HOOK_RAW(sub_8217DB20) { Wheel_8217DB20(ctx, base); }
-REX_HOOK_RAW(sub_8217DC38) { Wheel_8217DC38(ctx, base); }
-REX_HOOK_RAW(sub_8217E410) { Wheel_8217E410(ctx, base); }
+// Guest functions called directly below (US / EU/PAL twin).
+DBZ3_EXTERN_EU(dbz3eu_sub_8217D8F8);
+DBZ3_EXTERN_EU(dbz3eu_sub_8217D6C8);
+DBZ3_EXTERN_EU(dbz3eu_sub_8217DFE8);
+DBZ3_EXTERN_EU(dbz3eu_sub_8217E048);
+DBZ3_EXTERN_EU(dbz3eu_sub_8217DE38);
+DBZ3_EXTERN_EU(dbz3eu_sub_8217D828);
+DBZ3_EXTERN_EU(dbz3eu_sub_820ACC80);
+DBZ3_EXTERN_EU(dbz3eu_sub_820B0670);
+
+DBZ3_HOOK(sub_8217D710, dbz3eu_sub_8217D6C8) { DBZ3_WHEEL(8217D710)(ctx, base); }
+DBZ3_HOOK(sub_8217DB20, dbz3eu_sub_8217DAD8) { DBZ3_WHEEL(8217DB20)(ctx, base); }
+DBZ3_HOOK(sub_8217DC38, dbz3eu_sub_8217DBF0) { DBZ3_WHEEL(8217DC38)(ctx, base); }
+DBZ3_HOOK(sub_8217E410, dbz3eu_sub_8217E3C8) { DBZ3_WHEEL(8217E410)(ctx, base); }
 // Creates a wheel object (returns it in r3; +48 = wheel data, 2368 B here).
-REX_HOOK_RAW(sub_8217E6D8) {
-  Wheel_8217E6D8(ctx, base);
+DBZ3_HOOK(sub_8217E6D8, dbz3eu_sub_8217E690) {
+  DBZ3_WHEEL(8217E6D8)(ctx, base);
   std::lock_guard<std::mutex> lk(g_mu);
   if (ctx.r3.u32) g_wheel_objs[ctx.r3.u32] = REX_LOAD_U32(ctx.r3.u32 + 48);
 }
@@ -261,7 +278,7 @@ REX_HOOK_RAW(sub_8217E6D8) {
 // Puts the cursor on the FIRST cell of slot r4 (r3 = wheel data); the select
 // does it when a player confirms. A cursor on a new cell of that host slot stays
 // on it (the host's own cells are hidden from the search).
-REX_HOOK_RAW(sub_8217DE80) {
+DBZ3_HOOK(sub_8217DE80, dbz3eu_sub_8217DE38) {
   const uint32_t d = ctx.r3.u32;
   const int vc = NewCellOfWheel(base, d);
   uint32_t hidden[kCells];
@@ -277,12 +294,12 @@ REX_HOOK_RAW(sub_8217DE80) {
       }
     }
   }
-  Wheel_8217DE80(ctx, base);
+  DBZ3_WHEEL(8217DE80)(ctx, base);
   for (uint32_t k = 0; k < nh; ++k) REX_STORE_U8(hidden[k], alias);
 }
 
 // Rebuilds the wheel for a slot mask (r3 = wheel object, r4 = u64 mask).
-REX_HOOK_RAW(sub_8217E490) {
+DBZ3_HOOK(sub_8217E490, dbz3eu_sub_8217E448) {
   const uint32_t obj = ctx.r3.u32;
   const uint64_t mask = ctx.r4.u64;
   if (!obj) return;
@@ -296,16 +313,16 @@ REX_HOOK_RAW(sub_8217E490) {
   n += uint32_t(NewCellsFor(mask).size());
   REX_STORE_U8(d + 12, uint8_t(n));
   ctx.r3.u64 = d;
-  sub_8217D940(ctx, base);
+  DBZ3_CALL2(sub_8217D940, dbz3eu_sub_8217D8F8)(ctx, base);
   REX_STORE_U32(d + 40, 0);
   std::memset(base + d + kCellBase, 0, kCells * kCellSize);
   std::memset(base + d + kPosBase, 0, kCells * 8);
   ctx.r3.u64 = d;
-  sub_8217D710(ctx, base);
+  DBZ3_CALL2(sub_8217D710, dbz3eu_sub_8217D6C8)(ctx, base);
   ctx.r3.u64 = d;
-  sub_8217E030(ctx, base);
+  DBZ3_CALL2(sub_8217E030, dbz3eu_sub_8217DFE8)(ctx, base);
   ctx.r3.u64 = d;
-  sub_8217E090(ctx, base);
+  DBZ3_CALL2(sub_8217E090, dbz3eu_sub_8217E048)(ctx, base);
   if (cur_vc >= 0) {  // seguir en la casilla nueva tras reconstruir
     std::lock_guard<std::mutex> lk(g_mu);
     const auto& map = g_wheels[d];
@@ -315,14 +332,14 @@ REX_HOOK_RAW(sub_8217E490) {
   }
   ctx.r3.u64 = d;
   ctx.r4.s64 = cur_slot;
-  sub_8217DE80(ctx, base);
+  DBZ3_CALL2(sub_8217DE80, dbz3eu_sub_8217DE38)(ctx, base);
   ctx.r3.u64 = d;
-  sub_8217D870(ctx, base);
+  DBZ3_CALL2(sub_8217D870, dbz3eu_sub_8217D828)(ctx, base);
 }
 
 // Assigns a slot to every cell (r3 = wheel data): available slots in order, each
 // new cell right after its `after` slot (else at the end), then the random cell.
-REX_HOOK_RAW(sub_8217E030) {
+DBZ3_HOOK(sub_8217E030, dbz3eu_sub_8217DFE8) {
   const uint32_t d = ctx.r3.u32;
   const uint64_t mask = REX_LOAD_U64(d + 16);
   std::array<int8_t, kCells> map;
@@ -354,11 +371,11 @@ REX_HOOK_RAW(sub_8217E030) {
     g_wheels[d] = map;
   }
   REX_STORE_U32(d + 40, d + kCellBase);
-  sub_8217D870(ctx, base);
+  DBZ3_CALL2(sub_8217D870, dbz3eu_sub_8217D828)(ctx, base);
 }
 
 // Frees the icon / frame sprites of every cell (r3 = wheel data).
-REX_HOOK_RAW(sub_8217D940) {
+DBZ3_HOOK(sub_8217D940, dbz3eu_sub_8217D8F8) {
   const uint32_t d = ctx.r3.u32;
   for (uint32_t k = 0; k < kCells; ++k) {
     for (uint32_t off : {4u, 8u}) {
@@ -366,7 +383,7 @@ REX_HOOK_RAW(sub_8217D940) {
       if (const uint32_t sprite = REX_LOAD_U32(at)) {
         ctx.r3.u64 = sprite;
         ctx.r4.u64 = 1;
-        sub_820ACCF0(ctx, base);
+        DBZ3_CALL2(sub_820ACCF0, dbz3eu_sub_820ACC80)(ctx, base);
         REX_STORE_U32(at, 0);
       }
     }
@@ -375,16 +392,16 @@ REX_HOOK_RAW(sub_8217D940) {
 
 // Cursor changed (r3 = wheel data): copies the cell's per-slot data to the player
 // block. Inside a player's select logic, re-evaluate the new-cell context.
-REX_HOOK_RAW(sub_8217D870) {
+DBZ3_HOOK(sub_8217D870, dbz3eu_sub_8217D828) {
   const uint32_t d = ctx.r3.u32;
-  __imp__sub_8217D870(ctx, base);
+  orig(ctx, base);
   if (t_depth > 0) Apply(base, NewCellOfWheel(base, d));
 }
 
 // Select data -> save (r3 = select data: +68 custom capsules per slot, +1094 inventory;
 // called through a pointer): while a new character's own list is swapped in, the save
 // must get the host slot's list.
-REX_HOOK_RAW(sub_82179880) {
+DBZ3_HOOK(sub_82179880, dbz3eu_sub_82179838) {
   const bool swapped = t_list_at && ctx.r3.u32 == t_save_buf;
   uint16_t own[7];
   if (swapped) {
@@ -393,45 +410,45 @@ REX_HOOK_RAW(sub_82179880) {
       REX_STORE_U16(t_list_at + 2 * k, t_host_list[k]);
     }
   }
-  __imp__sub_82179880(ctx, base);
+  orig(ctx, base);
   if (swapped) for (int k = 0; k < 7; ++k) REX_STORE_U16(t_list_at + 2 * k, own[k]);
 }
 
 // Per-player select states (r3 = task object, +48 = player state).
-#define DBZ3_SELECT_PLAYER_HANDLER(fn, nested) \
-  REX_HOOK_RAW(fn) {                           \
-    Enter(base, ctx.r3.u32, nested);           \
-    __imp__##fn(ctx, base);                    \
-    Leave(base);                               \
+#define DBZ3_SELECT_PLAYER_HANDLER(fn, eu, nested) \
+  DBZ3_HOOK(fn, eu) {                              \
+    Enter(base, ctx.r3.u32, nested);               \
+    orig(ctx, base);                               \
+    Leave(base);                                   \
   }
-DBZ3_SELECT_PLAYER_HANDLER(sub_8217CB10, false)
-DBZ3_SELECT_PLAYER_HANDLER(sub_8217CC68, false)
-DBZ3_SELECT_PLAYER_HANDLER(sub_8217CFC8, false)
-DBZ3_SELECT_PLAYER_HANDLER(sub_82180E90, false)
-DBZ3_SELECT_PLAYER_HANDLER(sub_82182210, true)
-DBZ3_SELECT_PLAYER_HANDLER(sub_82182930, true)
+DBZ3_SELECT_PLAYER_HANDLER(sub_8217CB10, dbz3eu_sub_8217CAC8, false)
+DBZ3_SELECT_PLAYER_HANDLER(sub_8217CC68, dbz3eu_sub_8217CC20, false)
+DBZ3_SELECT_PLAYER_HANDLER(sub_8217CFC8, dbz3eu_sub_8217CF80, false)
+DBZ3_SELECT_PLAYER_HANDLER(sub_82180E90, dbz3eu_sub_82180E48, false)
+DBZ3_SELECT_PLAYER_HANDLER(sub_82182210, dbz3eu_sub_821821C8, true)
+DBZ3_SELECT_PLAYER_HANDLER(sub_82182930, dbz3eu_sub_821828E8, true)
 #undef DBZ3_SELECT_PLAYER_HANDLER
 
-REX_HOOK_RAW(sub_82180AA0) {
+DBZ3_HOOK(sub_82180AA0, dbz3eu_sub_82180A58) {
   dbz3_trace_sub_82180AA0(ctx, base);
   Enter(base, ctx.r3.u32, false);
-  __imp__sub_82180AA0(ctx, base);
+  orig(ctx, base);
   Leave(base);
 }
 
 // Portrait request (r3 = portrait object, r4 = slot): remember which new cell
 // asked for it; the portrait loads later in its own task (sub_8217F3F0).
-REX_HOOK_RAW(sub_8217F520) {
+DBZ3_HOOK(sub_8217F520, dbz3eu_sub_8217F4D8) {
   dbz3_trace_sub_8217F520(ctx, base);
   if (ctx.r3.u32 && VirtualCellCount() > 0) {
     std::lock_guard<std::mutex> lk(g_mu);
     g_portrait_obj[ctx.r3.u32] = t_active;
   }
-  __imp__sub_8217F520(ctx, base);
+  orig(ctx, base);
 }
 
 // Portrait load: fid = table[slot][variant] (u32 [39][2]).
-REX_HOOK_RAW(sub_8217F3F0) {
+DBZ3_HOOK(sub_8217F3F0, dbz3eu_sub_8217F3A8) {
   dbz3_trace_sub_8217F3F0(ctx, base);
   int vc = -1;
   if (VirtualCellCount() > 0) {
@@ -440,7 +457,7 @@ REX_HOOK_RAW(sub_8217F3F0) {
     if (it != g_portrait_obj.end()) vc = it->second;
   }
   if (vc < 0 || GetVirtualCell(vc).portrait[0] == 0xFFFFFFFFu) {
-    __imp__sub_8217F3F0(ctx, base);
+    orig(ctx, base);
     return;
   }
   const auto& c = GetVirtualCell(vc);
@@ -448,16 +465,16 @@ REX_HOOK_RAW(sub_8217F3F0) {
   const uint32_t old0 = REX_LOAD_U32(at), old1 = REX_LOAD_U32(at + 4);
   REX_STORE_U32(at, c.portrait[0]);
   REX_STORE_U32(at + 4, c.portrait[1]);
-  __imp__sub_8217F3F0(ctx, base);
+  orig(ctx, base);
   REX_STORE_U32(at, old0);
   REX_STORE_U32(at + 4, old1);
 }
 
 // Creates the icon / frame sprites of every cell (r3 = wheel data); new cells
 // get their own icon image.
-REX_HOOK_RAW(sub_8217E090) {
+DBZ3_HOOK(sub_8217E090, dbz3eu_sub_8217E048) {
   const uint32_t d = ctx.r3.u32;
-  __imp__sub_8217E090(ctx, base);
+  orig(ctx, base);
   if (VirtualCellCount() == 0) return;
   std::array<int8_t, kCells> map;
   {
@@ -476,14 +493,14 @@ REX_HOOK_RAW(sub_8217E090) {
     if (const uint32_t old = REX_LOAD_U32(at)) {
       ctx.r3.u64 = old;
       ctx.r4.u64 = 1;
-      sub_820ACCF0(ctx, base);
+      DBZ3_CALL2(sub_820ACCF0, dbz3eu_sub_820ACC80)(ctx, base);
     }
-    const uint32_t scale = REX_LOAD_U32(kSpriteScale);
+    const uint32_t scale = REX_LOAD_U32(dbz3::GuestAddr(kSpriteScale, 0x8201F604));
     float fs;
     std::memcpy(&fs, &scale, 4);
     ctx.f1.f64 = double(fs);
     ctx.r3.u64 = desc;
-    sub_820B06E0(ctx, base);
+    DBZ3_CALL2(sub_820B06E0, dbz3eu_sub_820B0670)(ctx, base);
     REX_STORE_U32(at, ctx.r3.u32);
   }
 }

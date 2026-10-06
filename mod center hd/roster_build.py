@@ -1382,7 +1382,10 @@ def build(a):
     work = tempfile.mkdtemp(prefix="roster_")
     try:
         cmn = Afs(os.path.join(us, "data_cmn.afs"), work)
-        usi = Afs(os.path.join(us, "data_usi.afs"), work)
+        # EU/PAL no trae data_usi.afs (su ingles es data_eng, misma estructura): se parte de
+        # data_eng; lo escrito en data_usi no lo lee el juego EU (inofensivo).
+        usi_path = os.path.join(us, "data_usi.afs")
+        usi = Afs(usi_path if os.path.isfile(usi_path) else os.path.join(us, "data_eng.afs"), work)
         if os.path.isdir(out_dir):
             shutil.rmtree(out_dir)
         os.makedirs(out_dir)
@@ -1648,7 +1651,9 @@ def build(a):
             log("+ " + manifest[-1])
         next_fid = build_trajes(trajes, cmn, out_dir, next_fid, work, toml, manifest)
         azt_write(sel, icon_tex, icon_img)
-        sel, name_idx = azt_append(sel, name_items)
+        # plantilla que cuadre en ESTE #AZT (con data_usi es la fija; con data_eng de base, EU, otra)
+        sel, name_idx = azt_append(sel, [(im, lg, hd, azt_template(sel, tp, im.shape[1], im.shape[0]))
+                                         for im, lg, hd, tp in name_items])
         for i, t in enumerate(name_idx):   # textura real de cada rotulo
             toml = [ln.replace("[@%d," % i, "[%d," % t) if ln.startswith("rotulo") else ln for ln in toml]
         write_entry(out_dir, "data_usi.afs", SELECT_ENTRY, bytes(sel), work)
