@@ -20,6 +20,7 @@ copian como ADX nuevos (indices >= los del AFS) y el bloque propio va en roster.
 
 En personaje.toml (fuente):
     voces = "iw:JANENBA"     # las de un personaje de Infinite World (nombre interno o ID)
+    voces = "sb2:GHF"        # las de un personaje de Shin Budokai (sb1/sb2 + codigo; sb_voces.py)
     voces = "b3:9"           # las de un personaje de Budokai 3 (su ID)
     voces = "donante"        # las del donante (por defecto)
     voces = "ninguna"        # sin voz
@@ -166,6 +167,33 @@ class IwVoices:
         return afs_read(path, self._idx[path], idx)
 
 
+B3_PS2_DIR = os.path.join(ROOT, "ps2_games", "Budokai 3 Greatest Hits (USA)")
+
+
+def b3_block(cid, folder=B3_PS2_DIR):
+    """Bloque de voces de un ID de B3 HD leido del SLUS de B3 de PS2 (misma tabla y mismos ADX;
+    en PS2 el indice es ID - 2 desde el 3 y el 0 es Goku). None si no hay SLUS o es el 1/2."""
+    elf = find_elf(folder) if os.path.isdir(folder) else None
+    if not elf or cid in (1, 2):
+        return None
+    d = open(elf, "rb").read()
+    ph = struct.unpack_from("<I", d, 0x1C)[0]
+    _, off, va = struct.unpack_from("<3I", d, ph)[:3]
+    n = 122
+    for p in range(0, len(d) - 8 * n, 4):
+        cnt = struct.unpack_from("<%di" % n, d, p + 4 * n)
+        if cnt[0] != 56 or cnt[8] != 50:          # Goku 56 situaciones, Krillin (PS2 8) 50
+            continue
+        ptr = struct.unpack_from("<%dI" % n, d, p)
+        if all(0 <= c <= 64 and (q == 0 or va <= q < va + len(d)) for q, c in zip(ptr, cnt)):
+            k = cid if cid == 0 else cid - 2
+            if not ptr[k] or cnt[k] <= 0:
+                return [-1] * SLOTS
+            blk = list(struct.unpack_from("<%di" % cnt[k], d, ptr[k] - va + off))[:SLOTS]
+            return [v if v > 0 else -1 for v in blk] + [-1] * (SLOTS - len(blk))
+    return None
+
+
 class VoiceWriter:
     """Anade ADX a adx_usa/adx_jpn del mod generado (entradas nuevas, sin LZX)."""
 
@@ -184,8 +212,9 @@ class VoiceWriter:
         return n
 
 
-def resolve(spec, writer, iw=None, log=print):
-    """voces de personaje.toml -> (lineas de roster.toml, nota)."""
+def resolve(spec, writer, iw=None, log=print, donor=None):
+    """voces de personaje.toml -> (lineas de roster.toml, nota). `donor` (ID) solo hace falta
+    para las de Shin Budokai: las situaciones sin frase propia se quedan con las suyas."""
     spec = (spec or "donante").strip() if isinstance(spec, str) else spec
     if isinstance(spec, list):
         vals = [int(v) for v in spec][:SLOTS]
@@ -214,7 +243,13 @@ def resolve(spec, writer, iw=None, log=print):
             out.append(cache[v])
         return (["voces = [%s]" % ", ".join(map(str, out))],
                 "voces de Infinite World (%s): %d grabaciones" % (who, len(cache)))
-    raise ValueError("voces desconocidas: %r (iw:NOMBRE, b3:ID, donante, ninguna)" % spec)
+    if game in ("sb1", "sb2"):
+        import sb_voces  # noqa: PLC0415
+        block, used = sb_voces.voice_block(spec, writer, b3_block(donor) if donor is not None else None, log)
+        own = sum(1 for _, u in used if "donante" not in u and "sin voz" not in u)
+        return (["voces = [%s]" % ", ".join(map(str, block))],
+                "voces de Shin Budokai (%s): %d frases propias, %d del donante" % (who, own, len(used) - own))
+    raise ValueError("voces desconocidas: %r (iw:NOMBRE, b3:ID, sb2:COD, donante, ninguna)" % spec)
 
 
 if __name__ == "__main__":

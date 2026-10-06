@@ -6,6 +6,12 @@ are summarized at the end; the full history (in Spanish) is in
 
 Downloads: [latest release](../../releases/latest).
 
+## v1.4.2 (2026-10-06)
+- NVIDIA DLSS (beta, RTX + D3D12) and AMD FSR 3 (beta) with real depth, jitter, motion vectors and reactive mask; live switching; FSR 3 fallback.
+- Shadows fixed with temporal upscalers; "More FPS" presets no longer drop below their promised scale.
+- HD rim light ("HD shine") on characters is adjustable (Native mods tab, F1).
+- Mod Kit: Shin Budokai 1 / Another Road importer (sbport, sb_tecnicas, sb_voces), Super Dragon Ball Heroes models (sdbh_model), camera Studio with Blender round trip, per-form models, per-capsule ki and donor physics in roster_build.
+
 ---
 
 ## [1.4.1] - 2026-10-05

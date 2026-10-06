@@ -37,11 +37,12 @@ KIT_ENTRIES = ["roster_build", "importar", "swap_b3", "texture_b3", "texture_dum
 # local modules they import (kit_modules follows them).
 KIT_EXTRA_TOOLS = ["name_banner", "portrait_hd", "extract_azt_afs", "awg_to_obj_b3", "awg0_export",
                    "awg_cara_export", "swap_matrix", "texture_upscale_b3", "psp_amo", "sb_amm", "csk_edit",
-                   "acm_parse"]
+                   "acm_parse", "sbport", "sb_tablas", "sdbh_model", "sb_tecnicas", "sb_voces"]
 KIT_DATA = ["catalog_b3.cat", "roster_db.json"]
 KIT_ROOT_FILES = ["LEEME_KIT.txt", "requirements.txt", "instalar_requisitos.bat", "DBZ3_ModKit.bat"]
 KIT_FORMAT_DOCS = ["CAPSULAS_B3.md", "MAPA_ROSTER_HD.md", "ACM_FORMAT.md", "AMO_AWO.md", "BIN_LAYOUT.md",
-                   "STAGES_FORMAT.md"]
+                   "STAGES_FORMAT.md", "CAMARA_ACC.md", "SB_VS_B3_MOVESET.md", "FORMAS_Y_KI.md",
+                   "TOON_Y_BRILLO_HD.md"]
 XDK = os.path.join(ROOT, "mod center", "Xbox 360 Compression - Decompression tool from the XBOX Development Kit")
 RES = os.path.join(ROOT, "modding resources")
 RES_FILES = ["Budokai_3_Capsules_IDs.txt", "Dragon Ball Z Infinite World Capsule List.xlsx",
@@ -112,6 +113,9 @@ def kit_pack(ver, stage):
     for p in kit_modules():
         dst = mch if os.path.basename(os.path.dirname(p)) == "mod center hd" else awo
         shutil.copyfile(p, os.path.join(dst, os.path.basename(p)))
+    studio = os.path.join(ROOT, "mod center hd", "studio")   # Studio de camaras (paquete)
+    if os.path.isdir(studio):
+        shutil.copytree(studio, os.path.join(mch, "studio"), ignore=shutil.ignore_patterns("__pycache__"))
     for f in KIT_DATA:
         shutil.copyfile(os.path.join(ROOT, "mod center hd", f), os.path.join(mch, f))
     for f in os.listdir(XDK):
@@ -127,7 +131,7 @@ def kit_pack(ver, stage):
     os.makedirs(os.path.join(stage, "ps2_games"))
     docs = os.path.join(stage, "docs")
     os.makedirs(docs)
-    for f in ("COMO_HACER_MODS.md", "PACKS_DE_TEXTURAS.md", "TEXTURAS_MOD.md", "MODEL_SWAP.md"):
+    for f in ("COMO_HACER_MODS.md", "PACKS_DE_TEXTURAS.md", "TEXTURAS_MOD.md", "MODEL_SWAP.md", "STUDIO_CAMARAS.md"):
         src = os.path.join(ROOT, "docs", "02_mods", f)
         if os.path.exists(src):
             shutil.copyfile(src, os.path.join(docs, f))
@@ -148,7 +152,7 @@ def kit_pack(ver, stage):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--version", default="1.4.1")
+    ap.add_argument("--version", default="1.4.2")
     ap.add_argument("--solo", choices=("kit", "personajes"),
                     help="build only one pack (the other one is reused from an earlier release)")
     a = ap.parse_args()

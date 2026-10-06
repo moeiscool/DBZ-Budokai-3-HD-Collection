@@ -1619,27 +1619,38 @@ void LauncherDialog::DrawUpscaleTab() {
   PushSectionHeader(i18n::T("Escalado", "Upscaling"));
 
   const char* effects[] = {"Bilinear", i18n::T("CAS (nitidez)", "CAS (sharpen)"),
-                                "FSR 1 (FidelityFX)"};
-  static const char* effect_values[] = {"bilinear", "cas", "fsr"};
+                           "FSR 1 (FidelityFX)", "AMD FSR 3 (beta)", "NVIDIA DLSS (beta)"};
+  static const char* effect_values[] = {"bilinear", "cas", "fsr", "fsr3", "dlss"};
   int eff_idx = 0;
   std::string eff = dbz3::settings::PresentEffect();
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 5; i++) {
     if (eff == effect_values[i]) eff_idx = i;
   }
   ui::RowLabel(i18n::T("Efecto", "Effect"));
-  if (ImGui::Combo("##DrawUpscaleTab_1", &eff_idx, effects, 3)) {
+  if (ImGui::Combo("##DrawUpscaleTab_1", &eff_idx, effects, 5)) {
     dbz3::settings::SetPresentEffect(effect_values[eff_idx]);
     // Persist immediately so the chosen upscaling effect survives a launch/close
     // without the user pressing "Save settings".
     dbz3::settings::SaveUserSettings();
   }
 
-  if (dbz3::settings::PresentEffect() == "fsr") {
-    ImGui::TextWrapped(i18n::T(
-        "FSR escala el render interno al tamano de la pantalla.\n"
-        "Ideal con una escala interna baja (1x) en pantallas 1080p o superiores.",
-        "FSR upscales the internal render to the display size.\n"
-        "Best paired with a low internal scale (1x) on a 1080p+ display."));
+  eff = dbz3::settings::PresentEffect();
+  if (eff == "fsr" || eff == "fsr3" || eff == "dlss") {
+    if (eff == "fsr") {
+      ImGui::TextWrapped(i18n::T(
+          "FSR escala el render interno al tamano de la pantalla.\n"
+          "Ideal con una escala interna baja (1x) en pantallas 1080p o superiores.",
+          "FSR upscales the internal render to the display size.\n"
+          "Best paired with a low internal scale (1x) on a 1080p+ display."));
+    } else {
+      ImGui::TextWrapped(i18n::T(
+          "Escalado temporal: usa los fotogramas anteriores para suavizar bordes y recuperar "
+          "detalle. En pruebas (beta).\n"
+          "DLSS necesita una grafica NVIDIA RTX y D3D12; si no la hay, se usa FSR 3.",
+          "Temporal upscaling: uses previous frames to smooth edges and recover detail. "
+          "Beta.\n"
+          "DLSS needs an NVIDIA RTX card and D3D12; otherwise FSR 3 is used."));
+    }
     ImGui::Spacing();
     {
       const char* render_items[] = {i18n::T("Nativa (maxima calidad)", "Native (best quality)"),
@@ -1653,30 +1664,33 @@ void LauncherDialog::DrawUpscaleTab() {
       for (int i = 0; i < 5; i++) {
         if (cur == render_vals[i]) render_idx = i;
       }
-      ui::RowLabel(i18n::T("Mas FPS con FSR", "More FPS with FSR"),
-                   i18n::T("Renderiza por debajo de la escala interna y FSR la recupera.",
-                           "Renders below the internal scale and FSR brings it back up."));
+      ui::RowLabel(i18n::T("Mas FPS", "More FPS"),
+                   i18n::T("Renderiza por debajo de la escala interna y el escalado la recupera.",
+                           "Renders below the internal scale and the upscaler brings it back up."));
       if (ImGui::Combo("##DrawUpscaleTab_render", &render_idx, render_items, 5)) {
         dbz3::settings::SetFsrRender(render_vals[render_idx]);
         dbz3::settings::SaveUserSettings();
       }
-      ui::Tip(i18n::T("Como en los juegos de PC: con escala interna 3x, Calidad renderiza a 2x y FSR "
-                      "reescala a 3x. Da FPS de verdad en equipos justos. Con 1x no hay nada por "
-                      "debajo, asi que no cambia nada.",
-                      "Like PC games: at a 3x internal scale, Quality renders at 2x and FSR scales "
-                      "it to 3x. Real FPS on modest PCs. At 1x there is nothing below, so nothing "
-                      "changes."));
+      ui::Tip(i18n::T("Como en los juegos de PC, pero solo hay escalas enteras: a 3x, Calidad "
+                      "renderiza a 2x y se reescala a 3x; a 2x solo Rendimiento baja (a 1x). Da "
+                      "FPS de verdad en equipos justos. Con 1x no hay nada por debajo.",
+                      "Like PC games, but only whole scales exist: at 3x, Quality renders at 2x "
+                      "and is scaled to 3x; at 2x only Performance goes lower (to 1x). Real FPS "
+                      "on modest PCs. At 1x there is nothing below."));
     }
-    double sharp = dbz3::settings::FsrSharpness();
-    ImGui::SetNextItemWidth(260);
-    ui::RowLabel(i18n::T("Nitidez RCAS", "RCAS sharpness"));
-    if (SliderD("##DrawUpscaleTab_2", &sharp, 0.0, 2.0, "%.2f")) {
-      dbz3::settings::SetFsrSharpness(sharp);
-      dbz3::settings::SaveUserSettings();
+    // DLSS has no sharpening of its own.
+    if (eff != "dlss") {
+      double sharp = dbz3::settings::FsrSharpness();
+      ImGui::SetNextItemWidth(260);
+      ui::RowLabel(i18n::T("Nitidez RCAS", "RCAS sharpness"));
+      if (SliderD("##DrawUpscaleTab_2", &sharp, 0.0, 2.0, "%.2f")) {
+        dbz3::settings::SetFsrSharpness(sharp);
+        dbz3::settings::SaveUserSettings();
+      }
+      ImGui::SameLine();
+      ImGui::TextDisabled(i18n::T("0 = mas nitido, 2 = mas suave",
+                                  "0 = sharper, 2 = softer"));
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled(i18n::T("0 = mas nitido, 2 = mas suave",
-                                "0 = sharper, 2 = softer"));
   } else if (dbz3::settings::PresentEffect() == "cas") {
     ImGui::TextWrapped(i18n::T(
         "CAS aplica nitidez adaptativa al contraste despues del escalado.\n"
@@ -1978,6 +1992,39 @@ void LauncherDialog::DrawNativeModsTab() {
     }
   }
 
+  ImGui::Separator();
+  // "Brillo HD": the HD remaster's rim light on the character models.
+  {
+    double rim = dbz3::settings::HdRimLight();
+    bool rim_on = rim > 0.0;
+    ImGui::Text("%s", i18n::T("Brillo HD de los personajes", "HD shine on characters"));
+    ImGui::SameLine();
+    ImGui::TextDisabled("[%s]", i18n::T("Graficos", "Graphics"));
+    ImGui::TextWrapped("%s", i18n::T(
+        "El remaster HD anade un halo brillante en el borde de los modelos. Quitalo para un "
+        "aspecto mas plano, como en PS2, o bajalo a tu gusto. Se aplica al momento.",
+        "The HD remaster adds a bright halo on the edges of the models. Turn it off for a "
+        "flatter, PS2-like look, or lower it to taste. Applies right away."));
+    bool changed = false;
+    if (ImGui::Checkbox(i18n::T("Activado", "Enabled"), &rim_on)) {
+      rim = rim_on ? 1.0 : 0.0;
+      changed = true;
+    }
+    if (rim_on) {
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(220.0f);
+      double pct = rim * 100.0;
+      if (SliderD("##hd_rim_light", &pct, 5.0, 100.0, "%.0f %%")) {
+        rim = pct / 100.0;
+        changed = true;
+      }
+    }
+    if (changed) {
+      dbz3::settings::SetHdRimLight(rim);
+      dbz3::settings::ApplyRuntimeSettingsToSdk(false);
+      dbz3::settings::SaveUserSettings();
+    }
+  }
   ImGui::Separator();
   for (const auto& mod : dbz3::NativeModCatalog()) {
     ImGui::PushID(mod.id.c_str());
@@ -3535,11 +3582,11 @@ const char* ImportSourceNote(const std::string& id) {
                    "Infinite World model, voices and yells; moves from the donor or the community port.");
   }
   if (id == "sdbh") {
-    return i18n::T("Juego de PC con otro motor: el conversor todavia no esta listo.",
-                   "PC game with another engine: the converter is not ready yet.");
+    return i18n::T("Modelos HD de Heroes (boca, 7 caras, rampas); golpes de Shin Budokai o del donante.",
+                   "Heroes HD models (mouth, 7 faces, ramps); Shin Budokai or donor moves.");
   }
-  return i18n::T("Los modelos de PSP usan otro formato: el conversor todavia no esta listo.",
-                 "PSP models use another format: the converter is not ready yet.");
+  return i18n::T("Modelos de PSP con sus formas; golpes, combos y camara de Shin Budokai (o del donante).",
+                 "PSP models with their forms; Shin Budokai moves, combos and camera (or the donor's).");
 }
 
 std::string ModSlug(const std::string& source, const std::string& name) {
@@ -3743,6 +3790,7 @@ void LauncherDialog::DrawImporter() {
                                                          : i18n::T("%d formas", "%d forms"), e.count);
         }
         std::string line = note;
+        if (e.kind == "sb") line += i18n::T("  -  golpes de Shin Budokai", "  -  Shin Budokai moves");
         if (e.port) {
           line += i18n::T("  -  golpes propios (port de la comunidad)", "  -  own moves (community port)");
         } else if (e.donor >= 0) {

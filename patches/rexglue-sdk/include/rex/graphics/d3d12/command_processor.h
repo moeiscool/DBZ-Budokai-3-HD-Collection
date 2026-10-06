@@ -631,6 +631,59 @@ class D3D12CommandProcessor : public CommandProcessor {
   Microsoft::WRL::ComPtr<ID3D12Resource> resolve_downscale_buffer_;
   uint32_t resolve_downscale_buffer_size_ = 0;
 
+  // dbz3 temporal upscaling inputs (FSR 3 / DLSS, 1.4.2). The scene phase of
+  // a frame lasts from the swap until the first full-width depth resolve:
+  // its draws get the sub-pixel jitter, and at that resolve the host depth is
+  // copied into dbz3_depth_, handed to the presenter on the swap.
+  void Dbz3TemporalOnCopy();
+  void Dbz3TemporalApplyJitter(draw_util::ViewportInfo& viewport_info, bool z_enable);
+  void Dbz3TemporalWriteInputs(ui::Presenter::GuestOutputRefreshContext& context,
+                               uint32_t width, uint32_t height);
+  void Dbz3TemporalEndFrame(uint32_t frontbuffer_width_unscaled);
+  // dbz3_depth_copy_cs, with the resolve-downscale root signature.
+  Microsoft::WRL::ComPtr<ID3D12PipelineState> dbz3_depth_copy_pipeline_;
+  Microsoft::WRL::ComPtr<ID3D12Resource> dbz3_depth_;        // R32_FLOAT, output size
+  Microsoft::WRL::ComPtr<ID3D12Resource> dbz3_zero_motion_;  // R16G16_FLOAT, zeroed
+  // Motion replay: right after a scene draw that writes depth, the same draw
+  // again with the motion pipeline into dbz3_motion_ (R16G16_FLOAT, NDC
+  // units, cleared once per frame), with [current | previous] float constants.
+  void Dbz3MotionAfterDraw(void* pipeline_handle, const D3D12Shader& vertex_shader,
+                           const D3D12Shader* pixel_shader,
+                           const draw_util::ViewportInfo& viewport_info,
+                           const PrimitiveProcessor::ProcessingResult& processing_result,
+                           reg::RB_DEPTHCONTROL normalized_depth_control);
+  Microsoft::WRL::ComPtr<ID3D12Resource> dbz3_motion_;  // RENDER_TARGET state in frames
+  // R8_UNORM, same size and state: translucent scene draws (shadows, effects).
+  Microsoft::WRL::ComPtr<ID3D12Resource> dbz3_reactive_;
+  Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> dbz3_motion_rtv_heap_;
+  bool dbz3_motion_cleared_ = false;
+  bool dbz3_motion_drawn_ = false;
+  // Float constants of the scene draws, by draw identity, of this and the
+  // previous frame.
+  std::unordered_map<uint64_t, std::vector<uint32_t>> dbz3_motion_constants_current_;
+  std::unordered_map<uint64_t, std::vector<uint32_t>> dbz3_motion_constants_previous_;
+  std::unordered_map<uint64_t, uint32_t> dbz3_motion_occurrences_;
+  uint32_t dbz3_motion_draws_ = 0, dbz3_motion_matched_ = 0;
+  uint32_t dbz3_motion_skipped_[3] = {};
+  bool dbz3_temporal_active_ = false;
+  bool dbz3_scene_phase_ = true;
+  // A whole-frame depth resolve happened in this frame's scene phase.
+  bool dbz3_scene_resolved_ = false;
+  // The previous frame had a 3D scene (jitter only then; menus stay still).
+  bool dbz3_scene_last_frame_ = false;
+  // Rim light scale baked into the current vertex float constant buffer.
+  float dbz3_rim_applied_scale_ = 1.0f;
+  bool dbz3_scene_depth_captured_ = false;
+  bool dbz3_depth_inverted_ = false;
+  uint32_t dbz3_jitter_index_ = 0;
+  float dbz3_jitter_px_[2] = {};
+  // Scaled guest output size of the last swap, and its unscaled width.
+  uint32_t dbz3_output_size_[2] = {};
+  uint32_t dbz3_frontbuffer_width_unscaled_ = 0;
+  uint64_t dbz3_temporal_frame_ = 0;
+  uint64_t dbz3_last_swap_us_ = 0;
+  float dbz3_frame_time_ms_ = 16.666f;
+
   // PWL gamma ramp can result in values with more precision than 10bpc. Though
   // those sub-10bpc bits don't have any noticeable visual effect, so normally
   // R10G10B10A2_UNORM is enough. But what's the most important is that for the

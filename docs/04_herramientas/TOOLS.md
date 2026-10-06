@@ -1,6 +1,38 @@
 # Herramientas — inventario
 
-> Actualizado: 2026-09-08. Inventario de herramientas disponibles y su función.
+> Actualizado: 2026-10-06 (§0 Studio de cámaras y port de Shin Budokai / Heroes). Inventario de
+> herramientas disponibles y su función.
+
+---
+
+## 0. KIT DE MODS: PERSONAJES NUEVOS Y STUDIO (2026-10-06)
+
+Todo esto se usa sin consola desde el Mod Kit (`mod center hd/modkit_gui.py`) y el launcher; la
+consola es para modders. Cada herramienta con lógica tiene su autocomprobación.
+
+### Studio de cámaras (`mod center hd/studio/`)
+| Herramienta | Función | Comprobación |
+|---|---|---|
+| `studio_gui.py` | Ventana del Studio: personaje + técnica, línea de tiempo del guion, vistas 2D, plantillas (órbita, travelling, temblor, giro), vista previa toon, GIF, Blender, guardar como mod | `--selftest` (sin ventana), `--captura out.png` |
+| `studio_core.py` | Núcleo: `#ACC/#AMC` (clips de cámara), guion `#SPX` (clip ↔ técnica, esperas), marcas de golpe del `#CSK`, validación, plantillas, glTF de ida y vuelta, guardar con LZX + reserva + respaldo | `selftest` (633 clips HD + 633 PS2 byte a byte), `info ID`, `exportar-glb`, `importar-glb` |
+| `blender_puente.py` | Script que ejecuta Blender (sin add-on): `abrir` (importa la toma y guarda un .blend) y `exportar` (en segundo plano, `.blend` → `.glb`) | ida y vuelta con `blender -b` |
+
+Guía: `docs/02_mods/STUDIO_CAMARAS.md`. Formato: `docs/03_formatos/CAMARA_ACC.md`.
+
+### Personajes de Shin Budokai (PSP) y Super Dragon Ball Heroes (PC)
+| Herramienta | Función | Comprobación |
+|---|---|---|
+| `mod center hd/importar.py` | Importador del launcher y del Mod Kit. Fuentes `b1`, `b2`, `b3`, `iw`, **`sb1`, `sb2`, `sdbh`** | `fuentes`, `lista FUENTE`, `importar …` |
+| `awo_tools/sbport.py` | Moveset de SB1/SB2 → B3 (AP 20→16 B, HR 160→128 B, daño × 0,85, códigos, almacén global, injertos del donante) | `--prueba`, `--oraculo` |
+| `awo_tools/sb_tablas.py` | Tablas medidas SB → B3 (almacén global, efectos AP7) | (módulo) |
+| `awo_tools/sb_amm.py` | Descompresor de animaciones de SB | (módulo) |
+| `awo_tools/sb_tecnicas.py` | Técnicas de SB: BSP híbrido, nombres oficiales (`bsp`, `aplicar`, `nombres`) | `prueba` |
+| `awo_tools/psp_amo.py` | Modelo de PSP → bin HD | byte a byte con los trajes del port de Gohan del Futuro |
+| `awo_tools/sdbh_model.py` | Modelo de Heroes (EMD/ESK/EMB) → bin HD con boca, 7 caras y rampas nativas | `--selftest` |
+| `mod center hd/roster_build.py` | Monta los personajes nuevos; claves `formas`, `ki_base`, `modelo_forma`, `fisica`, `transformacion`; `capsulas --ki` | `construir --mods <copia>` |
+
+Formatos: `docs/03_formatos/SB_VS_B3_MOVESET.md`, `FORMAS_Y_KI.md`, `TOON_Y_BRILLO_HD.md`.
+Receta completa: `docs/02_mods/COMO_HACER_MODS.md` §5.
 
 ---
 

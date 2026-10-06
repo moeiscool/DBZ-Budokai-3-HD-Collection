@@ -84,6 +84,7 @@ namespace shaders {
 #include "../shaders/bytecode/d3d12_5_1/discrete_triangle_3cp_hs.h"
 #include "../shaders/bytecode/d3d12_5_1/float24_round_ps.h"
 #include "../shaders/bytecode/d3d12_5_1/float24_truncate_ps.h"
+#include "../shaders/bytecode/d3d12_5_1/dbz3_motion_ps.h"
 #include "../shaders/bytecode/d3d12_5_1/tessellation_adaptive_vs.h"
 #include "../shaders/bytecode/d3d12_5_1/tessellation_indexed_vs.h"
 }  // namespace shaders
@@ -2682,6 +2683,132 @@ const std::vector<uint32_t>& PipelineCache::GetGeometryShader(GeometryShaderKey 
   std::vector<uint32_t> shader;
   CreateDxbcGeometryShader(key, shader);
   return geometry_shaders_.emplace(key, std::move(shader)).first->second;
+}
+
+ID3D12PipelineState* PipelineCache::Dbz3GetMotionPipeline(void* handle) {
+  if (!handle) {
+    return nullptr;
+  }
+  auto found = dbz3_motion_pipelines_.find(handle);
+  if (found != dbz3_motion_pipelines_.end()) {
+    return found->second.Get();
+  }
+  Microsoft::WRL::ComPtr<ID3D12PipelineState>& motion_pipeline = dbz3_motion_pipelines_[handle];
+  const Pipeline& pipeline = *reinterpret_cast<const Pipeline*>(handle);
+  const PipelineRuntimeDescription& runtime = pipeline.description;
+  const PipelineDescription& description = runtime.description;
+  if (render_target_cache_.GetPath() != RenderTargetCache::Path::kHostRenderTargets ||
+      !runtime.vertex_shader || !runtime.root_signature || runtime.geometry_shader ||
+      description.host_msaa_samples != xenos::MsaaSamples::k1X ||
+      description.cull_mode == PipelineCullMode::kDisableRasterization ||
+      PipelinePrimitiveTopologyType(description.primitive_topology_type_or_tessellation_mode) !=
+          PipelinePrimitiveTopologyType::kTriangle) {
+    return nullptr;
+  }
+  DxbcShaderTranslator::Modification modification(runtime.vertex_shader->modification());
+  if (modification.vertex.host_vertex_shader_type != Shader::HostVertexShaderType::kVertex) {
+    return nullptr;
+  }
+  D3D12Shader& vertex_shader = static_cast<D3D12Shader&>(runtime.vertex_shader->shader());
+  if (vertex_shader.memexport_eM_written()) {
+    return nullptr;
+  }
+  modification.vertex.interpolator_mask = 0b11;
+  modification.vertex.dbz3_motion = 1;
+  auto* translation = static_cast<D3D12Shader::D3D12Translation*>(
+      vertex_shader.GetOrCreateTranslation(modification.value));
+  if (!translation->is_translated()) {
+    std::lock_guard<std::mutex> lock(translation_request_lock_);
+    if (!translation->is_translated() &&
+        !TranslateAnalyzedShader(*shader_translator_, *translation, dxbc_converter_, dxc_utils_,
+                                 dxc_compiler_)) {
+      REXGPU_WARN("dbz3: motion variant of VS {:016X} failed to translate",
+                  vertex_shader.ucode_data_hash());
+      return nullptr;
+    }
+  }
+  if (!translation->is_valid()) {
+    return nullptr;
+  }
+
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC state_desc = {};
+  state_desc.pRootSignature = runtime.root_signature;
+  switch (description.strip_cut_index) {
+    case PipelineStripCutIndex::kFFFF:
+      state_desc.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF;
+      break;
+    case PipelineStripCutIndex::kFFFFFFFF:
+      state_desc.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF;
+      break;
+    default:
+      state_desc.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+      break;
+  }
+  state_desc.VS.pShaderBytecode = translation->translated_binary().data();
+  state_desc.VS.BytecodeLength = translation->translated_binary().size();
+  state_desc.PS.pShaderBytecode = shaders::dbz3_motion_ps;
+  state_desc.PS.BytecodeLength = sizeof(shaders::dbz3_motion_ps);
+  state_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  state_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  switch (description.cull_mode) {
+    case PipelineCullMode::kFront:
+      state_desc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;
+      break;
+    case PipelineCullMode::kBack:
+      state_desc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+      break;
+    default:
+      state_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+      break;
+  }
+  state_desc.RasterizerState.FrontCounterClockwise =
+      description.front_counter_clockwise ? TRUE : FALSE;
+  // The replay must pass where the original draw passed (an opaque draw has
+  // just written this depth, a decal like a shadow sits on it), also with tiny
+  // differences in the recompiled vertex code.
+  state_desc.RasterizerState.DepthBias = description.depth_bias - 16;
+  state_desc.RasterizerState.SlopeScaledDepthBias =
+      description.depth_bias_slope_scaled *
+      float(std::max(render_target_cache_.draw_resolution_scale_x(),
+                     render_target_cache_.draw_resolution_scale_y()));
+  state_desc.RasterizerState.DepthClipEnable = description.depth_clip ? TRUE : FALSE;
+  state_desc.SampleMask = UINT_MAX;
+  state_desc.SampleDesc.Count = 1;
+  state_desc.DepthStencilState.DepthEnable = TRUE;
+  state_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+  state_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+  state_desc.DSVFormat = D3D12RenderTargetCache::GetDepthDSVDXGIFormat(description.depth_format);
+  state_desc.NumRenderTargets = 2;
+  state_desc.RTVFormats[0] = DXGI_FORMAT_R16G16_FLOAT;
+  state_desc.RTVFormats[1] = DXGI_FORMAT_R8_UNORM;
+  state_desc.BlendState.IndependentBlendEnable = TRUE;
+  D3D12_RENDER_TARGET_BLEND_DESC& motion_blend = state_desc.BlendState.RenderTarget[0];
+  D3D12_RENDER_TARGET_BLEND_DESC& reactive_blend = state_desc.BlendState.RenderTarget[1];
+  reactive_blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_RED;
+  if (description.depth_write) {
+    // Opaque: its motion, and no reactivity where it covers.
+    motion_blend.RenderTargetWriteMask =
+        D3D12_COLOR_WRITE_ENABLE_RED | D3D12_COLOR_WRITE_ENABLE_GREEN;
+    reactive_blend.BlendEnable = TRUE;
+    reactive_blend.SrcBlend = D3D12_BLEND_ZERO;
+    reactive_blend.DestBlend = D3D12_BLEND_ZERO;
+    reactive_blend.BlendOp = D3D12_BLEND_OP_ADD;
+    reactive_blend.SrcBlendAlpha = D3D12_BLEND_ZERO;
+    reactive_blend.DestBlendAlpha = D3D12_BLEND_ZERO;
+    reactive_blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+  } else {
+    // Translucent (shadows, effects): the surface below keeps its motion, the
+    // upscaler is told to trust the current frame there.
+    motion_blend.RenderTargetWriteMask = 0;
+  }
+  ID3D12Device* device = command_processor_.GetD3D12Provider().GetDevice();
+  if (FAILED(device->CreateGraphicsPipelineState(&state_desc, IID_PPV_ARGS(&motion_pipeline)))) {
+    REXGPU_WARN("dbz3: failed to create the motion pipeline for VS {:016X}",
+                vertex_shader.ucode_data_hash());
+    motion_pipeline.Reset();
+    return nullptr;
+  }
+  return motion_pipeline.Get();
 }
 
 ID3D12PipelineState* PipelineCache::CreateD3D12Pipeline(

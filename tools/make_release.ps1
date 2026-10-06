@@ -1,4 +1,4 @@
-# DBZ Budokai 3 HD Collection - release packaging script
+﻿# DBZ Budokai 3 HD Collection - release packaging script
 # Assembles the standalone release as a SINGLE universal folder: one dbz3.exe
 # (dual-region core: US/NA + EU/PAL, auto-detects the default.xex) and ONE set
 # of runtime DLLs compiled at the BASELINE x86-64 ISA (SSSE3, Core 2 2006+),
@@ -137,6 +137,18 @@ foreach ($dll in $shared_dlls) {
     } else {
         Write-Warning "No se encontro '$dll' - omitido"
     }
+}
+
+# NVIDIA DLSS (1.4.2): DLL redistribuible del SDK oficial + su licencia (no se sube el SDK).
+$dlss_sdk = "D:\SDKs\DLSS"
+$dlss = Join-Path $root "out\build\win-amd64-release\nvngx_dlss.dll"
+if (Test-Path -LiteralPath $dlss) {
+    Copy-Item -LiteralPath $dlss (Join-Path $OutDir "nvngx_dlss.dll")
+    $lic = Join-Path $dlss_sdk "LICENSE.txt"
+    if (Test-Path -LiteralPath $lic) { Copy-Item -LiteralPath $lic (Join-Path $OutDir "NVIDIA_DLSS_LICENSE.txt") }
+    else { Write-Warning "Falta la licencia de DLSS en $dlss_sdk" }
+} else {
+    Write-Warning "Falta nvngx_dlss.dll: ejecuta tools\copy_sdk_dlls.ps1 (DLSS caera a FSR 3)"
 }
 
 # Modding toolkit (runtime subset)

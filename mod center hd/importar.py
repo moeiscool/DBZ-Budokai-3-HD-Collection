@@ -13,11 +13,24 @@ Fuentes:
              (y en la carpeta que se pase con --carpeta)
   iw         Infinite World (carpeta del juego PS2): modelos, voces y gritos de IW; si hay un
              port de la comunidad (moveset IW->B3), su moveset y sus capsulas
-  sb1 / sb2  Shin Budokai / Another Road (ISO PSP): en desarrollo (formato PSP)
-  sdbh       Super Dragon Ball Heroes World Mission (PC): en desarrollo (otro motor)
+  sb1 / sb2  Shin Budokai / Another Road (ISO PSP): modelos BC<XXX>B0n (formas, psp_amo.py);
+             golpes, camara y tecnicas de SB si awo_tools/sbport.py y sb_tecnicas.py estan
+             listos (si no, los del donante, como b2)
+  sdbh       Super Dragon Ball Heroes World Mission (PC): modelos HD model/bc<xxx>/bc<xxx>bNN
+             (awo_tools/sdbh_model.py); golpes de SB si el personaje esta en SB y sbport listo
 
 Modelos de un AFS de PS2: entradas #AMB cuyos dos primeros hijos son #AMO y #AMT; el
 prefijo de los huesos (X16G_, XFRZ_...) da el personaje (catalog_b3.cat) y el donante.
+
+Contrato con las herramientas de Shin Budokai (se llaman solo si su fichero tiene __main__;
+si fallan, el personaje se importa igual con los golpes del donante y queda un aviso):
+  sbport.py --juego sb1|sb2 --personaje XXX --donante ID --salida DIR --modelos m1.bin ...
+            -> DIR/anm_forma1.bin + DIR/camara.bin (HD)
+  sb_tecnicas.py bsp --personaje XXX --juego sb1|sb2 --donante ID --salida DIR2 -> DIR2/tecnicas.bin
+  sb_tecnicas.py aplicar --moveset DIR --personaje XXX --tecnicas DIR2 --donante ID
+            -> DIR2/anm_forma1.bin y DIR2/camara.bin si las cambia (si no, se usan las de DIR)
+  sdbh_model.py convertir <carpeta bcXXXbNN> <plantilla HD.bin> <salida.bin>
+  voces/gritos: clave "sb1:XXX" / "sb2:XXX" si gritos.py o voces.py la entienden.
 
 Uso (salida en lineas TAB para el launcher):
   python importar.py fuentes
@@ -50,18 +63,18 @@ GAMES = [
     ("b2", "Budokai 2", "listo"),
     ("b3", "Budokai 3 (mods de la comunidad)", "listo"),
     ("iw", "Infinite World", "listo"),
-    ("sb1", "Shin Budokai", "desarrollo"),
-    ("sb2", "Shin Budokai: Another Road", "desarrollo"),
-    ("sdbh", "Super Dragon Ball Heroes: World Mission", "desarrollo"),
+    ("sb1", "Shin Budokai", "listo"),
+    ("sb2", "Shin Budokai: Another Road", "listo"),
+    ("sdbh", "Super Dragon Ball Heroes: World Mission", "listo"),
 ]
 NOTES = {
     "b1": "Modelo, golpes, combos y gritos del Budokai 1 original.",
     "b2": "Modelo de Budokai 2; golpes del personaje donante.",
     "b3": "Modelos de la comunidad (.amb / .amo+.amt); golpes del donante.",
     "iw": "Modelo, voces y gritos de Infinite World; golpes del donante o del port de la comunidad.",
-    "sb1": "Los modelos de PSP usan otro formato: el conversor aun no esta listo.",
-    "sb2": "Los modelos de PSP usan otro formato: el conversor aun no esta listo.",
-    "sdbh": "Juego de PC con otro motor: el conversor aun no esta listo.",
+    "sb1": "Modelos de PSP con sus formas; golpes de Shin Budokai (sbport) o del donante.",
+    "sb2": "Modelos de PSP con sus formas; golpes de Shin Budokai (sbport) o del donante.",
+    "sdbh": "Modelos HD de Heroes (boca, 7 caras, rampas); golpes de Shin Budokai o del donante.",
 }
 
 # Budokai 1: registro del ELF -> ID de B3 cuyo moveset sirve de base (agarre, modo hiper...)
@@ -324,6 +337,214 @@ def community_model(path):
     return open(path, "rb").read()
 
 
+# ---------------------------------------------------------------- Shin Budokai (PSP) y Heroes (PC)
+# codigo de 3 letras (SB y SDBH usan los mismos) -> (nombre, ID de B3 donante: hiper, agarre...)
+SB_CHARS = {
+    "GOK": ("Goku", 0), "VGT": ("Vegeta", 7), "PIC": ("Piccolo", 11), "KLL": ("Krillin", 10),
+    "GHM": ("Teen Gohan", 3), "GHL": ("Adult Gohan", 4), "GHF": ("Future Gohan", 4), "TRX": ("Trunks", 8),
+    "TRF": ("Future Trunks (sword)", 8), "FRZ": ("Frieza", 27), "CEL": ("Cell", 33), "COO": ("Cooler", 38),
+    "BRL": ("Broly", 40), "18G": ("Android 18", 30), "BUS": ("Kid Buu", 36), "BUL": ("Majin Buu", 34),
+    "BUM": ("Super Buu", 35), "BDK": ("Bardock", 39), "DBR": ("Dabura", 37), "GGT": ("Gogeta", 7),
+    "VTO": ("Vegito", 7), "GTX": ("Gotenks", 6), "JNB": ("Janemba", 10), "PKH": ("Pikkon", 11),
+}
+SB_NEW = {"GHF", "TRF", "GGT", "VTO", "GTX", "JNB", "PKH"}     # sin casilla propia en B3
+MAX_FORMS = 6
+
+
+def awo_tool(name):
+    """Ruta de una herramienta de awo_tools si ya tiene linea de comandos (__main__); si no, None."""
+    p = os.path.join(ROOT, "awo_tools", name)
+    try:
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            return p if "__main__" in fh.read() else None
+    except OSError:
+        return None
+
+
+def run_tool(path, args, what):
+    """Ejecuta una herramienta (el mismo Python); su salida va al registro. Error -> excepcion."""
+    import subprocess  # noqa: PLC0415
+    import roster_build as rb  # noqa: PLC0415
+    r = subprocess.run([sys.executable, path] + [str(x) for x in args], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    for ln in (r.stdout + r.stderr).strip().splitlines()[-8:]:
+        rb.log("   %s: %s" % (what, ln))
+    if r.returncode != 0:
+        raise RuntimeError("%s fallo (codigo %d)" % (what, r.returncode))
+
+
+class SbAfs:
+    """data_btl_cmn.afs de una ISO de PSP (con tabla de nombres de 48 B), leido en su sitio."""
+
+    def __init__(self, iso_path):
+        import iso  # noqa: PLC0415
+        img = iso.Iso(iso_path)
+        self.f = img.open(img.find("data_btl_cmn.afs"))
+        self.f.seek(4)
+        n = struct.unpack("<I", self.f.read(4))[0]
+        self.tab = [struct.unpack("<II", self.f.read(8)) for _ in range(n)]
+        noff, nsz = struct.unpack("<II", self.f.read(8))
+        self.names = [""] * n
+        if noff and nsz == 48 * n:
+            self.f.seek(noff)
+            blob = self.f.read(nsz)
+            self.names = [blob[48 * i:48 * i + 32].split(b"\0")[0].decode("ascii", "replace") for i in range(n)]
+
+    def entry(self, i):
+        self.f.seek(self.tab[i][0])
+        return self.f.read(self.tab[i][1])
+
+
+def sb_list(game):
+    """BC<XXX>.amb (moveset), BC<XXX>B0n.amb (modelos: formas) y BC<XXX>M<n>.amb por personaje."""
+    afs = SbAfs(source_path(game))
+    chars = {}
+    for i, nm in enumerate(afs.names):
+        m = re.match(r"BC(\w{3})(B\d\d|M\d)?\.amb$", nm, re.I)
+        if not m or m.group(1).upper() == "CMN":
+            continue
+        c = chars.setdefault(m.group(1).upper(), {"modelos": [], "forma_m": [], "moveset": None})
+        part = (m.group(2) or "").upper()
+        if not part:
+            c["moveset"] = i
+        else:
+            c["modelos" if part.startswith("B") else "forma_m"].append(i)
+    out = []
+    for code, c in chars.items():
+        nm, donor = SB_CHARS.get(code, ("SB %s" % code, None))
+        out.append(dict(c, clave=code, nombre=nm, donante=donor, nuevo=code in SB_NEW))
+    out.sort(key=lambda e: e["nombre"].lower())
+    return out
+
+
+def sdbh_list():
+    """Personajes de SDBH con equivalente en SB/B3: model/bc<xxx>/bc<xxx>bNN (una carpeta por forma)."""
+    root = os.path.join(source_path("sdbh") or "", "model")
+    out = []
+    for code, (nm, donor) in SB_CHARS.items():
+        d = os.path.join(root, "bc" + code.lower())
+        forms = sorted(glob.glob(os.path.join(d, "bc%sb[0-9][0-9]" % code.lower())))
+        if forms:
+            out.append({"clave": code, "nombre": nm, "carpetas": forms, "donante": donor, "nuevo": code in SB_NEW})
+    out.sort(key=lambda e: e["nombre"].lower())
+    return out
+
+
+def sb_moveset_ready():
+    return awo_tool("sbport.py") is not None
+
+
+def sb_game_of(code):
+    """Juego de SB que trae el moveset de un codigo (Another Road primero)."""
+    for g in ("sb2", "sb1"):
+        if source_path(g):
+            try:
+                if any(x["clave"] == code and x["moveset"] is not None for x in sb_list(g)):
+                    return g
+            except (OSError, ValueError):
+                continue
+    return None
+
+
+def voice_key(sb_game, code):
+    """voces = "sb2:XXX" si voces.py ya entiende el prefijo (agente de voces); los gritos siguen a
+    las voces de SB en roster_build."""
+    try:
+        with open(os.path.join(HERE, "voces.py"), encoding="utf-8", errors="replace") as fh:
+            src = fh.read()
+    except OSError:
+        return None
+    return '"%s:%s"' % (sb_game, code) if '"%s:' % sb_game in src else None
+
+
+def sb_import(game, e, donor, work, us):
+    """Modelos (+ golpes, camara y tecnicas de SB si sbport esta listo) -> (modelos, formas,
+    claves toml, {ruta en el mod: fichero})."""
+    import roster_build as rb  # noqa: PLC0415
+    dn = next(x for x in rb.DB["ids"] if x["id"] == donor)
+    models = []
+    if game == "sdbh":
+        import afs_pair  # noqa: PLC0415
+        conv = awo_tool("sdbh_model.py")
+        if not conv:
+            raise SystemExit("ERROR: el conversor de modelos de Heroes (awo_tools/sdbh_model.py) aun no esta listo")
+        tpl = os.path.join(work, "plantilla.bin")      # esqueleto y materiales HD del donante
+        with open(tpl, "wb") as fh:
+            fh.write(bytes(afs_pair.hd(dn["models"][0], region=us or afs_pair.HD_US)))
+        for k, folder in enumerate(e["carpetas"][:MAX_FORMS]):
+            out = os.path.join(work, "traje%d.bin" % (k + 1))
+            run_tool(conv, ["convertir", folder, tpl, out], "sdbh_model")
+            models.append(out)
+    else:
+        import psp_amo  # noqa: PLC0415
+        afs = SbAfs(source_path(game))
+        for k, i in enumerate(e["modelos"][:MAX_FORMS]):
+            out = os.path.join(work, "traje%d.bin" % (k + 1))
+            with open(out, "wb") as fh:
+                fh.write(psp_amo.convert_model(afs.entry(i)))
+            models.append(out)
+    keys, files = {}, {}
+    sbg = (game if game != "sdbh" else sb_game_of(e["clave"])) if sb_moveset_ready() else None
+    if sbg:
+        try:
+            out = os.path.join(work, "sbport")
+            run_tool(awo_tool("sbport.py"), ["--juego", sbg, "--personaje", e["clave"], "--donante", donor,
+                                             "--salida", out, "--modelos"] + models, "sbport")
+            anm, cam = os.path.join(out, "anm_forma1.bin"), os.path.join(out, "camara.bin")
+            if not (os.path.isfile(anm) and os.path.isfile(cam)):
+                raise RuntimeError("sbport no dejo anm_forma1.bin y camara.bin en %s" % out)
+            tec = awo_tool("sb_tecnicas.py")
+            if tec:
+                try:
+                    t = os.path.join(work, "tecnicas")
+                    run_tool(tec, ["aplicar", "--personaje", e["clave"], "--juego", sbg, "--donante", donor,
+                                   "--moveset", out, "--salida", t], "sb_tecnicas")
+                    got = [os.path.join(t, n) for n in ("tecnicas.bin", "anm_forma1.bin", "camara.bin")]
+                    if not all(os.path.isfile(p) for p in got):
+                        raise RuntimeError("sb_tecnicas no dejo tecnicas.bin, anm_forma1.bin y camara.bin")
+                    files["moveset/tecnicas.bin"], anm, cam = got     # moveset con las tecnicas aplicadas
+                    keys["tecnicas"] = '"moveset/tecnicas.bin"'
+                    if os.path.isfile(os.path.join(t, "capsulas.toml")):   # nombres oficiales (propuesta)
+                        files["capsulas.toml"] = os.path.join(t, "capsulas.toml")
+                except Exception as ex:  # noqa: BLE001
+                    rb.log("aviso: tecnicas de SB sin portar, se usan las del donante (%s)" % ex)
+            rel = ["moveset/anm_forma1.bin"]
+            files.update({rel[0]: anm, "moveset/camara.bin": cam})
+            keys.update(moveset=str_list(rel), camara='"moveset/camara.bin"')
+            if len(models) > 1:          # claves del agente de formas (docs/03_formatos/FORMAS_Y_KI.md)
+                keys.update(formas=str(len(models)), transformacion='"donante"')
+            keys["fisica"] = '"donante"'    # colas del cinturon y pelo con la fisica del donante
+            vk = voice_key(sbg, e["clave"])
+            if vk:
+                keys["voces"] = vk
+            rb.log("golpes, combos y camara de %s (%s)" % ("Shin Budokai" if sbg == "sb1" else "Another Road",
+                                                           e["clave"]))
+            return models, len(models), keys, files
+        except Exception as ex:  # noqa: BLE001
+            rb.log("aviso: golpes de SB sin portar (%s): se usan los del donante" % ex)
+            keys, files = {}, {}
+    forms = max(1, min(len(models), int(dn.get("forms") or 1)))   # el runtime solo reduce las del donante
+    if forms < len(models):
+        rb.log("el donante tiene %d formas: se usan los %d primeros modelos" % (forms, forms))
+    return models[:forms], forms, keys, files
+
+
+def sb_transform_caps(donor, forms):
+    """Texto TOML de las [[capsula]] de transformacion (formas 1..n-1) con el nombre de las del donante
+    (lista de B3); sin `ki`: la plantilla es la capsula nativa del donante para esa forma (sus barras)."""
+    import roster_build as rb  # noqa: PLC0415
+    dn = next(x for x in rb.DB["ids"] if x["id"] == donor)
+    ids = (dn.get("skills") or {}).get("transformaciones") or []
+    lst = os.path.join(RESOURCES, "Budokai_3_Capsules_IDs.txt")
+    names = rb.read_name_list(lst)[0] if os.path.isfile(lst) else {}
+    out = []
+    for k in range(1, forms):
+        nm = names.get(ids[k - 1] if k - 1 < len(ids) else None) or "Form %d" % (k + 1)
+        out.append('\n[[capsula]]\nnombre = %s\ntipo = "transformacion"\nforma = %d\n' % (json.dumps(nm), k))
+        rb.log("capsula de transformacion: %s (forma %d)" % (nm, k))
+    return "".join(out)
+
+
 # ---------------------------------------------------------------- fuentes
 def b1_list():
     import b1port  # noqa: PLC0415
@@ -368,11 +589,17 @@ def list_source(game, extra=None):
         return lst
     if game == "b3":
         return community_list([d for d in (RESOURCES, extra) if d and os.path.isdir(d)])
-    raise ValueError("fuente en desarrollo: %s" % game)
+    if game in ("sb1", "sb2"):
+        return [e for e in sb_list(game) if e["modelos"]]
+    if game == "sdbh":
+        return sdbh_list()
+    raise ValueError("fuente desconocida: %s" % game)
 
 
 def suggested_name(game, e):
     """El de B3 ya existe: 'Vegeta B1' para distinguirlos en la rueda."""
+    if game in ("sb1", "sb2", "sdbh"):
+        return e["nombre"] if e.get("nuevo") else "%s %s" % (e["nombre"], game.upper())
     if game in ("b1", "b2") and e.get("donante") is not None:
         same = e["donante"] == B1_DONOR[int(e["clave"])] and int(e["clave"]) not in B1_OWN if game == "b1"             else True
         if same:
@@ -384,6 +611,19 @@ def suggested_name(game, e):
 
 
 B1_OWN = (13, 14, 19)          # Zarbon, Dodoria y Androide 19 no estan en B3
+
+
+def entry_kind(game, e):
+    """(clase, cuantos) de la columna del launcher: b1 | trajes | formas | sb (golpes de SB)."""
+    if game == "b1":
+        return "b1", len(e["modelos"])
+    if game in ("sb1", "sb2", "sdbh"):
+        n = min(len(e.get("carpetas") or e.get("modelos") or []), MAX_FORMS)
+        own = sb_moveset_ready() and (game != "sdbh" or sb_game_of(e["clave"]) is not None)
+        return ("sb" if own else "formas"), n
+    if e.get("ficheros"):
+        return "formas", min(len(e["ficheros"]), 6)
+    return "trajes", min(len(e["modelos"]), MAX_COSTUMES)
 
 
 def note_for(game, e):
@@ -450,6 +690,8 @@ def do_import(a):
             p = os.path.join(work, "traje%d.amb" % (len(models) + 1))
             open(p, "wb").write(amb_pair(b1.entry(m), b1.entry(m + 1)))
             models.append(p)
+    elif game in ("sb1", "sb2", "sdbh"):  # PSP / Heroes: formas de un traje (+ golpes de SB)
+        models, forms, sb_keys, sb_files = sb_import(game, e, donor, work, a.us)
     elif e.get("ficheros"):            # colecciones: modelo base y sus formas (un traje)
         for f in e["ficheros"][:6]:
             p = os.path.join(work, "traje%d.amb" % (len(models) + 1))
@@ -499,6 +741,12 @@ def do_import(a):
                      "gritos": '"b1:%s"' % e["clave"], "voces": '"ninguna"'})
         if forms > 1:
             keys["formas"] = str(forms)
+    elif game in ("sb1", "sb2", "sdbh"):
+        import shutil  # noqa: PLC0415
+        for rel, src in sb_files.items():
+            if rel.startswith("moveset/"):
+                shutil.copyfile(src, os.path.join(d, rel))
+        keys.update(sb_keys)
     elif port and files.get("anm"):
         import shutil  # noqa: PLC0415
         rel = []
@@ -520,7 +768,23 @@ def do_import(a):
             rb.log("voces y gritos de Infinite World: %s" % vn)
     if keys:
         rb.set_toml_keys(toml, keys)
-    if keys.get("camara"):     # capsulas propias desde su moveset (B1 / IW)
+    sb_caps = False
+    if game in ("sb1", "sb2", "sdbh"):    # capsulas: tecnicas con nombre oficial (sb_tecnicas) + formas
+        extra = ""
+        if sb_files.get("capsulas.toml"):
+            with open(sb_files["capsulas.toml"], encoding="utf-8") as fh:
+                extra += "\n" + fh.read().strip() + "\n"
+            sb_caps = True
+            rb.log("capsulas de las tecnicas de SB: nombres oficiales (sb_tecnicas)")
+        if sb_keys.get("transformacion"):
+            try:
+                extra += sb_transform_caps(donor, forms)
+            except Exception as ex:  # noqa: BLE001
+                rb.log("aviso: capsulas de transformacion sin crear (%s)" % ex)
+        if extra:
+            with open(toml, "a", encoding="utf-8") as fh:
+                fh.write(extra)
+    if keys.get("camara") and not sb_caps:     # capsulas propias desde su moveset (B1 / IW)
         try:
             cap_args = argparse.Namespace(importar="b1" if game == "b1" else "auto", lista=None, catalogo=None)
             with open(toml, "rb") as fh:
@@ -557,17 +821,14 @@ def main():
     if a.cmd == "fuentes":
         for g, nm, st in GAMES:
             path = source_path(g)
+            if g == "sdbh" and path and not awo_tool("sdbh_model.py"):
+                st = "desarrollo"         # el conversor de modelos de Heroes aun no tiene linea de comandos
             emit("fuente", g, nm, st if path else "falta", path or "", NOTES[g])
         return 0
     if a.cmd == "lista":
         for e in list_source(a.fuente, a.carpeta):
             # clave, nombre, donante, clase (b1 | trajes | formas), cuantos, port, nombre sugerido
-            if a.fuente == "b1":
-                kind, n = "b1", len(e["modelos"])
-            elif e.get("ficheros"):
-                kind, n = "formas", min(len(e["ficheros"]), 6)
-            else:
-                kind, n = "trajes", min(len(e["modelos"]), MAX_COSTUMES)
+            kind, n = entry_kind(a.fuente, e)
             emit("personaje", e["clave"], e["nombre"], "" if e.get("donante") is None else e["donante"],
                  kind, n, 1 if e.get("port") else 0, suggested_name(a.fuente, e))
         return 0

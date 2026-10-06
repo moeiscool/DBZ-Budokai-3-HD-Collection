@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-09-08",
+  "updated": "2026-10-06",
   "project": "DBZ Budokai 3 HD Collection",
   "categories": {
     "hd": [
@@ -39,6 +39,54 @@
         "kind": "port_verification",
         "status": "research",
         "formats": ["PS2", "X360", "AWO", "AWG"]
+      },
+      {
+        "path": "studio/studio_gui.py",
+        "kind": "camera_studio",
+        "status": "validated_offline",
+        "formats": ["ACC", "AMC", "SPX", "glTF", "LZX"]
+      },
+      {
+        "path": "studio/studio_core.py",
+        "kind": "camera_format",
+        "status": "validated_offline",
+        "formats": ["ACC", "AMC", "SPX", "CSK", "glTF", "LZX", "X360", "PS2"]
+      },
+      {
+        "path": "studio/blender_puente.py",
+        "kind": "blender_bridge",
+        "status": "validated_offline",
+        "formats": ["glTF", "BLEND"]
+      },
+      {
+        "path": "importar.py",
+        "kind": "character_importer",
+        "status": "validated",
+        "formats": ["PS2", "PSP", "EMD", "AMB", "AFS"]
+      },
+      {
+        "path": "../awo_tools/sbport.py",
+        "kind": "moveset_port",
+        "status": "validated_offline",
+        "formats": ["PSP", "BSK", "BCM", "AMM", "SPX"]
+      },
+      {
+        "path": "../awo_tools/sb_tecnicas.py",
+        "kind": "technique_port",
+        "status": "in_development",
+        "formats": ["PSP", "BSP", "AST", "ASE", "AME"]
+      },
+      {
+        "path": "../awo_tools/psp_amo.py",
+        "kind": "model_port",
+        "status": "validated_offline",
+        "formats": ["PSP", "AMO", "AMT", "AWO", "AZT"]
+      },
+      {
+        "path": "../awo_tools/sdbh_model.py",
+        "kind": "model_port",
+        "status": "validated_offline",
+        "formats": ["EMD", "ESK", "EMB", "AWO", "AZT"]
       }
     ],
     "bridge": [

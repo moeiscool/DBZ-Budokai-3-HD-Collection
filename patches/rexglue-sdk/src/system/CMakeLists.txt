@@ -21,9 +21,9 @@ set(REXSYSTEM_SOURCES
     xobject.cpp
     xmodule.cpp
     guest_path.cpp
-    dbz1_audio_jp_flag.cpp
-    dbz1_diag_flags.cpp
-    dbz1_region_flag.cpp
+dbz1_audio_jp_flag.cpp
+dbz1_diag_flags.cpp
+dbz1_region_flag.cpp
 
     # Utilities
     util/object_table.cpp

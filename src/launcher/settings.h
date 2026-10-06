@@ -345,6 +345,9 @@ void SetFxaa(const std::string& mode);
 
 // Dithering of the final presented image (SDK's present_dither): trades a
 // little noise for smoother gradients on 8-bit displays.
+// Strength of the "HD shine" rim light on character models (0 = off, 1 = original).
+double HdRimLight();
+void SetHdRimLight(double strength);
 bool PresentDither();
 void SetPresentDither(bool enabled);
 

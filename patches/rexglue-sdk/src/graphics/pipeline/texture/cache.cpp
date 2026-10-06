@@ -252,11 +252,14 @@ std::string LowercaseFlag(std::string_view name) {
 // Like the render resolution option of a PC game: with an upscaling
 // present_effect and a present_fsr_quality_mode, the configured scale is the
 // target and the game renders below it, then the presenter upscales the frame
-// to the window. Only whole scales exist, so the mode picks the closest one
-// (at 3x: quality / balanced / performance -> 2x, ultra_performance -> 1x).
+// to the window. Only whole scales exist, so the mode picks the lowest one that
+// doesn't go below what the mode promises (10% tolerance): at 2x only
+// performance and ultra_performance drop to 1x (quality there would halve the
+// picture), at 3x quality / balanced / performance -> 2x and
+// ultra_performance -> 1x, at 4x quality / balanced -> 3x, the rest -> 2x.
 uint32_t GetUpscalerRenderScale(uint32_t target_scale, const std::string& effect,
                                 const std::string& mode) {
-  if (effect != "fsr" && effect != "fsr2" && effect != "fsr3") {
+  if (effect != "fsr" && effect != "fsr2" && effect != "fsr3" && effect != "dlss") {
     return target_scale;
   }
   float ratio;
@@ -272,13 +275,11 @@ uint32_t GetUpscalerRenderScale(uint32_t target_scale, const std::string& effect
     return target_scale;  // auto / nativeaa: render at the target
   }
   uint32_t best_scale = target_scale;
-  float best_error = 0.0f;
-  for (uint32_t scale = target_scale; scale >= 1; --scale) {
-    float error = std::abs(std::log(float(target_scale) / float(scale) / ratio));
-    if (scale == target_scale || error < best_error) {
-      best_scale = scale;
-      best_error = error;
+  for (uint32_t scale = target_scale - 1; scale >= 1; --scale) {
+    if (float(target_scale) / float(scale) > ratio * 1.1f) {
+      break;
     }
+    best_scale = scale;
   }
   return best_scale;
 }

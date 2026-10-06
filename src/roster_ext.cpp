@@ -5,7 +5,8 @@
 //                 +0 name rec ptr | +4 u8 costumes | +5 u8 models per costume |
 //                 +6 u8 ? | +7 u8 forms | +8 model list ptr (12 B: fid, physics
 //                 chains ptr, cache) | +12 LIPS list ptr (8 B: fid, cache) |
-//                 +16 forms[8] (8 B: u16 id, u8 model base, ...) | +80 u16 n + list
+//                 +16 forms[8] (8 B: u16 id, u8 model in costume (0xFF none), u8 lips,
+//                 u16 aura (3 form aura, 4 + SSJ2 sparks; sub_82136C58)) | +80 u16 n + list
 //   0x82329CF0  char372[44]  battle record: +0..+0x1C ANM fid per form, +0x20 CAM,
 //                 +0x24/+0x28 lang_usa fids, then stats / per-form tables
 //   0x82322950  aura fid per ID       0x82333208  technique BSP fid per ID
@@ -44,6 +45,9 @@
 //   casilla = 10            # (pruebas) reasigna esta casilla EXISTENTE al ID
 //   nombre = "JANEMBA"      # nombre interno (IDs sin registro de nombre, 44-63)
 //   formas = 1              # numero de formas (por defecto, las del donante)
+//   modelo_forma = [0, 1, 2, 3]  # modelo dentro del traje de cada forma (char96 formas +2)
+//   ki_base = [3, 4, 4, 5]  # barras de ki a las que tiende cada forma (char372 +212+20f +9)
+//   fisica = 4              # cadenas de fisica (pelo/cinturon) de los modelos de ese ID
 //   capsulas = [596, 597]   # lista de capsulas por defecto ("Original", max 7)
 //   capsulas_forma = [0, 599]  # capsula que exige cada forma (0 = ninguna)
 //   hereda = [140, 141]     # capsulas (del donante) que tambien puede llevar
@@ -326,12 +330,23 @@ void ApplyExtraCostume(Guest& g, const toml::table& t, const std::string& mod, u
   if (fids.empty() || !costume) return;
   uint32_t nforms = g.U32(c372 + 0xD0);
   if (nforms == 0 || nforms > 8) nforms = std::max<uint32_t>(1, g.U8(c96 + 7));
+  std::vector<uint32_t> done;   // (id << 8 | modelo) ya escritos en este traje
   for (uint32_t f = 0; f < nforms; ++f) {
     const uint32_t e = c372 + 212 + 20 * f;
     uint32_t fid_id = (g.U8(e + 2) << 8) | g.U8(e + 3);
-    const uint32_t mi = (g.U8(e + 4) << 8) | g.U8(e + 5);
+    // +4 es el indice en char96.formas[] (no el modelo): el modelo dentro del traje es el
+    // byte +2 de esa entrada (Gohan adulto: formas [0,1,2,3] -> modelos [0,1,1,2]; el SSJ2
+    // usa el modelo del SSJ y solo cambia el aura).
+    const uint32_t fi = std::min<uint32_t>((g.U8(e + 4) << 8) | g.U8(e + 5), 7);
     if (fid_id >= 105 || !g.U32(kChar96 + fid_id * 96 + 8)) fid_id = id;
+    const uint32_t mi = g.U8(kChar96 + fid_id * 96 + 16 + 8 * fi + 2);
     const uint32_t fid = uint32_t(fids[std::min<size_t>(f, fids.size() - 1)]);
+    if (mi == 0xFF || std::find(done.begin(), done.end(), (fid_id << 8) | mi) != done.end()) {
+      REXLOG_INFO("dbz3 roster [{}]: traje {} de id {}: forma {} comparte el modelo {} (se ignora {})",
+                  mod, costume + 1, id, f, mi, fid);
+      continue;
+    }
+    done.push_back((fid_id << 8) | mi);
     AppendCostume(g, fid_id, costume, mi, fid);
     REXLOG_INFO("dbz3 roster [{}]: traje {} de id {}: forma {} -> id {} modelo {} = {}", mod,
                 costume + 1, id, f, fid_id, mi, fid);
@@ -489,12 +504,24 @@ void ApplyCharacter(Guest& g, const toml::table& t, const std::string& mod) {
       REXLOG_ERROR("dbz3 roster [{}]: sin memoria para {} modelos", mod, n);
       return;
     }
+    // fisica = ID: cadenas de fisica (pelo, colas del cinturon) de los modelos de ese
+    // personaje, mismo traje/modelo (o el ultimo que tenga). Se buscan por nombre de hueso
+    // raiz (sufijo: "LOBI1" vale para GHF_LOBI1) y el juego salta las que no encuentra.
+    const int64_t phys_id = Int(t["fisica"], -1);
+    const uint32_t p96 = kChar96 + uint32_t(std::max<int64_t>(0, phys_id)) * 96;
+    const uint32_t plist = (phys_id >= 0 && phys_id < 105 && phys_id != id) ? g.U32(p96 + 8) : 0;
+    const uint32_t pcos = plist ? g.U8(p96 + 4) : 0, pper = std::max<uint32_t>(1, g.U8(p96 + 5));
     g.W32(c96 + 8, list);
     g.W32(c96 + 12, lips_list);
     for (uint32_t k = 0; k < padded_models; ++k) {
       // trajes inexistentes = el traje 0 (misma forma)
       const uint32_t src = k < n ? k : (k % per) % n;
       g.W32(list + 12 * k, uint32_t(models[src]));  // +4 cadenas de fisica, +8 cache: 0
+      if (pcos) {
+        const uint32_t pc = std::min(k < n ? k / per : 0u, pcos - 1);   // relleno = traje 0
+        const uint32_t pm = std::min(k % per, pper - 1);
+        g.W32(list + 12 * k + 4, g.U32(plist + 12 * (pc * pper + pm) + 4));
+      }
     }
     for (uint32_t k = 0; k < padded_lips; ++k) {
       const uint32_t src = k < nl ? k : 0;
@@ -515,6 +542,16 @@ void ApplyCharacter(Guest& g, const toml::table& t, const std::string& mod) {
         }
       }
     }
+    // modelo de cada forma dentro del traje (char96 formas[f] +2; el aura va en +4/+5 y
+    // sigue siendo la del donante: el SSJ2 conserva los rayos con su propio modelo).
+    // modelo_forma = [0, 1, 2, 3]; sin la clave, el reparto del donante limitado a los
+    // modelos del traje (con menos modelos que el donante leia los del traje siguiente).
+    const auto mf = Ints(t["modelo_forma"]);
+    for (uint32_t f = 0; f < 8; ++f) {
+      const uint32_t e = c96 + 16 + 8 * f + 2;
+      const uint32_t m = f < mf.size() ? uint32_t(std::max<int64_t>(0, mf[f])) : g.U8(e);
+      if (m != 0xFF) g.W8(e, uint8_t(std::min(m, per - 1)));
+    }
   }
 
   // 3a) formas: menos que el donante (p.ej. un port sin transformaciones)
@@ -533,6 +570,11 @@ void ApplyCharacter(Guest& g, const toml::table& t, const std::string& mod) {
   {
     const auto fc = Ints(t["capsulas_forma"]);
     for (uint32_t f = 0; f < fc.size() && f < 8; ++f) g.W16(c372 + 212 + 20 * f, uint16_t(fc[f]));
+    // nivel de ki (barras) al que tiende cada forma: +9 de su entrada (sub_82100760)
+    const auto kb = Ints(t["ki_base"]);
+    for (uint32_t f = 0; f < kb.size() && f < 8; ++f) {
+      g.W8(c372 + 212 + 20 * f + 9, uint8_t(std::clamp<int64_t>(kb[f], 0, 7)));
+    }
   }
   for (auto cap : Ints(t["hereda"])) {
     if (cap > 0 && cap < 0x10000) g_cap_owner_add[uint32_t(cap)] |= uint64_t(1) << id;

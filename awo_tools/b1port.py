@@ -735,9 +735,16 @@ def spx_code_refs(s, slot):
     return out
 
 
+def renumber(lines):
+    """AP tipos 3-7: el byte +2 de las lineas es SIEMPRE una permutacion de 0..n-1 (los 77 000
+    de SB y B3); al quitar lineas se vuelve a numerar conservando el orden relativo."""
+    rank = {v: i for i, v in enumerate(sorted(x[2] for x in lines))}
+    return [x[:2] + bytes([rank[x[2]]]) + x[3:] for x in lines]
+
+
 def bsk_drop_effects(b, codes, effects, report):
     """Quita de los codigos `codes` las lineas de efecto (AP tipo 7, clase 0) con valor en
-    `effects` (la tabla de lineas se compacta; el resto del bloque no cambia)."""
+    `effects` (la tabla de lineas se compacta y se renumera; el resto del bloque no cambia)."""
     out = bytearray(b)
     blocks = bsk_blocks(b)
     L = bsk_code_list(b)
@@ -755,6 +762,7 @@ def bsk_drop_effects(b, codes, effects, report):
                         if not (struct.unpack_from("<H", ln, 4)[0] == 0 and struct.unpack_from("<H", ln, 8)[0] in effects)]
                 if len(keep) != nl:
                     removed += nl - len(keep)
+                    keep = renumber(keep)
                     out[do:do + 16 * nl] = b"".join(keep) + bytes(16 * (nl - len(keep)))
                     struct.pack_into("<HHI", out, ap_off + 8 * k, t, len(keep), do)
     report.append("efectos quitados %s: %d lineas" % ([hex(e) for e in sorted(effects)], removed))

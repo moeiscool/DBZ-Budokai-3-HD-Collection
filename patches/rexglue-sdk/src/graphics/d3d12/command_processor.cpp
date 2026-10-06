@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdarg>
 #include <cstring>
+#include <filesystem>
 #include <mutex>
 #include <sstream>
 #include <utility>
@@ -65,10 +66,36 @@ REXCVAR_DECLARE(int32_t, frame_cap);
 // con su propia version para detectar instalaciones MIXTAS (copiar solo el exe o
 // solo una DLL encima de una carpeta vieja deja un build que no se puede
 // identificar desde su log). Ver rex/dbz3_build.h.
+REXCVAR_DEFINE_BOOL(dbz3_temporal_inputs, true, "DBZ3/Video",
+                    "With present_effect fsr2/fsr3: feed the temporal upscaler the real scene "
+                    "depth and a sub-pixel camera jitter (1.4.2)");
+REXCVAR_DEFINE_BOOL(dbz3_motion_vectors, true, "DBZ3/Dev",
+                    "Motion vectors for the temporal upscaler, by drawing the scene again with "
+                    "the previous frame's constants (off = camera-less, for debugging)");
+REXCVAR_DEFINE_BOOL(dbz3_temporal_jitter, true, "DBZ3/Dev",
+                    "Sub-pixel camera jitter for the temporal upscaler (off = debugging)");
+REXCVAR_DEFINE_DOUBLE(dbz3_rim_light_scale, 1.0, "DBZ3/Video",
+                      "Strength of the HD rim light on character models (0 = off, 1 = original)")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 REXCVAR_DEFINE_STRING(dbz3_gpu_build, DBZ3_RUNTIME_BUILD, "DBZ3/Dev",
                       "Build de rexgpu-xenos (lo comprueba el launcher)");
 
 namespace rex::graphics::d3d12 {
+
+namespace {
+// The B3 HD model vertex shaders write the rim light strength as
+// "o2.w = c39.x * (normal != 0)". ponytail: matched on the ucode disassembly
+// text, cached for the last shader; a ucode pattern check if this gets hot.
+bool Dbz3IsRimLightShader(const Shader& shader) {
+  static const Shader* last = nullptr;
+  static bool last_result = false;
+  if (&shader != last) {
+    last = &shader;
+    last_result = shader.ucode_disassembly().find("o2.___w, c39.x") != std::string::npos;
+  }
+  return last_result;
+}
+}  // namespace
 
 // Generated with `xb buildshaders`.
 namespace shaders {
@@ -79,6 +106,7 @@ namespace shaders {
 #include "../shaders/bytecode/d3d12_5_1/fxaa_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/fxaa_extreme_cs.h"
 #include "../shaders/bytecode/d3d12_5_1/resolve_downscale_cs.h"
+#include "../shaders/bytecode/d3d12_5_1/dbz3_depth_copy_cs.h"
 }  // namespace shaders
 
 namespace {
@@ -1647,6 +1675,12 @@ bool D3D12CommandProcessor::SetupContext() {
                                                sizeof(shaders::resolve_downscale_cs),
                                                resolve_downscale_root_signature_.Get());
   }
+  if (resolve_downscale_root_signature_) {
+    *(dbz3_depth_copy_pipeline_.ReleaseAndGetAddressOf()) =
+        ui::d3d12::util::CreateComputePipeline(device, shaders::dbz3_depth_copy_cs,
+                                               sizeof(shaders::dbz3_depth_copy_cs),
+                                               resolve_downscale_root_signature_.Get());
+  }
   if (!resolve_downscale_root_signature_ || !resolve_downscale_pipeline_) {
     resolve_downscale_pipeline_.Reset();
     resolve_downscale_root_signature_.Reset();
@@ -1867,6 +1901,12 @@ void D3D12CommandProcessor::ShutdownContext() {
   fxaa_root_signature_.Reset();
   resolve_downscale_pipeline_.Reset();
   resolve_downscale_root_signature_.Reset();
+  dbz3_depth_copy_pipeline_.Reset();
+  dbz3_depth_.Reset();
+  dbz3_zero_motion_.Reset();
+  dbz3_motion_.Reset();
+  dbz3_reactive_.Reset();
+  dbz3_motion_rtv_heap_.Reset();
 
   apply_gamma_pwl_fxaa_luma_pipeline_.Reset();
   apply_gamma_pwl_pipeline_.Reset();
@@ -2278,6 +2318,470 @@ static void Dbz3LogGuestPerformance(uint64_t upscaled_textures, uint64_t upscale
   max_frame_ms = 0.0;
 }
 
+// dbz3: temporal upscaling inputs (1.4.2).
+
+static float Dbz3Halton(uint32_t index, uint32_t base) {
+  float f = 1.0f, r = 0.0f;
+  for (uint32_t i = index; i; i /= base) {
+    f /= float(base);
+    r += f * float(i % base);
+  }
+  return r;
+}
+
+void D3D12CommandProcessor::Dbz3TemporalApplyJitter(draw_util::ViewportInfo& viewport_info,
+                                                    bool z_enable) {
+  if (!dbz3_temporal_active_ || !dbz3_output_size_[0]) {
+    return;
+  }
+  const uint32_t w = dbz3_output_size_[0], h = dbz3_output_size_[1];
+  const uint32_t vw = viewport_info.xy_extent[0], vh = viewport_info.xy_extent[1];
+  const bool same_aspect =
+      vw && vh &&
+      std::abs(float(vw) * float(h) - float(vh) * float(w)) <= 0.02f * float(w) * float(vh);
+  // Post-processing starts with the first smaller pass seen from the camera
+  // (the bloom downsample) once the scene depth has been resolved; square
+  // passes in between are shadow maps.
+  if (dbz3_scene_phase_ && dbz3_scene_resolved_ && same_aspect && vw < w && vh < h) {
+    dbz3_scene_phase_ = false;
+  }
+  // Screens without a 3D scene (menus) aren't upscaled temporally: no jitter.
+  if (!dbz3_scene_last_frame_) {
+    return;
+  }
+  if (dbz3_scene_phase_) {
+    // The scene itself: draws covering the whole output. After a depth
+    // resolve, only 3D ones: the full-screen blits that put the resolved
+    // color and depth back must not move.
+    if (vw != w || vh != h || (dbz3_scene_resolved_ && !z_enable)) {
+      return;
+    }
+  } else {
+    // After the scene, smaller passes with depth testing seen from the same
+    // camera (same aspect) test against the jittered scene depth: Budokai 3
+    // draws its character shadows like this at 320x180. They need the same
+    // shift, or the shadow is lost in some jitter phases. Full-size passes
+    // there are post-processing and HUD and stay put.
+    if (!z_enable || vw >= w || vh >= h || !same_aspect) {
+      return;
+    }
+  }
+  // NDC is multiplied by W in the vertex shader, +Y is up in host clip space.
+  // The shift is in output pixels, the same in NDC for any viewport size.
+  viewport_info.ndc_offset[0] += 2.0f * dbz3_jitter_px_[0] / float(w);
+  viewport_info.ndc_offset[1] -= 2.0f * dbz3_jitter_px_[1] / float(h);
+}
+
+void D3D12CommandProcessor::Dbz3TemporalOnCopy() {
+  if (!dbz3_temporal_active_ || !dbz3_scene_phase_ || !dbz3_depth_copy_pipeline_ ||
+      !dbz3_output_size_[0] || !dbz3_frontbuffer_width_unscaled_) {
+    return;
+  }
+  const RegisterFile& regs = *register_file_;
+  if (regs.Get<reg::RB_COPY_CONTROL>().copy_src_select != 4) {
+    return;
+  }
+  // Every whole-frame depth resolve of the scene phase is captured, the last
+  // one wins: Budokai 3 resolves the depth several times per frame (it draws
+  // a shadow map in between and then the shadows and a second character pass
+  // on top). A smaller resolve is a shadow map or a reflection.
+  uint32_t pitch = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch;
+  if (pitch * 10 < dbz3_frontbuffer_width_unscaled_ * 9) {
+    return;
+  }
+  dbz3_scene_resolved_ = true;
+
+  ID3D12Resource* depth_rt;
+  D3D12_CPU_DESCRIPTOR_HANDLE depth_rt_srv;
+  uint32_t depth_rt_width, depth_rt_height;
+  if (!render_target_cache_->Dbz3BeginReadLastDepth(depth_rt, depth_rt_srv, depth_rt_width,
+                                                    depth_rt_height)) {
+    return;
+  }
+  const ui::d3d12::D3D12Provider& provider = GetD3D12Provider();
+  ID3D12Device* device = provider.GetDevice();
+  uint32_t width = dbz3_output_size_[0], height = dbz3_output_size_[1];
+  if (dbz3_depth_) {
+    D3D12_RESOURCE_DESC desc = dbz3_depth_->GetDesc();
+    if (desc.Width != width || desc.Height != height) {
+      resources_for_deletion_.emplace_back(GetCurrentSubmission(), dbz3_depth_.Detach());
+      resources_for_deletion_.emplace_back(GetCurrentSubmission(), dbz3_zero_motion_.Detach());
+    }
+  }
+  if (!dbz3_depth_) {
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width;
+    desc.Height = height;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    desc.Format = DXGI_FORMAT_R32_FLOAT;
+    if (FAILED(device->CreateCommittedResource(
+            &ui::d3d12::util::kHeapPropertiesDefault, provider.GetHeapFlagCreateNotZeroed(), &desc,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
+            IID_PPV_ARGS(&dbz3_depth_)))) {
+      return;
+    }
+    // Committed resources created without "not zeroed" start zeroed: no
+    // motion until the motion replay exists.
+    desc.Format = DXGI_FORMAT_R16G16_FLOAT;
+    if (FAILED(device->CreateCommittedResource(
+            &ui::d3d12::util::kHeapPropertiesDefault, D3D12_HEAP_FLAG_NONE, &desc,
+            D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&dbz3_zero_motion_)))) {
+      dbz3_depth_.Reset();
+      return;
+    }
+  }
+
+  ui::d3d12::util::DescriptorCpuGpuHandlePair descriptors[2];
+  if (!RequestOneUseSingleViewDescriptors(2, descriptors)) {
+    return;
+  }
+  device->CopyDescriptorsSimple(1, descriptors[0].first, depth_rt_srv,
+                                D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+  D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
+  uav_desc.Format = DXGI_FORMAT_R32_FLOAT;
+  uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+  device->CreateUnorderedAccessView(dbz3_depth_.Get(), nullptr, &uav_desc, descriptors[1].first);
+
+  PushTransitionBarrier(dbz3_depth_.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+  SubmitBarriers();
+  SetExternalPipeline(dbz3_depth_copy_pipeline_.Get());
+  deferred_command_list_.D3DSetComputeRootSignature(resolve_downscale_root_signature_.Get());
+  uint32_t constants[5] = {std::min(width, depth_rt_width), std::min(height, depth_rt_height), 0,
+                           0, 0};
+  deferred_command_list_.D3DSetComputeRoot32BitConstants(
+      UINT(ResolveDownscaleRootParameter::kConstants), 5, constants, 0);
+  deferred_command_list_.D3DSetComputeRootDescriptorTable(
+      UINT(ResolveDownscaleRootParameter::kSource), descriptors[0].second);
+  deferred_command_list_.D3DSetComputeRootDescriptorTable(
+      UINT(ResolveDownscaleRootParameter::kDestination), descriptors[1].second);
+  deferred_command_list_.D3DDispatch((constants[0] + 7) / 8, (constants[1] + 7) / 8, 1);
+  PushTransitionBarrier(dbz3_depth_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+  // Direct3D 9 style LESS / LESS_EQUAL means 1 = far.
+  xenos::CompareFunction zfunc = regs.Get<reg::RB_DEPTHCONTROL>().zfunc;
+  dbz3_depth_inverted_ = zfunc == xenos::CompareFunction::kGreater ||
+                         zfunc == xenos::CompareFunction::kGreaterEqual;
+  dbz3_scene_depth_captured_ = true;
+}
+
+void D3D12CommandProcessor::Dbz3MotionAfterDraw(
+    void* pipeline_handle, const D3D12Shader& vertex_shader, const D3D12Shader* pixel_shader,
+    const draw_util::ViewportInfo& viewport_info,
+    const PrimitiveProcessor::ProcessingResult& processing_result,
+    reg::RB_DEPTHCONTROL normalized_depth_control) {
+  // Draws without depth testing are full-screen passes or overlays; the
+  // translucent ones with it (shadows, effects) only go to the reactive mask.
+  if (!dbz3_temporal_active_ || !dbz3_scene_phase_ || !REXCVAR_GET(dbz3_motion_vectors) ||
+      !normalized_depth_control.z_enable || !dbz3_output_size_[0]) {
+    return;
+  }
+  if (viewport_info.xy_extent[0] != dbz3_output_size_[0] ||
+      viewport_info.xy_extent[1] != dbz3_output_size_[1]) {
+    ++dbz3_motion_skipped_[0];
+    return;
+  }
+  D3D12_CPU_DESCRIPTOR_HANDLE dsv;
+  if (!render_target_cache_->Dbz3GetBoundDepthDsv(dsv)) {
+    ++dbz3_motion_skipped_[1];
+    return;
+  }
+  ID3D12PipelineState* motion_pipeline = pipeline_cache_->Dbz3GetMotionPipeline(pipeline_handle);
+  if (!motion_pipeline) {
+    ++dbz3_motion_skipped_[2];
+    return;
+  }
+  const ui::d3d12::D3D12Provider& provider = GetD3D12Provider();
+  ID3D12Device* device = provider.GetDevice();
+  uint32_t width = dbz3_output_size_[0], height = dbz3_output_size_[1];
+
+  // The motion and reactive targets, of the guest output size.
+  if (dbz3_motion_) {
+    D3D12_RESOURCE_DESC desc = dbz3_motion_->GetDesc();
+    if (desc.Width != width || desc.Height != height || !dbz3_reactive_) {
+      resources_for_deletion_.emplace_back(GetCurrentSubmission(), dbz3_motion_.Detach());
+      if (dbz3_reactive_) {
+        resources_for_deletion_.emplace_back(GetCurrentSubmission(), dbz3_reactive_.Detach());
+      }
+    }
+  }
+  if (!dbz3_motion_rtv_heap_) {
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    heap_desc.NumDescriptors = 2;
+    if (FAILED(device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&dbz3_motion_rtv_heap_)))) {
+      return;
+    }
+  }
+  D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2];
+  rtvs[0] = dbz3_motion_rtv_heap_->GetCPUDescriptorHandleForHeapStart();
+  rtvs[1] = provider.OffsetRTVDescriptor(rtvs[0], 1);
+  if (!dbz3_motion_) {
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width;
+    desc.Height = height;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_R16G16_FLOAT;
+    desc.SampleDesc.Count = 1;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    D3D12_CLEAR_VALUE clear_value = {};
+    clear_value.Format = DXGI_FORMAT_R16G16_FLOAT;
+    if (FAILED(device->CreateCommittedResource(
+            &ui::d3d12::util::kHeapPropertiesDefault, provider.GetHeapFlagCreateNotZeroed(), &desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value, IID_PPV_ARGS(&dbz3_motion_)))) {
+      return;
+    }
+    desc.Format = DXGI_FORMAT_R8_UNORM;
+    clear_value.Format = DXGI_FORMAT_R8_UNORM;
+    if (FAILED(device->CreateCommittedResource(
+            &ui::d3d12::util::kHeapPropertiesDefault, provider.GetHeapFlagCreateNotZeroed(), &desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear_value, IID_PPV_ARGS(&dbz3_reactive_)))) {
+      dbz3_motion_.Reset();
+      return;
+    }
+    device->CreateRenderTargetView(dbz3_motion_.Get(), nullptr, rtvs[0]);
+    device->CreateRenderTargetView(dbz3_reactive_.Get(), nullptr, rtvs[1]);
+    dbz3_motion_cleared_ = false;
+  }
+
+  // Float constants: [current | previous], packed like UpdateBindings does.
+  const RegisterFile& regs = *register_file_;
+  const Shader::ConstantRegisterMap& map = vertex_shader.constant_register_map();
+  uint32_t float_count = map.float_count;
+  if (!float_count) {
+    return;
+  }
+  std::vector<uint32_t> current(size_t(float_count) * 4);
+  {
+    uint32_t* out = current.data();
+    for (uint32_t i = 0; i < 4; ++i) {
+      uint64_t entry = map.float_bitmap[i];
+      uint32_t index;
+      while (rex::bit_scan_forward(entry, &index)) {
+        entry &= ~(1ull << index);
+        std::memcpy(out, &regs[XE_GPU_REG_SHADER_CONSTANT_000_X + (i << 8) + (index << 2)],
+                    4 * sizeof(uint32_t));
+        out += 4;
+      }
+    }
+  }
+  // Draw identity: shaders, vertex count and the order among draws with the
+  // same ones in this frame (the game streams geometry through rotating
+  // buffers, so addresses change every frame).
+  uint64_t key = vertex_shader.ucode_data_hash() * 0x9E3779B97F4A7C15ull;
+  key ^= (pixel_shader ? pixel_shader->ucode_data_hash() : 0) + 0x632BE59BD9B4E019ull +
+         (key << 6) + (key >> 2);
+  key = key * 31 + processing_result.host_draw_vertex_count;
+  key = key * 31 + float_count;
+  key = key * 31 + dbz3_motion_occurrences_[key]++;
+  ++dbz3_motion_draws_;
+  const std::vector<uint32_t>* previous = &current;
+  auto previous_it = dbz3_motion_constants_previous_.find(key);
+  if (previous_it != dbz3_motion_constants_previous_.end() &&
+      previous_it->second.size() == current.size()) {
+    previous = &previous_it->second;
+    ++dbz3_motion_matched_;
+  }
+  D3D12_GPU_VIRTUAL_ADDRESS constants_address;
+  uint32_t constants_size = uint32_t(current.size() * sizeof(uint32_t));
+  uint8_t* constants = constant_buffer_pool_->Request(
+      frame_current_, constants_size * 2, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, nullptr,
+      nullptr, &constants_address);
+  if (!constants) {
+    return;
+  }
+  std::memcpy(constants, current.data(), constants_size);
+  std::memcpy(constants + constants_size, previous->data(), constants_size);
+  dbz3_motion_constants_current_[key] = std::move(current);
+
+  // Draw again into the motion target.
+  if (!dbz3_motion_cleared_) {
+    static const float kZero[4] = {};
+    deferred_command_list_.D3DClearRenderTargetView(rtvs[0], kZero, 0, nullptr);
+    deferred_command_list_.D3DClearRenderTargetView(rtvs[1], kZero, 0, nullptr);
+    dbz3_motion_cleared_ = true;
+  }
+  deferred_command_list_.D3DOMSetRenderTargets(2, rtvs, FALSE, &dsv);
+  SetExternalPipeline(motion_pipeline);
+  uint32_t root_parameter_float_constants_vertex =
+      bindless_resources_used_ ? kRootParameter_Bindless_FloatConstantsVertex
+                               : kRootParameter_Bindful_FloatConstantsVertex;
+  deferred_command_list_.D3DSetGraphicsRootConstantBufferView(
+      root_parameter_float_constants_vertex, constants_address);
+  if (processing_result.index_buffer_type == PrimitiveProcessor::ProcessedIndexBufferType::kNone) {
+    deferred_command_list_.D3DDrawInstanced(processing_result.host_draw_vertex_count, 1, 0, 0);
+  } else {
+    deferred_command_list_.D3DDrawIndexedInstanced(processing_result.host_draw_vertex_count, 1, 0,
+                                                   0, 0);
+  }
+  // The next draw sets its own pipeline, render targets and float constants.
+  current_graphics_root_up_to_date_ &= ~(1u << root_parameter_float_constants_vertex);
+  render_target_cache_->Dbz3InvalidateBoundRenderTargets();
+  dbz3_motion_drawn_ = true;
+}
+
+void D3D12CommandProcessor::Dbz3TemporalWriteInputs(
+    ui::Presenter::GuestOutputRefreshContext& context, uint32_t width, uint32_t height) {
+  if (!dbz3_temporal_active_ || !dbz3_scene_depth_captured_ || !dbz3_depth_) {
+    return;
+  }
+  D3D12_RESOURCE_DESC desc = dbz3_depth_->GetDesc();
+  if (desc.Width != width || desc.Height != height) {
+    return;
+  }
+  auto& d3d12_context =
+      static_cast<ui::d3d12::D3D12Presenter::D3D12GuestOutputRefreshContext&>(context);
+  ui::d3d12::D3D12Presenter::Dbz3TemporalInputs* temporal =
+      d3d12_context.AcquireDbz3Temporal(width, height);
+  if (!temporal) {
+    return;
+  }
+  constexpr D3D12_RESOURCE_STATES kPresenterState =
+      ui::d3d12::D3D12Presenter::kDbz3TemporalState;
+  PushTransitionBarrier(dbz3_depth_.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                        D3D12_RESOURCE_STATE_COPY_SOURCE);
+  PushTransitionBarrier(temporal->depth.Get(), kPresenterState, D3D12_RESOURCE_STATE_COPY_DEST);
+  PushTransitionBarrier(temporal->motion.Get(), kPresenterState, D3D12_RESOURCE_STATE_COPY_DEST);
+  SubmitBarriers();
+  deferred_command_list_.D3DCopyResource(temporal->depth.Get(), dbz3_depth_.Get());
+  bool real_motion = dbz3_motion_drawn_ && dbz3_motion_ && dbz3_reactive_;
+  if (real_motion) {
+    PushTransitionBarrier(temporal->reactive.Get(), kPresenterState,
+                          D3D12_RESOURCE_STATE_COPY_DEST);
+    PushTransitionBarrier(dbz3_motion_.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+                          D3D12_RESOURCE_STATE_COPY_SOURCE);
+    PushTransitionBarrier(dbz3_reactive_.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+                          D3D12_RESOURCE_STATE_COPY_SOURCE);
+    SubmitBarriers();
+    deferred_command_list_.D3DCopyResource(temporal->motion.Get(), dbz3_motion_.Get());
+    deferred_command_list_.D3DCopyResource(temporal->reactive.Get(), dbz3_reactive_.Get());
+    PushTransitionBarrier(dbz3_motion_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+                          D3D12_RESOURCE_STATE_RENDER_TARGET);
+    PushTransitionBarrier(dbz3_reactive_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+                          D3D12_RESOURCE_STATE_RENDER_TARGET);
+    PushTransitionBarrier(temporal->reactive.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                          kPresenterState);
+  } else {
+    deferred_command_list_.D3DCopyResource(temporal->motion.Get(), dbz3_zero_motion_.Get());
+  }
+  PushTransitionBarrier(dbz3_depth_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+  PushTransitionBarrier(temporal->depth.Get(), D3D12_RESOURCE_STATE_COPY_DEST, kPresenterState);
+  PushTransitionBarrier(temporal->motion.Get(), D3D12_RESOURCE_STATE_COPY_DEST, kPresenterState);
+  temporal->valid = true;
+  temporal->has_motion = real_motion;
+  temporal->reset = false;
+  temporal->depth_inverted = dbz3_depth_inverted_;
+  temporal->jitter_x = dbz3_jitter_px_[0];
+  temporal->jitter_y = dbz3_jitter_px_[1];
+  temporal->frame_time_ms = dbz3_frame_time_ms_;
+  temporal->frame = dbz3_temporal_frame_;
+}
+
+void D3D12CommandProcessor::Dbz3TemporalEndFrame(uint32_t frontbuffer_width_unscaled) {
+  // Once per frame: whether a temporal upscaler is selected in the presenter.
+  std::string effect = rex::cvar::GetFlagByName("present_effect");
+  std::transform(effect.begin(), effect.end(), effect.begin(),
+                 [](unsigned char c) { return char(std::tolower(c)); });
+  dbz3_temporal_active_ = REXCVAR_GET(dbz3_temporal_inputs) &&
+                          GetD3D12Provider().GetAdapterVendorID() !=
+                              ui::GraphicsProvider::GpuVendorID::kIntel &&
+                          (effect == "fsr2" || effect == "fsr3" || effect == "dlss");
+  dbz3_frontbuffer_width_unscaled_ = frontbuffer_width_unscaled;
+  dbz3_scene_last_frame_ = dbz3_scene_depth_captured_;
+  dbz3_scene_phase_ = true;
+  dbz3_scene_resolved_ = false;
+  dbz3_scene_depth_captured_ = false;
+  if (dbz3_motion_draws_ && (dbz3_temporal_frame_ % 300) == 0) {
+    REXLOG_INFO(
+        "dbz3: motion replay {} draws, {} matched to the previous frame (skipped: viewport {}, "
+        "depth {}, pipeline {})",
+        dbz3_motion_draws_, dbz3_motion_matched_, dbz3_motion_skipped_[0],
+        dbz3_motion_skipped_[1], dbz3_motion_skipped_[2]);
+  }
+  dbz3_motion_constants_previous_.swap(dbz3_motion_constants_current_);
+  dbz3_motion_constants_current_.clear();
+  dbz3_motion_occurrences_.clear();
+  dbz3_motion_cleared_ = false;
+  dbz3_motion_drawn_ = false;
+  dbz3_motion_draws_ = 0;
+  dbz3_motion_matched_ = 0;
+  dbz3_motion_skipped_[0] = dbz3_motion_skipped_[1] = dbz3_motion_skipped_[2] = 0;
+  ++dbz3_temporal_frame_;
+  // 16-phase Halton(2, 3) jitter in render pixels, within [-0.5, 0.5).
+  dbz3_jitter_index_ = (dbz3_jitter_index_ % 16) + 1;
+  if (REXCVAR_GET(dbz3_temporal_jitter)) {
+    dbz3_jitter_px_[0] = Dbz3Halton(dbz3_jitter_index_, 2) - 0.5f;
+    dbz3_jitter_px_[1] = Dbz3Halton(dbz3_jitter_index_, 3) - 0.5f;
+  } else {
+    dbz3_jitter_px_[0] = dbz3_jitter_px_[1] = 0.0f;
+  }
+  uint64_t now_us = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                                 std::chrono::steady_clock::now().time_since_epoch())
+                                 .count());
+  if (dbz3_last_swap_us_) {
+    dbz3_frame_time_ms_ = std::clamp(float(now_us - dbz3_last_swap_us_) * 0.001f, 1.0f, 100.0f);
+  }
+  dbz3_last_swap_us_ = now_us;
+}
+
+// dbz3: frame trace (1.4.2 temporal upscaling research). Creating the file
+// "dbz3_frame_trace.req" next to the exe dumps every draw/resolve of the next
+// few guest frames as "dbz3: ft ..." lines (scene/UI boundary, depth, camera).
+static int g_dbz3_ft_frames = 0;
+static uint32_t g_dbz3_ft_seq = 0;
+static uint32_t g_dbz3_ft_swaps = 0;
+static void Dbz3FrameTraceOnSwap(uint32_t frontbuffer_ptr, uint32_t w, uint32_t h) {
+  if (g_dbz3_ft_frames > 0) {
+    REXLOG_INFO("dbz3: ft swap fb={:08X} {}x{} draws={}", frontbuffer_ptr, w, h, g_dbz3_ft_seq);
+    --g_dbz3_ft_frames;
+  }
+  g_dbz3_ft_seq = 0;
+  if ((++g_dbz3_ft_swaps % 30) == 0 && g_dbz3_ft_frames == 0) {
+    std::error_code ec;
+    if (std::filesystem::exists("dbz3_frame_trace.req", ec)) {
+      std::filesystem::rename("dbz3_frame_trace.req", "dbz3_frame_trace.done", ec);
+      g_dbz3_ft_frames = 3;
+      REXLOG_INFO("dbz3: ft begin");
+    }
+  }
+}
+static void Dbz3FrameTraceDraw(const RegisterFile& regs, const Shader* vs, const Shader* ps,
+                               uint32_t vertex_count, reg::RB_DEPTHCONTROL dc) {
+  if (g_dbz3_ft_frames <= 0) return;
+  const auto si = regs.Get<reg::RB_SURFACE_INFO>();
+  const auto ci = regs.Get<reg::RB_COLOR_INFO>();
+  const auto di = regs.Get<reg::RB_DEPTH_INFO>();
+  REXLOG_INFO(
+      "dbz3: ft d{} vs={:016X} ps={:016X} v={} pitch={} msaa={} c0={}/{} z={}/{} zen={}{} zf={} "
+      "vp={:.1f},{:.1f},{:.1f},{:.1f} mask={:X}",
+      g_dbz3_ft_seq++, vs ? vs->ucode_data_hash() : 0, ps ? ps->ucode_data_hash() : 0,
+      vertex_count, uint32_t(si.surface_pitch), uint32_t(si.msaa_samples), uint32_t(ci.color_base),
+      uint32_t(ci.color_format), uint32_t(di.depth_base), uint32_t(di.depth_format),
+      uint32_t(dc.z_enable), uint32_t(dc.z_write_enable), uint32_t(dc.zfunc),
+      regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XSCALE), regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XOFFSET),
+      regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YSCALE), regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YOFFSET),
+      regs[XE_GPU_REG_RB_COLOR_MASK]);
+}
+static void Dbz3FrameTraceCopy(const RegisterFile& regs, uint32_t addr, uint32_t len) {
+  if (g_dbz3_ft_frames <= 0) return;
+  const auto cc = regs.Get<reg::RB_COPY_CONTROL>();
+  const auto dinfo = regs.Get<reg::RB_COPY_DEST_INFO>();
+  REXLOG_INFO("dbz3: ft copy#{} src={} clr={}{} cmd={} dest={:08X} len={} fmt={} pitch={:08X}",
+              g_dbz3_ft_seq++, uint32_t(cc.copy_src_select), uint32_t(cc.color_clear_enable),
+              uint32_t(cc.depth_clear_enable), uint32_t(cc.copy_command), addr, len,
+              uint32_t(dinfo.copy_dest_format), regs[XE_GPU_REG_RB_COPY_DEST_PITCH]);
+}
+
 void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
                                       uint32_t frontbuffer_height) {
   Dbz3LogGuestPerformance(texture_cache_ ? texture_cache_->upscaled_texture_count() : 0,
@@ -2286,6 +2790,7 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
                           texture_cache_ ? texture_cache_->video_memory_usage_bytes() : 0,
                           texture_cache_ ? texture_cache_->video_memory_budget_bytes() : 0,
                           texture_cache_ ? texture_cache_->ConsumeUpscaleLimitReason() : 0);
+  Dbz3FrameTraceOnSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
   SCOPE_profile_cpu_f("gpu");
   vertex_buffers_in_sync_[0] = 0;
   vertex_buffers_in_sync_[1] = 0;
@@ -2636,6 +3141,8 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
                                 apply_gamma_dest_initial_state);
         }
 
+        Dbz3TemporalWriteInputs(context, guest_output_width, guest_output_height);
+
         // Need to submit all the commands before giving the image back to the
         // presenter so it can submit its own commands for displaying it to the
         // queue.
@@ -2643,6 +3150,10 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbu
         EndSubmission(true);
         return true;
       });
+  dbz3_output_size_[0] = guest_output_width;
+  dbz3_output_size_[1] = guest_output_height;
+  Dbz3TemporalEndFrame(frontbuffer_width_unscaled ? frontbuffer_width_unscaled
+                                                  : frontbuffer_width);
 
   // End the frame even if did not present for any reason (the image refresher
   // was not called), to prevent leaking per-frame resources.
@@ -2739,6 +3250,8 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   }
 
   reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
+  Dbz3FrameTraceDraw(regs, vertex_shader, pixel_shader,
+                     primitive_processing_result.host_draw_vertex_count, normalized_depth_control);
 
   // Shader modifications.
   uint32_t ps_param_gen_pos = UINT32_MAX;
@@ -2858,6 +3371,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
 
   // Update viewport, scissor, blend factor and stencil reference.
   UpdateFixedFunctionState(viewport_info, scissor, primitive_polygonal, normalized_depth_control);
+  Dbz3TemporalApplyJitter(viewport_info, normalized_depth_control.z_enable != 0);
 
   // Update system constants before uploading them.
   // TODO(Triang3l): With ROV, pass the disabled render target mask for safety.
@@ -3027,6 +3541,10 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
     PROFILE_VERTICES(primitive_processing_result.host_draw_vertex_count);
     deferred_command_list_.D3DDrawInstanced(primitive_processing_result.host_draw_vertex_count, 1,
                                             0, 0);
+    if (!memexport_used) {
+      Dbz3MotionAfterDraw(pipeline_handle, *vertex_shader, pixel_shader, viewport_info,
+                          primitive_processing_result, normalized_depth_control);
+    }
   } else {
     D3D12_INDEX_BUFFER_VIEW index_buffer_view;
     index_buffer_view.SizeInBytes = primitive_processing_result.host_draw_vertex_count;
@@ -3086,6 +3604,10 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
     PROFILE_VERTICES(primitive_processing_result.host_draw_vertex_count);
     deferred_command_list_.D3DDrawIndexedInstanced(
         primitive_processing_result.host_draw_vertex_count, 1, 0, 0, 0);
+    if (!memexport_used) {
+      Dbz3MotionAfterDraw(pipeline_handle, *vertex_shader, pixel_shader, viewport_info,
+                          primitive_processing_result, normalized_depth_control);
+    }
     if (scratch_index_buffer != nullptr) {
       ReleaseScratchGPUBuffer(scratch_index_buffer, D3D12_RESOURCE_STATE_INDEX_BUFFER);
     }
@@ -3274,11 +3796,14 @@ bool D3D12CommandProcessor::IssueCopy() {
   if (!BeginSubmission(true)) {
     return false;
   }
+  Dbz3TemporalOnCopy();
   ReadbackResolveMode readback_mode = GetReadbackResolveMode(REXCVAR_GET(d3d12_readback_resolve));
   if (readback_mode == ReadbackResolveMode::kDisabled) {
-    uint32_t written_address, written_length;
-    return render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_,
-                                         written_address, written_length);
+    uint32_t written_address = 0, written_length = 0;
+    bool resolved = render_target_cache_->Resolve(*memory_, *shared_memory_, *texture_cache_,
+                                                  written_address, written_length);
+    Dbz3FrameTraceCopy(*register_file_, written_address, written_length);
+    return resolved;
   }
   return IssueCopy_ReadbackResolvePath();
 }
@@ -4534,6 +5059,14 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
     cbuffer_binding_system_.up_to_date = true;
     current_graphics_root_up_to_date_ &= ~(1u << root_parameter_system_constants);
   }
+  // DBZ3 rim light scale: re-upload when it starts/stops applying or changes.
+  const float rim_scale = float(REXCVAR_GET(dbz3_rim_light_scale));
+  const bool rim_shader = rim_scale != 1.0f && Dbz3IsRimLightShader(*vertex_shader);
+  const float rim_applied = rim_shader ? rim_scale : 1.0f;
+  if (rim_applied != dbz3_rim_applied_scale_) {
+    dbz3_rim_applied_scale_ = rim_applied;
+    cbuffer_binding_float_vertex_.up_to_date = false;
+  }
   if (!cbuffer_binding_float_vertex_.up_to_date) {
     // Even if the shader doesn't need any float constants, a valid binding must
     // still be provided, so if the first draw in the frame with the current
@@ -4555,6 +5088,12 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
             float_constants,
             &regs[XE_GPU_REG_SHADER_CONSTANT_000_X + (i << 8) + (float_constant_index << 2)],
             4 * sizeof(float));
+        // DBZ3 "HD shine": the model vertex shaders pass c39.x as the rim light
+        // strength to the toon pixel shader (o2.w), scale it on request.
+        if (i == 0 && float_constant_index == 39 && rim_shader) {
+          float* rim = reinterpret_cast<float*>(float_constants);
+          rim[0] *= rim_scale;
+        }
         float_constants += 4 * sizeof(float);
       }
     }

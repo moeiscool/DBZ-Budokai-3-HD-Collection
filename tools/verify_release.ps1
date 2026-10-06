@@ -23,10 +23,10 @@ $errors = @()
 # Tamanos de las DLL canonicas de la release actual (SDK rama dbz3-burstlimit,
 # 2026-10-05). Historico: v1.3.0 = 10920448 / 6360064, v1.4.0 = 11034624 / 6372864.
 # amd_fidelityfx_dx12.dll no cambia desde 2026-08-28.
-$canonVersion = "1.4.1"
+$canonVersion = "1.4.2"
 $canonSizes = @{
-    "rexruntime.dll"          = 11039744
-    "rexgpu-xenos.dll"        = 6385152
+    "rexruntime.dll"          = 11108352
+    "rexgpu-xenos.dll"        = 6431232
     "amd_fidelityfx_dx12.dll" = 5413888
 }
 

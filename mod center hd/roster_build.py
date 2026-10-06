@@ -15,8 +15,19 @@ Un personaje nuevo es un mod "fuente" con `personaje.toml` (sin numeros de entra
     donante = 21             # moveset, tecnicas, aura, voz y bocas de partida
     modelos = ["modelos/traje1.amb", "modelos/traje2.amb"]
     despues_de = 21          # opcional: ID tras el que aparece en la rueda (por defecto el donante)
-    moveset = ["moveset/anm.bin"]  # opcional: moveset propio por forma (si no, el del donante)
-    formas = 1                     # opcional: numero de formas (si no, las del donante)
+    moveset = ["moveset/anm.bin"]  # opcional: moveset propio por forma (si no, el del donante);
+                                   # con uno solo, todas las formas usan ese
+    formas = 1                     # opcional: numero de formas (si no, las del donante; no mas)
+    modelos_por_traje = 4          # opcional: modelos de cada traje (uno por forma: traje1 =
+                                   # modelos 1..4, traje2 = 5..8...)
+    modelo_forma = [0, 1, 2, 3]    # opcional: modelo (dentro del traje) de cada forma; por
+                                   # defecto, si hay tantos modelos por traje como formas, cada
+                                   # forma el suyo; si no, el reparto del donante
+    ki_base = [3, 4, 4, 5]         # opcional: barras de ki a las que tiende cada forma
+    fisica = "donante"             # opcional: pelo y colas del cinturon con la fisica de cadenas
+                                   # del donante (o = ID de otro personaje); sin ella, rigidos
+    transformacion = "donante"     # opcional: P+K+G y animaciones de transformarse del donante
+                                   # (quita la de transformarse que traiga un port)
     camara = "moveset/cam.bin"     # opcional: camara/animaciones especiales propias
     tecnicas = "moveset/bsp.bin"   # opcional: efectos de tecnicas propios
     bocas = ["modelos/bocas.bin"]  # opcional: bocas propias (si no, las del donante re-etiquetadas)
@@ -963,6 +974,7 @@ def inputs_hash(srcs):
     h.update(open(os.path.join(HERE, "model_render.py"), "rb").read())
     h.update(open(os.path.join(HERE, "voces.py"), "rb").read())
     h.update(open(os.path.join(HERE, "gritos.py"), "rb").read())
+    h.update(open(os.path.join(HERE, "capsulas.py"), "rb").read())
     for name, d, _ in srcs:
         for base, _, files in sorted(os.walk(d)):
             if "_vista" in os.path.relpath(base, d).split(os.sep):
@@ -983,6 +995,9 @@ def toml_list(v):
 #   nombre = "Hell Gate"      # texto en combate y en los menus
 #   tipo = "especial"         # especial | definitiva | transformacion
 #   forma = 1                 # (transformacion) forma a la que lleva: 1 = la primera
+#   ki = 4                    # (transformacion) barras EXIGIDAS, 0..7 (no se gastan; por defecto
+#                             # las de la capsula nativa del donante para esa forma, si no 5).
+#                             # Cada transformacion exige la anterior de la lista (SSJ2 pide SSJ)
 #   equipada = true           # entra en su lista por defecto ("Original"), maximo 7
 #   reemplaza = 0x8D          # opcional: capsula del donante que sustituye en su moveset
 #   descripcion = "..."       # opcional: panel de descripcion de "Edit Skills" (tambien
@@ -1041,6 +1056,34 @@ class Capsules:
             csk = capsulas.csk_graft(csk, dst_code, src, src_code)
         return capsulas.amb_rebuild(anm, {k: csk})
 
+    @staticmethod
+    def graft_transform(cam, anm_bins, donor, cmn):
+        """transformacion = "donante": la entrada P+K+G del donante en el BCM propio (quita la
+        de transformarse que traiga el port) y sus animaciones 0x2E0/0x3E0 (con su empujon)
+        en cada moveset propio. -> (cam, anm_bins, notas)."""
+        dn = IDS[donor]
+        rep = []
+        if cam is not None:             # sin BCM propio, el del donante ya la tiene
+            dcam = cmn.entry(dn["cam"])
+            at, dat = capsulas.ccm_child(cam), capsulas.ccm_child(dcam)
+            ccm, rep = capsulas.add_b3_transform(cam[at[0]:at[0] + at[1]], dcam[dat[0]:dat[0] + dat[1]])
+            cam = capsulas.amb_rebuild(cam, {next(k for k, e in enumerate(capsulas.amb_children(cam))
+                                                  if e[0] == at[0] and e[1] == at[1]): ccm})
+        damn = cmn.entry(dn["anm"][0])
+        _, so, ss = capsulas.csk_child(damn)
+        src = damn[so:so + ss]
+        out = []
+        for anm in anm_bins:
+            k, do, ds = capsulas.csk_child(anm)
+            csk = anm[do:do + ds]
+            for code in capsulas.TRANSFORM_CODES:
+                csk = capsulas.csk_graft(csk, code, src, code)
+            out.append(capsulas.amb_rebuild(anm, {k: csk}))
+        if out:
+            rep.append("animaciones %s del donante en %d moveset(s)" % (
+                "/".join("%#x" % x for x in capsulas.TRANSFORM_CODES), len(out)))
+        return cam, out, rep
+
     def character(self, mod, cid, donor, c, cam, cmn):
         """-> (lineas de roster.toml, bin de camara (propio o None), notas)."""
         dn = IDS[donor]
@@ -1048,6 +1091,7 @@ class Capsules:
         notes, lines = [], []
         own = []
         last_tr = 0
+        dforms = dn.get("form_caps", [])
         for cc in c.get("_capsulas", []):
             kind = cc.get("tipo", "especial")
             if kind not in CAP_TEMPLATES:
@@ -1056,14 +1100,28 @@ class Capsules:
             nid = self.next_id
             self.next_id += 1
             req = last_tr if kind == "transformacion" else 0
-            rec = bytearray(capsulas.make_record(self.recs[CAP_TEMPLATES[kind]], [cid], req))
             forma = int(cc.get("forma", 1))
+            tpl = CAP_TEMPLATES[kind]
+            if kind == "transformacion" and 0 < forma < len(dforms) and 0 < dforms[forma] < len(self.recs):
+                tpl = dforms[forma]               # la nativa del donante para esa forma (rareza, ki)
+            rec = bytearray(capsulas.make_record(self.recs[tpl], [cid], req))
+            ki = None
             if kind == "transformacion":
+                rec[20:28] = bytes(8)             # +20 sin RE (Freeza/Cooler 0x0b, Trunks 0x0e...):
+                #                                   0 como Goku, Gohan, Vegeta y la plantilla 140
                 rec[14] = (1 << forma) - 1        # formas desde las que se puede usar
+                if cc.get("ki") is not None:      # barras EXIGIDAS (no se gastan), 0..7
+                    rec[15] = 10 * max(0, min(7, int(cc["ki"])))
+                ki = (rec[15] + 5) // 10
                 last_tr = nid
             else:
-                rec[14] = 0xFF
-            own.append(dict(id=nid, tipo=kind, nombre=str(cc.get("nombre", "?"))[:40], forma=forma,
+                # formas que pueden usarla (1 = normal) y ki que GASTA, como las nativas
+                fs = cc.get("formas")
+                rec[14] = sum(1 << (int(f) - 1) for f in fs) & 0xFF if fs else 0xFF
+                if cc.get("ki") is not None:
+                    rec[15] = 10 * max(0, min(7, int(cc["ki"])))
+                    ki = int(cc["ki"])
+            own.append(dict(id=nid, tipo=kind, nombre=str(cc.get("nombre", "?"))[:40], forma=forma, ki=ki,
                             equipada=bool(cc.get("equipada", True)), reemplaza=cc.get("reemplaza"),
                             textos={k: cc[k] for k in ("quien", "descripcion", "botones", "nota") if cc.get(k)}))
             self.new.append((nid, bytes(rec), own[-1]["nombre"]))
@@ -1084,7 +1142,6 @@ class Capsules:
                     cam[at[0]:at[0] + at[1]] = ccm
                     cam = bytes(cam)
         repl = {int(o["reemplaza"]): o["id"] for o in own if o.get("reemplaza") is not None}
-        dforms = dn.get("form_caps", [])
         for o in own:      # su transformacion sustituye a la del donante en esa forma
             if o["tipo"] == "transformacion" and 0 < o["forma"] < len(dforms) and dforms[o["forma"]]:
                 repl.setdefault(dforms[o["forma"]], o["id"])
@@ -1174,11 +1231,12 @@ class Capsules:
         self.next_usi += 1
         self.banks.append((fid, capsulas.build_bank(base, items)))
         lines.append("hud = %s" % toml_list([fid >> 8, fid & 0xFF]))
-        lines += self._skills(dn, own, iw, repl, fcaps, cam)
+        lines += self._skills(dn, own, iw, repl, fcaps, cam, dmoves)
         # panel de descripcion de "Edit Skills" (textos propios o al estilo de las nativas)
         who = str(c.get("nombre") or mod)
         for o in own:
-            ki = capsulas.KI.get(o["id"]) or {"especial": 1, "definitiva": 4, "transformacion": 3}[o["tipo"]]
+            ki = o["ki"] if o["ki"] is not None else (
+                capsulas.KI.get(o["id"]) or {"especial": 1, "definitiva": 4, "transformacion": 3}[o["tipo"]])
             fid = self.next_usi
             self.next_usi += 1
             self.banks.append((fid, capsulas.build_desc(o["nombre"], *capsulas.desc_texts(
@@ -1189,7 +1247,7 @@ class Capsules:
                                                      " forma %d" % o["forma"] if o["tipo"] == "transformacion" else ""))
         return lines, cam, notes
 
-    def _skills(self, dn, own, iw, repl, fcaps, cam):
+    def _skills(self, dn, own, iw, repl, fcaps, cam, dmoves=()):
         """Ficha de habilidades propia (data_usi nueva): nombres + condicion y botones,
         copiando del donante lo equivalente (mismo tipo y orden)."""
         sk = dn.get("skills")
@@ -1212,7 +1270,8 @@ class Capsules:
         trans = [c for c in fcaps[1:] if c]
         attacks = [o["id"] for o in own if o["tipo"] == "especial"] +                   [o["id"] for o in own if o["tipo"] == "definitiva"]
         if not iw:
-            attacks += [repl.get(c, c) for c in sk["ataques"] if repl.get(c, c) not in attacks]
+            # las del donante solo si su moveset las tiene (con BCM propio, no)
+            attacks += [repl.get(c, c) for c in sk["ataques"] if repl.get(c, c) not in attacks and c not in dmoves]
         ownby = {o["id"]: o for o in own}
         used = {"transformacion": 0, "especial": 0, "definitiva": 0}
         imgs, rows = [], []
@@ -1229,7 +1288,8 @@ class Capsules:
             name = (capsulas.render_name(ownby[c]["nombre"], 24) if c in ownby
                     else dimgs[2 * i] if i is not None else capsulas.render_name("?", 24))
             if c in ownby:                        # propia: su coste, sin notas del donante
-                kk = capsulas.KI.get(c) or {"especial": 1, "definitiva": 4}.get(kind, 3)
+                kk = ownby[c]["ki"] if ownby[c]["ki"] is not None else (
+                    capsulas.KI.get(c) or {"especial": 1, "definitiva": 4}.get(kind, 3))
                 txt = ("With over %d Ki gauges" % kk) if kind == "transformacion" else capsulas.ki_text(kk)
                 cond = capsulas.render_name(txt, 24, (150, 205, 255, 255))
             else:
@@ -1264,6 +1324,41 @@ class Capsules:
                 out.append("descripcion = %d" % self.desc[nid])
             out.append("")
         return out
+
+
+def forms_config(c, dn, per, donor, name):
+    """Formas de un personaje nuevo -> (n de formas, modelo de cada forma, lineas de roster.toml).
+      formas = N            no mas que las del donante (el runtime copia sus registros por forma)
+      modelo_forma = [..]   modelo DENTRO del traje de cada forma (0 = el 1o). Por defecto, con
+                            tantos modelos por traje como formas, cada forma el suyo; si no, el
+                            reparto del donante (Gohan adulto: [0, 1, 1, 2], el SSJ2 = modelo SSJ)
+      ki_base = [..]        nivel de ki en barras al que tiende cada forma (por defecto el del donante)
+      fisica = "donante"    cadenas de fisica (pelo, colas del cinturon) del donante, o = ID de
+                            otro personaje; sin la clave, ninguna (el modelo queda rigido)"""
+    nforms = max(1, int(dn.get("forms") or 1))
+    if c.get("formas"):
+        want = max(1, int(c["formas"]))
+        if want > nforms:
+            log("   %s: aviso: formas = %d pero %s solo tiene %d" % (name, want, dn["name"], nforms))
+        nforms = min(want, nforms)
+    mforma = [int(x) for x in c.get("modelo_forma", [])][:nforms]
+    if not mforma and per == nforms > 1:
+        mforma = list(range(nforms))
+    if any(not 0 <= m < per for m in mforma):
+        log("   %s: aviso: modelo_forma %s fuera de 0..%d (modelos_por_traje)" % (name, mforma, per - 1))
+        mforma = [max(0, min(per - 1, m)) for m in mforma]
+    lines = ["modelo_forma = %s" % toml_list(mforma)] if mforma else []
+    kib = [max(0, min(7, int(x))) for x in c.get("ki_base", [])][:nforms]
+    if kib:
+        lines.append("ki_base = %s" % toml_list(kib))
+    fis = c.get("fisica")
+    fid = donor if str(fis).lower() == "donante" else fis if type(fis) is int else None
+    if fid is not None and (fid not in IDS or not IDS[fid].get("models")):
+        log("   %s: aviso: fisica = %r: personaje sin modelos, sin fisica" % (name, fis))
+        fid = None
+    if fid is not None:
+        lines.append("fisica = %d" % fid)
+    return nforms, mforma, lines
 
 
 def build(a):
@@ -1325,6 +1420,7 @@ def build(a):
                 log("!! %s: sin modelos" % name)
                 continue
             per = int(c.get("modelos_por_traje", 1))
+            nforms, mforma, form_lines = forms_config(c, dn, per, donor, name)
             model_fids, heights, prefixes, hds = [], [], [], []
             first_hd = None
             for rel in files:
@@ -1398,9 +1494,10 @@ def build(a):
                 next_fid += 1
             # cara de la barra de vida: una por forma (render de su modelo o ui/hud*.png)
             hud_tpl = cmn.entry(dn.get("hud_face") or IDS[0]["hud_face"])
-            nf = int(c.get("formas") or 0) or struct.unpack(">I", hud_tpl[0x10:0x14])[0]
+            nf = nforms if c.get("formas") else struct.unpack(">I", hud_tpl[0x10:0x14])[0]
             try:
-                huds = hud_images(c, ui, [hds[min(f, per - 1)] for f in range(nf)], fetch=cmn.entry)
+                huds = hud_images(c, ui, [hds[min(len(hds) - 1, mforma[f] if f < len(mforma) else min(f, per - 1))]
+                                          for f in range(nf)], fetch=cmn.entry)
                 write_entry(out_dir, "data_cmn.afs", next_fid, hud_bin(hud_tpl, huds), work)
                 hud_line = ["hud_cara = %d" % next_fid]
                 next_fid += 1
@@ -1412,13 +1509,26 @@ def build(a):
             # capsulas: propias ([[capsula]]), las del donante o las de un port de IW
             cam = load_bin(os.path.join(d, c["camara"]), work) if c.get("camara") else None
             cap_lines, cam, notes = caps.character(name, cid, donor, c, cam, cmn)
-            anm_bins = [load_bin(os.path.join(d, rel), work) for rel in c.get("moveset", [])]
+            # moveset por forma; el mismo fichero en varias formas se escribe una vez (con uno
+            # solo, las demas formas usan el de la forma 1, como el SSJ de Gohan adulto)
+            anm_rels = list(c.get("moveset", []))
+            uniq = list(dict.fromkeys(anm_rels))
+            anm_bins = [load_bin(os.path.join(d, rel), work) for rel in uniq]
             if caps.hyper and anm_bins:
                 try:
                     anm_bins[0] = caps.graft_hyper(anm_bins[0], donor, cmn)
                     notes.append("modo hiper: animacion y efecto de Budokai 3 (los de %s)" % dn["name"])
                 except Exception as e:  # noqa: BLE001
                     notes.append("aviso: sin injerto del modo hiper (%s)" % e)
+            if str(c.get("transformacion", "")).lower() == "donante":
+                try:
+                    cam, anm_bins, rep = caps.graft_transform(cam, anm_bins, donor, cmn)
+                    notes += ["transformacion del donante: " + r for r in rep]
+                except Exception as e:  # noqa: BLE001
+                    notes.append("aviso: sin transformacion del donante (%s)" % e)
+            elif nforms > 1 and cam is not None and not capsulas.has_transform(cam):
+                notes.append("aviso: %d formas pero su moveset no tiene P+K+G para transformarse "
+                             "(transformacion = \"donante\" la pone)" % nforms)
             for n_ in notes:
                 log("   %s: %s" % (name, n_))
             anm = []
@@ -1426,10 +1536,12 @@ def build(a):
             # (el reposo de Gohan del Futuro, port de Shin Budokai, cerraba el juego en el select)
             if anm_bins and c.get("pose_select", True):
                 poses.append((cid, anm_bins[0]))
-            for ab in anm_bins:
+            fid_of = {}
+            for rel, ab in zip(uniq, anm_bins):
                 write_entry(out_dir, "data_cmn.afs", next_fid, ab, work)
-                anm.append(next_fid)
+                fid_of[rel] = next_fid
                 next_fid += 1
+            anm = [fid_of[rel] for rel in anm_rels]
             if not anm and c.get("altura", True):
                 # moveset del donante: la cadera de sus animaciones esta hecha para sus piernas
                 # (Guldo con las de Recoome flotaba); copia con la cadera ajustada al modelo
@@ -1443,7 +1555,8 @@ def build(a):
             if anm:
                 extra.append("anm = %s" % toml_list(anm))
             if c.get("formas"):
-                extra.append("formas = %d" % int(c["formas"]))
+                extra.append("formas = %d" % nforms)
+            extra += form_lines
             if c.get("tecnicas"):
                 write_entry(out_dir, "data_cmn.afs", next_fid, load_bin(os.path.join(d, c["tecnicas"]), work), work)
                 extra.append("tecnicas = %d" % next_fid)
@@ -1458,7 +1571,7 @@ def build(a):
                 spec = c.get("voces", "donante")
                 if isinstance(spec, str) and spec.lower().startswith("iw:") and iw_voices is None:
                     iw_voices = voces.IwVoices(getattr(a, "iw", None) or voces.IW_DIR)
-                v_lines, v_note = voces.resolve(spec, voice_out, iw_voices)
+                v_lines, v_note = voces.resolve(spec, voice_out, iw_voices, donor=donor)
                 extra += v_lines
                 log("   %s: %s" % (name, v_note))
             except Exception as e:  # noqa: BLE001
@@ -1468,7 +1581,7 @@ def build(a):
                 gspec = c.get("gritos")
                 if gspec is None:
                     vs = c.get("voces", "donante")
-                    gspec = vs if isinstance(vs, str) and vs.lower().startswith("iw:") else "donante"
+                    gspec = vs if isinstance(vs, str) and vs.lower().startswith(("iw:", "sb1:", "sb2:")) else "donante"
                 gl = gspec.strip().lower()
                 if gl not in ("donante", "", "auto"):
                     dl = dn["lang"][0]           # char372 +0x24: banco de gritos
@@ -1503,6 +1616,9 @@ def build(a):
                                     with gritos.np.load(saved) as z:
                                         b1_cache[gl] = [z["arr_%d" % i] for i in range(len(z.files))]
                             sounds = gritos.fit(lens, b1_cache[gl])
+                        elif gl.startswith(("sb1:", "sb2:")):
+                            import sb_voces  # noqa: PLC0415  (Shin Budokai: tonos PPHD -> huecos)
+                            sounds = sb_voces.gritos_sounds(gspec, lens, lk, entry[bank[0]:bank[0] + bank[1]])
                         else:
                             raise ValueError("gritos desconocidos: %r" % gspec)
                         write_entry(out_dir, "lang_%s.afs" % lk, next_lang, gritos.build_lang(entry, sounds), work)
@@ -1634,7 +1750,7 @@ def new_char(a):
 
 
 # ---------------------------------------------------------------- capsulas (editor)
-CAP_KEYS = ("nombre", "tipo", "forma", "equipada", "reemplaza")
+CAP_KEYS = ("nombre", "tipo", "forma", "formas", "ki", "equipada", "reemplaza", "quien", "descripcion", "botones", "nota")
 
 
 def read_caps(path):
@@ -1658,14 +1774,17 @@ def write_caps(path, caps):
         out += ["", "[[capsula]]"]
         for k in CAP_KEYS:
             v = c.get(k)
-            if v is None or (k == "equipada" and v is True) or (k == "forma" and c.get("tipo") != "transformacion"):
+            if v is None or (k == "equipada" and v is True) or (
+                    k == "forma" and c.get("tipo") != "transformacion"):
                 continue
-            if isinstance(v, bool):
+            if isinstance(v, (list, tuple)):
+                out.append("%s = [%s]" % (k, ", ".join(str(int(x)) for x in v)))
+            elif isinstance(v, bool):
                 out.append("%s = %s" % (k, "true" if v else "false"))
             elif isinstance(v, int):
                 out.append("%s = %d" % (k, v))
-            else:
-                out.append('%s = "%s"' % (k, str(v).replace('"', "")))
+            else:      # cadena TOML (las descripciones llevan saltos de linea)
+                out.append("%s = %s" % (k, json.dumps(str(v), ensure_ascii=False)))
     open(path, "w", encoding="utf-8").write(chr(10).join(out) + chr(10))
 
 
@@ -1899,6 +2018,11 @@ def caps_cmd(a):
         if 0 <= i < len(caps):
             caps[i]["nombre"] = a.renombrar[1][:40]
             changed = True
+    if a.ki:                  # barras exigidas por una transformacion (0..7)
+        i = int(a.ki[0])
+        if 0 <= i < len(caps):
+            caps[i]["ki"] = max(0, min(7, int(a.ki[1])))
+            changed = True
     if a.subir is not None and 0 < a.subir < len(caps):
         caps[a.subir - 1], caps[a.subir] = caps[a.subir], caps[a.subir - 1]
         changed = True
@@ -1910,7 +2034,8 @@ def caps_cmd(a):
     else:
         for i, c in enumerate(caps):
             log("%d. %s (%s%s)" % (i, c.get("nombre"), c.get("tipo"),
-                                   " forma %s" % c.get("forma", 1) if c.get("tipo") == "transformacion" else ""))
+                                   " forma %s%s" % (c.get("forma", 1), ", ki %s" % c["ki"] if "ki" in c else "")
+                                   if c.get("tipo") == "transformacion" else ""))
     return 0
 
 
@@ -1968,6 +2093,8 @@ def main():
     k.add_argument("--quitar", type=int, help="indice (0 = la primera)")
     k.add_argument("--renombrar", nargs=2, metavar=("INDICE", "NOMBRE"))
     k.add_argument("--subir", type=int, help="sube una posicion la capsula INDICE (cambia su orden)")
+    k.add_argument("--ki", nargs=2, metavar=("INDICE", "BARRAS"),
+                   help="transformacion: barras de ki EXIGIDAS (no se gastan), 0..7")
     k.add_argument("--json", action="store_true")
     k.add_argument("--importar", nargs="?", const="auto", choices=GAMES,
                    help="crea las capsulas desde el moveset del port (juego: auto, iw, b1, b2, b3)")

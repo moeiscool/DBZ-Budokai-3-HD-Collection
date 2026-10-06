@@ -404,6 +404,8 @@ El código recompilado (`generated/`) se deriva de tu `.xex` y no se sube (ver
 
 ## Créditos
 
+- **@ArielPVB**: modelos de Guldo, Jeice, Burter, Zarbon (normal y forma
+  monstruo), Dodoria y Androide 19 del pack de personajes.
 - [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) — herramientas de
   recompilación estática y runtime (derivado de [Xenia](https://xenia.jp)).
 - [DBZ Burst Limit Recompiled](https://github.com/iExplosiveRage/DBZ-Burst-Limit-Recompiled)

@@ -139,6 +139,20 @@ if(REXUI_HAS_FIDELITYFX_RUNTIME)
     target_compile_definitions(rexui PRIVATE REX_HAS_FIDELITYFX_RUNTIME=1)
 endif()
 
+# dbz3 1.4.2: optional NVIDIA DLSS (NGX) for present_effect=dlss on D3D12. The
+# SDK is not vendored: point REXGLUE_DLSS_SDK_DIR at an extracted
+# NVIDIA/DLSS release. nvngx_dlss.dll (lib/Windows_x86_64/rel) must ship next
+# to the exe.
+set(REXGLUE_DLSS_SDK_DIR "" CACHE PATH "NVIDIA DLSS SDK root (optional)")
+if(WIN32 AND REXGLUE_USE_D3D12 AND REXGLUE_DLSS_SDK_DIR AND
+   EXISTS "${REXGLUE_DLSS_SDK_DIR}/include/nvsdk_ngx.h")
+    target_include_directories(rexui PRIVATE "${REXGLUE_DLSS_SDK_DIR}/include")
+    target_link_libraries(rexui PRIVATE
+        "${REXGLUE_DLSS_SDK_DIR}/lib/Windows_x86_64/x64/$<IF:$<CONFIG:Debug>,nvsdk_ngx_d_dbg.lib,nvsdk_ngx_d.lib>")
+    target_compile_definitions(rexui PRIVATE REX_HAS_DLSS=1)
+    message(STATUS "  DLSS: ${REXGLUE_DLSS_SDK_DIR}")
+endif()
+
 if(REXGLUE_USE_VULKAN)
     target_link_libraries(rexui PUBLIC
         Vulkan::Headers

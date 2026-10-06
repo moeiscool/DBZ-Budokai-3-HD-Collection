@@ -1,7 +1,7 @@
 # Cómo hacer mods en DBZ Budokai 3 HD Collection
 
-> Actualizado: 2026-08-18. Pipeline CORRECTO validado (override por entrada +
-> mid-insert virtual).
+> Actualizado: 2026-10-06 (§5 portar un personaje de Shin Budokai, §6 cámaras con el Studio).
+> Pipeline CORRECTO validado (override por entrada + mid-insert virtual).
 
 ---
 
@@ -140,3 +140,73 @@ activos simultáneamente.
 - La activación real usa únicamente el marker `.disabled`; `dbz3_enabled_mods`
   quedó obsoleto y no controla los mods actuales. El override por entrada es
   independiente del perfil visualizado por el launcher.
+
+---
+
+## 5. PORTAR UN PERSONAJE DE SHIN BUDOKAI (de principio a fin)
+
+Fuentes: las ISOs de PSP en `ps2_games/` (Shin Budokai = `sb1`, Another Road = `sb2`) y, para
+modelos HD mejores, la carpeta de Super Dragon Ball Heroes World Mission en `modding resources/`
+(`sdbh`). Formatos y diferencias: `docs/03_formatos/SB_VS_B3_MOVESET.md`.
+
+### 5.1 Lo rápido (sin consola)
+Launcher → **Personajes nuevos** → «Importar personaje» → *Shin Budokai: Another Road* → el
+personaje → nombre → **Importar** → JUGAR. En el Mod Kit es la tarjeta «Importar personaje».
+
+Qué hace el importador (`mod center hd/importar.py importar sb2 GHF --mod … --nombre …`):
+1. **Modelos:** cada `BC<XXX>B0n.amb` → bin HD (`awo_tools/psp_amo.py`); con `sdbh`, cada
+   `bc<xxx>bNN` → bin HD con boca, 7 caras y rampas (`awo_tools/sdbh_model.py`, plantilla = el modelo
+   del donante). Van como **formas** de un traje (`modelos_por_traje`).
+2. **Moveset y cámara:** `awo_tools/sbport.py` (AP 20 → 16 B, HR 160 → 128 B, daño × 0,85, códigos
+   remapeados, almacén global por tabla, hiper / agarre / Dragon Rush / definitiva del donante).
+   Deja `moveset/anm_forma1.bin` y `moveset/camara.bin`.
+3. **Técnicas:** `awo_tools/sb_tecnicas.py` (BSP híbrido, nombres oficiales) cuando esté listo →
+   `moveset/tecnicas.bin`.
+4. **Formas:** `formas = n`, `transformacion = "donante"` (P+K+G del donante, quita la abajo+E de SB),
+   `fisica = "donante"` y una cápsula de transformación por forma con el nombre de la del donante
+   (sus barras de ki). Ver `docs/03_formatos/FORMAS_Y_KI.md`.
+5. **Voces:** las del donante hasta que el módulo de voces entienda `sb2:XXX`.
+
+Si `sbport.py` falla o no está, el personaje se importa igual con **los golpes del donante** (y
+tantas formas como tenga el donante) y el registro lo dice.
+
+### 5.2 Ajustar después (Mod Kit → Personajes)
+- **Formas, física y aspecto:** formas, ki base por forma, modelo por forma, física de pelo y
+  cinturón, transformación del donante.
+- **Cápsulas:** nombres oficiales, orden, **«Fijar ki»** de cada transformación (barras que hay que
+  tener; no se gastan).
+- **Cámaras (Studio):** las definitivas de SB no traen cámara propia: hazla con el Studio (§6).
+- **Imágenes:** icono, rótulo y retratos se generan del modelo; «Regenerar vista previa».
+
+### 5.3 A mano (consola)
+```powershell
+python awo_tools/sbport.py --lista --juego sb2                       # códigos de 3 letras
+python "mod center hd/importar.py" lista sb2                          # lo que ve el launcher
+python "mod center hd/importar.py" importar sb2 GHF --mod imp_sb2_future_gohan --nombre "Future Gohan" --mods <carpeta de mods>
+python "mod center hd/roster_build.py" construir --mods <carpeta de mods>    # o pulsar JUGAR
+```
+Para probar sin tocar tus mods, usa una carpeta aparte con `--mods` (`construir` reescribe el
+`_roster` de la carpeta que le pases).
+
+### 5.4 Qué mirar en el juego
+Golpes y daño normales; P+K+G con 3/4/5/6 barras; volver a normal con menos de 1 barra; la ficha
+de pausa («With over N Ki gauges»); especiales y definitiva; el cinturón en reposo y al andar; la
+sombra toon y el brillo HD al 0 % y al 100 %.
+
+---
+
+## 6. CÁMARAS DE TÉCNICAS (Studio)
+
+Guía para usuarios: `docs/02_mods/STUDIO_CAMARAS.md`. Formato: `docs/03_formatos/CAMARA_ACC.md`.
+
+- **Personaje del juego:** el Studio escribe `mods/studio_<personaje>/us/data_cmn.afs/<fid CAM>/geom.bin`
+  (LZX `/N:2048`, relleno a un tamaño **reservado** para poder recargar sin reiniciar) y un
+  `studio.json` con los clips editados.
+- **Personaje nuevo:** reescribe su `moveset/camara.bin` (se monta al pulsar JUGAR).
+- Respaldos en `mods/<mod>/respaldo/<fecha>/` (nunca dentro de `us/`: el runtime sirve el primer
+  fichero de la carpeta de la entrada).
+- Ciclo de prueba: guardar → Pausa → «Reelegir personajes» → lanzar la técnica. La primera vez,
+  reiniciar el juego.
+- Consola: `python "mod center hd/studio/studio_core.py" info 0` (clips y guiones de Goku),
+  `exportar-glb`, `importar-glb`, `selftest`.
+

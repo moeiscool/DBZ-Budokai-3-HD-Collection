@@ -13,6 +13,9 @@
 #include <chrono>
 #include <climits>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
 #include <memory>
 #include <utility>
 
@@ -32,6 +35,11 @@
 #include <ffx_api/ffx_upscale.h>
 #endif
 
+#if defined(REX_HAS_DLSS) && REX_HAS_DLSS
+#include <nvsdk_ngx.h>
+#include <nvsdk_ngx_helpers.h>
+#endif
+
 REXCVAR_DEFINE_BOOL(d3d12_allow_variable_refresh_rate_and_tearing, true, "UI/D3D12",
                     "Allow variable refresh rate and tearing");
 
@@ -48,6 +56,14 @@ REXCVAR_DECLARE(int32_t, frame_cap);
 REXCVAR_DEFINE_BOOL(dbz3_perf_logging, false, "UI/Presenter",
                     "DBZ3: log FPS/frame stats every 5 seconds (diagnostics)")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+// dbz3: FSR 3 temporal tuning (developer settings, read on every dispatch).
+REXCVAR_DEFINE_BOOL(dbz3_fsr_auto_exposure, false, "UI/Presenter",
+                    "Dev: FSR 3 auto exposure (the guest output is already display-ready)");
+REXCVAR_DEFINE_DOUBLE(dbz3_fsr_camera_near, 0.1, "UI/Presenter",
+                      "Dev: camera near plane passed to FSR 3");
+REXCVAR_DEFINE_DOUBLE(dbz3_fsr_camera_far, 1000.0, "UI/Presenter",
+                      "Dev: camera far plane passed to FSR 3");
 
 namespace rex::ui::d3d12 {
 
@@ -77,7 +93,155 @@ D3D12Presenter::~D3D12Presenter() {
 #if defined(REX_HAS_FIDELITYFX_RUNTIME) && REX_HAS_FIDELITYFX_RUNTIME
   DestroyTemporalUpscalerContext();
 #endif
+  DestroyDlss();
 }
+
+#if defined(REX_HAS_DLSS) && REX_HAS_DLSS
+void D3D12Presenter::DestroyDlss() {
+  if (dlss_feature_) {
+    NVSDK_NGX_D3D12_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(dlss_feature_));
+    dlss_feature_ = nullptr;
+  }
+  if (dlss_state_ == 1) {
+    if (dlss_params_) {
+      NVSDK_NGX_D3D12_DestroyParameters(static_cast<NVSDK_NGX_Parameter*>(dlss_params_));
+      dlss_params_ = nullptr;
+    }
+    NVSDK_NGX_D3D12_Shutdown1(provider_.GetDevice());
+  }
+  dlss_state_ = 0;
+}
+
+bool D3D12Presenter::DispatchDlss(ID3D12GraphicsCommandList* command_list,
+                                  ID3D12Resource* input_resource, uint32_t input_width,
+                                  uint32_t input_height, ID3D12Resource* output_resource,
+                                  uint32_t output_width, uint32_t output_height,
+                                  const Dbz3TemporalInputs& temporal, bool reset) {
+  if (dlss_state_ < 0) {
+    return false;
+  }
+  ID3D12Device* device = provider_.GetDevice();
+  if (dlss_state_ == 0) {
+    // Not an NVIDIA RTX GPU, an old driver or a missing nvngx_dlss.dll all end
+    // here once, and the caller keeps using FSR 3.
+    dlss_state_ = -1;
+    std::error_code ec;
+    std::wstring data_path = std::filesystem::temp_directory_path(ec).wstring();
+    NVSDK_NGX_Result result = NVSDK_NGX_D3D12_Init_with_ProjectID(
+        "6f3c2a1e-8d4b-4c7a-9e21-b3d5f0a7c942", NVSDK_NGX_ENGINE_TYPE_CUSTOM, "1.4.2",
+        data_path.empty() ? L"." : data_path.c_str(), device, nullptr, NVSDK_NGX_Version_API);
+    if (NVSDK_NGX_FAILED(result)) {
+      REXLOG_WARN("D3D12Presenter: DLSS unavailable (NGX init 0x{:08X}), using FSR 3",
+                  uint32_t(result));
+      return false;
+    }
+    NVSDK_NGX_Parameter* params = nullptr;
+    int available = 0;
+    if (NVSDK_NGX_FAILED(NVSDK_NGX_D3D12_GetCapabilityParameters(&params)) || !params ||
+        NVSDK_NGX_FAILED(params->Get(NVSDK_NGX_Parameter_SuperSampling_Available, &available)) ||
+        !available) {
+      int init_result = 0;
+      if (params) {
+        params->Get(NVSDK_NGX_Parameter_SuperSampling_FeatureInitResult, &init_result);
+        NVSDK_NGX_D3D12_DestroyParameters(params);
+      }
+      NVSDK_NGX_D3D12_Shutdown1(device);
+      REXLOG_WARN("D3D12Presenter: DLSS not supported here (0x{:08X}), using FSR 3",
+                  uint32_t(init_result));
+      return false;
+    }
+    dlss_params_ = params;
+    dlss_state_ = 1;
+    REXLOG_INFO("D3D12Presenter: NVIDIA DLSS ready");
+  }
+  auto* params = static_cast<NVSDK_NGX_Parameter*>(dlss_params_);
+
+  // Motion vectors are at render resolution and unjittered (both passes of
+  // the motion replay use the same jitter); the guest output is LDR.
+  // Display-ready LDR input: fixed exposure 1 (InExposureScale), no auto exposure.
+  int flags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
+  if (temporal.depth_inverted) {
+    flags |= NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
+  }
+  if (!dlss_feature_ || dlss_flags_ != flags || dlss_render_width_ != input_width ||
+      dlss_render_height_ != input_height || dlss_output_width_ != output_width ||
+      dlss_output_height_ != output_height) {
+    if (dlss_feature_) {
+      // Paints in flight still use the feature's resources.
+      paint_context_.paint_submission_tracker.AwaitAllSubmissionsCompletion();
+      NVSDK_NGX_D3D12_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(dlss_feature_));
+      dlss_feature_ = nullptr;
+    }
+    NVSDK_NGX_DLSS_Create_Params create = {};
+    create.Feature.InWidth = input_width;
+    create.Feature.InHeight = input_height;
+    create.Feature.InTargetWidth = output_width;
+    create.Feature.InTargetHeight = output_height;
+    // Same size in and out is DLAA; otherwise the quality preset (the render
+    // size is picked by present_fsr_quality_mode, DLSS adapts to it).
+    create.Feature.InPerfQualityValue =
+        (input_width >= output_width && input_height >= output_height)
+            ? NVSDK_NGX_PerfQuality_Value_DLAA
+            : NVSDK_NGX_PerfQuality_Value_MaxQuality;
+    create.InFeatureCreateFlags = flags;
+    NVSDK_NGX_Handle* handle = nullptr;
+    NVSDK_NGX_Result result =
+        NGX_D3D12_CREATE_DLSS_EXT(command_list, 1, 1, &handle, params, &create);
+    if (NVSDK_NGX_FAILED(result) || !handle) {
+      REXLOG_WARN("D3D12Presenter: DLSS feature creation failed (0x{:08X}), using FSR 3",
+                  uint32_t(result));
+      DestroyDlss();
+      dlss_state_ = -1;
+      return false;
+    }
+    dlss_feature_ = handle;
+    dlss_flags_ = flags;
+    dlss_render_width_ = input_width;
+    dlss_render_height_ = input_height;
+    dlss_output_width_ = output_width;
+    dlss_output_height_ = output_height;
+    reset = true;
+    REXLOG_INFO("D3D12Presenter: DLSS {}x{} -> {}x{}", input_width, input_height, output_width,
+                output_height);
+  }
+
+  NVSDK_NGX_D3D12_DLSS_Eval_Params eval = {};
+  eval.Feature.pInColor = input_resource;
+  eval.Feature.pInOutput = output_resource;
+  eval.pInDepth = temporal.depth.Get();
+  eval.pInMotionVectors = temporal.motion.Get();
+  // The reactive mask doubles as DLSS's "bias current color" mask.
+  eval.pInBiasCurrentColorMask = temporal.has_motion ? temporal.reactive.Get() : nullptr;
+  eval.InJitterOffsetX = temporal.jitter_x;
+  eval.InJitterOffsetY = temporal.jitter_y;
+  eval.InRenderSubrectDimensions.Width = input_width;
+  eval.InRenderSubrectDimensions.Height = input_height;
+  eval.InReset = reset ? 1 : 0;
+  // Same contract as the FSR 3 path: NDC units, current to previous.
+  eval.InMVScaleX = temporal.has_motion ? 0.5f * float(input_width) : 0.0f;
+  eval.InMVScaleY = temporal.has_motion ? -0.5f * float(input_height) : 0.0f;
+  eval.InPreExposure = 1.0f;
+  eval.InExposureScale = 1.0f;
+  eval.InFrameTimeDeltaInMsec = temporal.frame_time_ms;
+  NVSDK_NGX_Result result = NGX_D3D12_EVALUATE_DLSS_EXT(
+      command_list, static_cast<NVSDK_NGX_Handle*>(dlss_feature_), params, &eval);
+  if (NVSDK_NGX_FAILED(result)) {
+    REXLOG_WARN("D3D12Presenter: DLSS evaluation failed (0x{:08X}), using FSR 3",
+                uint32_t(result));
+    DestroyDlss();
+    dlss_state_ = -1;
+    return false;
+  }
+  return true;
+}
+#else
+void D3D12Presenter::DestroyDlss() {}
+bool D3D12Presenter::DispatchDlss(ID3D12GraphicsCommandList*, ID3D12Resource*, uint32_t,
+                                  uint32_t, ID3D12Resource*, uint32_t, uint32_t,
+                                  const Dbz3TemporalInputs&, bool) {
+  return false;
+}
+#endif
 
 #if defined(REX_HAS_FIDELITYFX_RUNTIME) && REX_HAS_FIDELITYFX_RUNTIME
 void D3D12Presenter::DestroyTemporalUpscalerContext() {
@@ -94,8 +258,10 @@ void D3D12Presenter::DestroyTemporalUpscalerContext() {
 }
 
 bool D3D12Presenter::EnsureTemporalUpscalerContext(uint32_t render_width, uint32_t render_height,
-                                                   uint32_t output_width, uint32_t output_height) {
-  if (!temporal_upscaler_context_ || temporal_upscaler_max_render_width_ != render_width ||
+                                                   uint32_t output_width, uint32_t output_height,
+                                                   uint32_t flags) {
+  if (!temporal_upscaler_context_ || temporal_upscaler_flags_ != flags ||
+      temporal_upscaler_max_render_width_ != render_width ||
       temporal_upscaler_max_render_height_ != render_height ||
       temporal_upscaler_max_output_width_ != output_width ||
       temporal_upscaler_max_output_height_ != output_height) {
@@ -109,7 +275,11 @@ bool D3D12Presenter::EnsureTemporalUpscalerContext(uint32_t render_width, uint32
     ffxCreateContextDescUpscale create_desc = {};
     create_desc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
     create_desc.header.pNext = nullptr;
-    create_desc.flags = FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE | FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
+    // dbz3: flags = 0 keeps the stub's behaviour (no real temporal inputs).
+    // With real inputs the guest output is gamma-encoded LDR.
+    create_desc.flags = flags ? flags
+                              : (FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE |
+                                 FFX_UPSCALE_ENABLE_AUTO_EXPOSURE);
     create_desc.maxRenderSize.width = render_width;
     create_desc.maxRenderSize.height = render_height;
     create_desc.maxUpscaleSize.width = output_width;
@@ -134,6 +304,8 @@ bool D3D12Presenter::EnsureTemporalUpscalerContext(uint32_t render_width, uint32
     temporal_upscaler_max_render_height_ = render_height;
     temporal_upscaler_max_output_width_ = output_width;
     temporal_upscaler_max_output_height_ = output_height;
+    temporal_upscaler_flags_ = flags;
+    temporal_upscaler_last_frame_ = UINT64_MAX;
     temporal_upscaler_provider_logged_ = false;
   }
 
@@ -157,7 +329,8 @@ bool D3D12Presenter::DispatchTemporalUpscaler(ID3D12GraphicsCommandList* command
                                               uint32_t input_height,
                                               ID3D12Resource* output_resource,
                                               uint32_t output_width, uint32_t output_height,
-                                              const GuestOutputPaintConfig& config) {
+                                              const GuestOutputPaintConfig& config,
+                                              const Dbz3TemporalInputs* temporal) {
   if (!command_list || !input_resource || !output_resource || !input_width || !input_height ||
       !output_width || !output_height) {
     return false;
@@ -166,8 +339,46 @@ bool D3D12Presenter::DispatchTemporalUpscaler(ID3D12GraphicsCommandList* command
   // live. The input is never bigger than the output (GetGuestOutputPaintFlow),
   // so a context sized for the output covers every render size and is only
   // recreated when the window size changes.
-  if (!EnsureTemporalUpscalerContext(output_width, output_height, output_width, output_height)) {
+  const bool real_temporal = temporal && temporal->valid && temporal->depth;
+  // dbz3: DLSS needs the real inputs; screens without a 3D scene (menus) and
+  // GPUs without DLSS go through FSR 3 below.
+  if (real_temporal && dlss_state_ >= 0 &&
+      rex::cvar::GetFlagByName("present_effect") == "dlss") {
+    if (temporal->frame == temporal_upscaler_last_frame_ &&
+        output_resource == temporal_upscaler_last_output_) {
+      return true;
+    }
+    bool reset = temporal->reset || temporal->frame != temporal_upscaler_last_frame_ + 1;
+    if (DispatchDlss(command_list, input_resource, input_width, input_height, output_resource,
+                     output_width, output_height, *temporal, reset)) {
+      temporal_upscaler_last_frame_ = temporal->frame;
+      temporal_upscaler_last_output_ = output_resource;
+      return true;
+    }
+  }
+  uint32_t context_flags = 0;
+  if (real_temporal) {
+    // A non-zero value also marks "real inputs" for the context. The guest
+    // output is display-ready (gamma-encoded LDR): exposure 1, no auto
+    // exposure unless asked for.
+    context_flags = FFX_UPSCALE_ENABLE_NON_LINEAR_COLORSPACE;
+    if (REXCVAR_GET(dbz3_fsr_auto_exposure)) {
+      context_flags |= FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
+    }
+    if (temporal->depth_inverted) {
+      context_flags |= FFX_UPSCALE_ENABLE_DEPTH_INVERTED;
+    }
+  }
+  if (!EnsureTemporalUpscalerContext(output_width, output_height, output_width, output_height,
+                                     context_flags)) {
     return false;
+  }
+  // A repaint of a guest frame already upscaled into the same output: the
+  // previous result is still there, feeding the frame again would corrupt
+  // the history.
+  if (real_temporal && temporal->frame == temporal_upscaler_last_frame_ &&
+      output_resource == temporal_upscaler_last_output_) {
+    return true;
   }
 
   ffxDispatchDescUpscale dispatch_desc = {};
@@ -176,23 +387,39 @@ bool D3D12Presenter::DispatchTemporalUpscaler(ID3D12GraphicsCommandList* command
   dispatch_desc.commandList = command_list;
   dispatch_desc.color =
       ffxApiGetResourceDX12(input_resource, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-  dispatch_desc.depth =
-      ffxApiGetResourceDX12(input_resource, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ,
-                            FFX_API_RESOURCE_USAGE_DEPTHTARGET);
+  ID3D12Resource* depth_resource = real_temporal ? temporal->depth.Get() : input_resource;
+  ID3D12Resource* motion_resource = input_resource;
+  if (real_temporal) {
+    motion_resource = temporal->motion.Get();
+  }
+  dispatch_desc.depth = ffxApiGetResourceDX12(
+      depth_resource, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ,
+      real_temporal ? 0 : FFX_API_RESOURCE_USAGE_DEPTHTARGET);
   dispatch_desc.motionVectors =
-      ffxApiGetResourceDX12(input_resource, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+      ffxApiGetResourceDX12(motion_resource, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
   dispatch_desc.exposure =
       ffxApiGetResourceDX12(nullptr, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
-  dispatch_desc.reactive =
-      ffxApiGetResourceDX12(nullptr, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+  dispatch_desc.reactive = ffxApiGetResourceDX12(
+      real_temporal && temporal->has_motion ? temporal->reactive.Get() : nullptr,
+      FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
   dispatch_desc.transparencyAndComposition =
       ffxApiGetResourceDX12(nullptr, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
   dispatch_desc.output = ffxApiGetResourceDX12(
       output_resource, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS, FFX_API_RESOURCE_USAGE_UAV);
-  dispatch_desc.jitterOffset.x = 0.0f;
-  dispatch_desc.jitterOffset.y = 0.0f;
-  dispatch_desc.motionVectorScale.x = float(input_width);
-  dispatch_desc.motionVectorScale.y = float(input_height);
+  dispatch_desc.jitterOffset.x = real_temporal ? temporal->jitter_x : 0.0f;
+  dispatch_desc.jitterOffset.y = real_temporal ? temporal->jitter_y : 0.0f;
+  if (real_temporal && temporal->has_motion) {
+    // dbz3 motion replay writes NDC units (current to previous).
+    dispatch_desc.motionVectorScale.x = 0.5f * float(input_width);
+    dispatch_desc.motionVectorScale.y = -0.5f * float(input_height);
+  } else if (real_temporal) {
+    // Zeroed motion (camera-less) from the GPU side.
+    dispatch_desc.motionVectorScale.x = 0.0f;
+    dispatch_desc.motionVectorScale.y = 0.0f;
+  } else {
+    dispatch_desc.motionVectorScale.x = float(input_width);
+    dispatch_desc.motionVectorScale.y = float(input_height);
+  }
   dispatch_desc.renderSize.width = input_width;
   dispatch_desc.renderSize.height = input_height;
   dispatch_desc.upscaleSize.width = output_width;
@@ -201,19 +428,25 @@ bool D3D12Presenter::DispatchTemporalUpscaler(ID3D12GraphicsCommandList* command
   dispatch_desc.sharpness = std::clamp(1.0f - config.GetFsrSharpnessReduction() * 0.5f, 0.0f, 1.0f);
   // The presenter path doesn't currently provide accurate temporal inputs,
   // so run in reset mode each frame to avoid history artifacts.
-  dispatch_desc.reset = true;
-  dispatch_desc.frameTimeDelta = 16.666f;
+  dispatch_desc.reset = !real_temporal || temporal->reset ||
+                        temporal->frame != temporal_upscaler_last_frame_ + 1;
+  dispatch_desc.frameTimeDelta = real_temporal ? temporal->frame_time_ms : 16.666f;
   dispatch_desc.preExposure = 1.0f;
-  dispatch_desc.cameraNear = 0.1f;
-  dispatch_desc.cameraFar = 1000.0f;
+  // The guest's real planes are unknown; FSR uses them to tell apart
+  // disoccluded pixels (tunable for tests).
+  dispatch_desc.cameraNear = float(REXCVAR_GET(dbz3_fsr_camera_near));
+  dispatch_desc.cameraFar = float(REXCVAR_GET(dbz3_fsr_camera_far));
   dispatch_desc.cameraFovAngleVertical = 1.0472f;
   dispatch_desc.viewSpaceToMetersFactor = 1.0f;
   dispatch_desc.flags = 0;
 
   ffxContext* context = reinterpret_cast<ffxContext*>(&temporal_upscaler_context_);
   if (ffxDispatch(context, &dispatch_desc.header) != FFX_API_RETURN_OK) {
+    temporal_upscaler_last_frame_ = UINT64_MAX;
     return false;
   }
+  temporal_upscaler_last_frame_ = real_temporal ? temporal->frame : UINT64_MAX;
+  temporal_upscaler_last_output_ = output_resource;
 
   return true;
 }
@@ -511,6 +744,76 @@ void D3D12Presenter::DisconnectPaintingFromSurfaceFromUIThreadImpl() {
   paint_context_.DestroySwapChain();
 }
 
+D3D12Presenter::Dbz3TemporalInputs*
+D3D12Presenter::D3D12GuestOutputRefreshContext::AcquireDbz3Temporal(uint32_t width,
+                                                                    uint32_t height) const {
+  if (!presenter_ || mailbox_index_ >= kGuestOutputMailboxSize) {
+    return nullptr;
+  }
+  return presenter_->Dbz3EnsureTemporal(mailbox_index_, width, height);
+}
+
+D3D12Presenter::Dbz3TemporalInputs* D3D12Presenter::Dbz3EnsureTemporal(uint32_t mailbox_index,
+                                                                       uint32_t width,
+                                                                       uint32_t height) {
+  if (mailbox_index >= kGuestOutputMailboxSize || !width || !height) {
+    return nullptr;
+  }
+  Dbz3TemporalInputs& temporal = dbz3_temporal_[mailbox_index];
+  auto fits = [&](const Microsoft::WRL::ComPtr<ID3D12Resource>& resource) {
+    if (!resource) {
+      return false;
+    }
+    D3D12_RESOURCE_DESC desc = resource->GetDesc();
+    return desc.Width == width && desc.Height == height;
+  };
+  if (fits(temporal.depth) && fits(temporal.motion) && fits(temporal.reactive)) {
+    return &temporal;
+  }
+  if (temporal.depth) {
+    dbz3_temporal_retired_.emplace_back(dbz3_temporal_refresh_count_, temporal.depth);
+    temporal.depth.Reset();
+  }
+  if (temporal.motion) {
+    dbz3_temporal_retired_.emplace_back(dbz3_temporal_refresh_count_, temporal.motion);
+    temporal.motion.Reset();
+  }
+  if (temporal.reactive) {
+    dbz3_temporal_retired_.emplace_back(dbz3_temporal_refresh_count_, temporal.reactive);
+    temporal.reactive.Reset();
+  }
+  ID3D12Device* device = provider_.GetDevice();
+  D3D12_RESOURCE_DESC desc = {};
+  desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  desc.Width = width;
+  desc.Height = height;
+  desc.DepthOrArraySize = 1;
+  desc.MipLevels = 1;
+  desc.SampleDesc.Count = 1;
+  desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+  desc.Format = kDbz3DepthFormat;
+  bool ok = SUCCEEDED(device->CreateCommittedResource(
+      &util::kHeapPropertiesDefault, provider_.GetHeapFlagCreateNotZeroed(), &desc,
+      kDbz3TemporalState, nullptr, IID_PPV_ARGS(&temporal.depth)));
+  desc.Format = kDbz3MotionFormat;
+  ok = ok && SUCCEEDED(device->CreateCommittedResource(
+                 &util::kHeapPropertiesDefault, provider_.GetHeapFlagCreateNotZeroed(), &desc,
+                 kDbz3TemporalState, nullptr, IID_PPV_ARGS(&temporal.motion)));
+  desc.Format = kDbz3ReactiveFormat;
+  ok = ok && SUCCEEDED(device->CreateCommittedResource(
+                 &util::kHeapPropertiesDefault, provider_.GetHeapFlagCreateNotZeroed(), &desc,
+                 kDbz3TemporalState, nullptr, IID_PPV_ARGS(&temporal.reactive)));
+  if (!ok) {
+    REXLOG_ERROR("D3D12Presenter: failed to create {}x{} temporal inputs", width, height);
+    temporal.depth.Reset();
+    temporal.motion.Reset();
+    temporal.reactive.Reset();
+    return nullptr;
+  }
+  return &temporal;
+}
+
 bool D3D12Presenter::RefreshGuestOutputImpl(
     uint32_t mailbox_index, uint32_t frontbuffer_width, uint32_t frontbuffer_height,
     std::function<bool(GuestOutputRefreshContext& context)> refresher, bool& is_8bpc_out_ref) {
@@ -553,7 +856,16 @@ bool D3D12Presenter::RefreshGuestOutputImpl(
       return false;
     }
   }
-  D3D12GuestOutputRefreshContext context(is_8bpc_out_ref, guest_output_resource_ref.second.Get());
+  dbz3_temporal_[mailbox_index].valid = false;
+  ++dbz3_temporal_refresh_count_;
+  // Textures retired on a size change: a paint uses a guest output for a few
+  // frames at most.
+  while (!dbz3_temporal_retired_.empty() &&
+         dbz3_temporal_retired_.front().first + 16 < dbz3_temporal_refresh_count_) {
+    dbz3_temporal_retired_.erase(dbz3_temporal_retired_.begin());
+  }
+  D3D12GuestOutputRefreshContext context(is_8bpc_out_ref, guest_output_resource_ref.second.Get(),
+                                         this, mailbox_index);
   bool refresher_succeeded = refresher(context);
   // Even if the refresher has returned false, it still might have submitted
   // some commands referencing the resource. It's better to put an excessive
@@ -671,12 +983,14 @@ Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawe
   GuestOutputProperties guest_output_properties;
   GuestOutputPaintConfig guest_output_paint_config;
   Microsoft::WRL::ComPtr<ID3D12Resource> guest_output_resource;
+  Dbz3TemporalInputs paint_temporal;
   {
     uint32_t guest_output_mailbox_index;
     std::unique_lock<std::mutex> guest_output_consumer_lock(ConsumeGuestOutput(
         guest_output_mailbox_index, &guest_output_properties, &guest_output_paint_config));
     if (guest_output_mailbox_index != UINT32_MAX) {
       guest_output_resource = guest_output_resources_[guest_output_mailbox_index].second;
+      paint_temporal = dbz3_temporal_[guest_output_mailbox_index];
     }
     // Incremented the reference count of the guest output resource - safe to
     // leave the consumer critical section now as everything here either will be
@@ -959,7 +1273,8 @@ Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawe
           temporal_dispatch_done = DispatchTemporalUpscaler(
               command_list, effect_source_resource, effect_input_width, effect_input_height,
               effect_dest_resource, guest_output_flow.effect_output_sizes[i].first,
-              guest_output_flow.effect_output_sizes[i].second, guest_output_paint_config);
+              guest_output_flow.effect_output_sizes[i].second, guest_output_paint_config,
+              i ? nullptr : &paint_temporal);
           std::swap(barrier_source.Transition.StateBefore, barrier_source.Transition.StateAfter);
           command_list->ResourceBarrier(1, &barrier_source);
           // The upscaler binds its own descriptor heap; the following effects
@@ -1227,6 +1542,46 @@ Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawe
     ExecuteUIDrawersFromUIThread(ui_draw_context);
   }
 
+  // dbz3 dev: "dbz3_shot.req" in the working directory saves the next painted
+  // frame (after the upscaler) as dbz3_shot.bmp. Automated tests use it because
+  // PrintWindow returns black for the D3D12 window while it's in the background.
+  Microsoft::WRL::ComPtr<ID3D12Resource> dbz3_shot_buffer;
+  D3D12_PLACED_SUBRESOURCE_FOOTPRINT dbz3_shot_footprint = {};
+  {
+    static uint32_t dbz3_shot_poll = 0;
+    std::error_code ec;
+    if (++dbz3_shot_poll % 30 == 0 && std::filesystem::exists("dbz3_shot.req", ec)) {
+      std::filesystem::remove("dbz3_shot.req", ec);
+      ID3D12Device* device = provider_.GetDevice();
+      D3D12_RESOURCE_DESC back_desc = back_buffer->GetDesc();
+      UINT64 size = 0;
+      device->GetCopyableFootprints(&back_desc, 0, 1, 0, &dbz3_shot_footprint, nullptr, nullptr,
+                                    &size);
+      D3D12_RESOURCE_DESC buffer_desc;
+      util::FillBufferResourceDesc(buffer_desc, size, D3D12_RESOURCE_FLAG_NONE);
+      if (SUCCEEDED(device->CreateCommittedResource(
+              &util::kHeapPropertiesReadback, D3D12_HEAP_FLAG_NONE, &buffer_desc,
+              D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&dbz3_shot_buffer)))) {
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = back_buffer;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        command_list->ResourceBarrier(1, &barrier);
+        D3D12_TEXTURE_COPY_LOCATION dest = {}, source = {};
+        dest.pResource = dbz3_shot_buffer.Get();
+        dest.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dest.PlacedFootprint = dbz3_shot_footprint;
+        source.pResource = back_buffer;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        command_list->CopyTextureRegion(&dest, 0, 0, 0, &source, nullptr);
+        std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+        command_list->ResourceBarrier(1, &barrier);
+      }
+    }
+  }
+
   // End drawing to the back buffer.
   D3D12_RESOURCE_BARRIER barrier_rtv_to_present;
   barrier_rtv_to_present.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -1244,7 +1599,47 @@ Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawe
   if (execute_ui_drawers) {
     ui_submission_tracker_.NextSubmission();
   }
-  paint_context_.paint_submission_tracker.NextSubmission();
+  if (dbz3_shot_buffer) {
+    // A one-off dev capture: waiting here for the GPU is fine.
+    UINT64 shot_submission = paint_context_.paint_submission_tracker.GetCurrentSubmission();
+    paint_context_.paint_submission_tracker.NextSubmission();
+    paint_context_.paint_submission_tracker.AwaitSubmissionCompletion(shot_submission);
+    void* mapping = nullptr;
+    D3D12_RANGE read_range = {0, SIZE_T(dbz3_shot_footprint.Footprint.RowPitch) *
+                                     dbz3_shot_footprint.Footprint.Height};
+    if (SUCCEEDED(dbz3_shot_buffer->Map(0, &read_range, &mapping))) {
+      // 32-bit top-down BMP; the swap chain is B8G8R8A8 like BMP.
+      uint32_t w = dbz3_shot_footprint.Footprint.Width, h = dbz3_shot_footprint.Footprint.Height;
+      uint32_t image_size = w * h * 4;
+      uint8_t header[54] = {'B', 'M'};
+      auto put32 = [&header](size_t offset, uint32_t value) {
+        std::memcpy(header + offset, &value, sizeof(value));
+      };
+      put32(2, 54 + image_size);
+      put32(10, 54);
+      put32(14, 40);
+      put32(18, w);
+      put32(22, uint32_t(-int32_t(h)));
+      header[26] = 1;
+      header[28] = 32;
+      put32(34, image_size);
+      if (FILE* file = std::fopen("dbz3_shot.bmp.tmp", "wb")) {
+        std::fwrite(header, 1, sizeof(header), file);
+        for (uint32_t y = 0; y < h; ++y) {
+          std::fwrite(static_cast<const uint8_t*>(mapping) +
+                          size_t(y) * dbz3_shot_footprint.Footprint.RowPitch,
+                      1, size_t(w) * 4, file);
+        }
+        std::fclose(file);
+        std::error_code ec;
+        std::filesystem::rename("dbz3_shot.bmp.tmp", "dbz3_shot.bmp", ec);
+      }
+      D3D12_RANGE written_range = {};
+      dbz3_shot_buffer->Unmap(0, &written_range);
+    }
+  } else {
+    paint_context_.paint_submission_tracker.NextSubmission();
+  }
   // Present as soon as possible, without waiting for vsync (the host refresh
   // rate may be something like 144 Hz, which is not a multiple of the common
   // 30 Hz or 60 Hz guest refresh rate), and allowing dropping outdated queued

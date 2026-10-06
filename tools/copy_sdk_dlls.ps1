@@ -41,6 +41,14 @@ foreach ($dll in @("rexgpu-xenos.dll", "rexruntime.dll", "amd_fidelityfx_dx12.dl
   Write-Output ("{0}: {1} bytes{2}" -f $dll, $after, $flag)
 }
 
+# 1.4.2: DLSS (present_effect=dlss) carga nvngx_dlss.dll de NVIDIA junto al exe.
+# El SDK no va en el repo (D:\SDKs\DLSS); sin la DLL el juego cae a FSR 3.
+$ngx = "D:\SDKs\DLSS\lib\Windows_x86_64\rel\nvngx_dlss.dll"
+if (Test-Path -LiteralPath $ngx) {
+  Copy-Item -LiteralPath $ngx -Destination (Join-Path $dst "nvngx_dlss.dll") -Force
+  Write-Output ("nvngx_dlss.dll: {0} bytes (NVIDIA DLSS SDK)" -f (Get-Item -LiteralPath $ngx).Length)
+}
+
 # Marca de coherencia: el sello de version del runtime tiene que estar dentro.
 $markers = @{ "rexruntime.dll" = "Build de rexruntime"; "rexgpu-xenos.dll" = "Build de rexgpu" }
 foreach ($dll in $markers.Keys) {

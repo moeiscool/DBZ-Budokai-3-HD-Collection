@@ -30,3 +30,6 @@ NOTAS
 ENGLISH (short): copy "mods" next to dbz3.exe (v1.4.0+, game data as a folder), open
 dbz3.exe, check the "New characters" tab and press PLAY. To remove one, untick it under
 "Installed". Saves are never touched.
+
+CREDITOS / CREDITS: modelos de Guldo, Jeice, Burter, Zarbon (normal y monstruo),
+Dodoria y Androide 19 por @ArielPVB. Models by @ArielPVB.

@@ -11,7 +11,9 @@ Como funcionan en el juego (RE 2026-10-04, ver docs/03_formatos/CAPSULAS_B3.md):
     +0  u64 duenos: bit k = ID de personaje k (0..63; los objetos comunes = bits 0..43)
     +8  u8 clase (0x11 transformacion/habilidad, 0x21 ataque, 0x17 fusion/despertar...)
     +10 u8 rareza (nibble alto 0..3) | +14 u8 mascara de formas | +15 u8 coste
-    +16 u32 capsula requerida (p.ej. SSJ2 pide SSJ)  | +20.. efecto | +38 u16 precio/100
+    +16 u16 capsula requerida (p.ej. SSJ2 pide SSJ; +18 = 0) | +20.. efecto | +38 u16 precio/100
+  Transformaciones: +14 = formas desde las que se puede usar (SSJ 0x01, SSJ2 0x03...) y
+  +15 = ki EXIGIDO en decimas de barra (40 = 4 barras; no se gasta).
 * Lista por defecto ("Original") de cada personaje: char96 +80 (u16 n) +82 (7 x u16 IDs).
 * Transformaciones: char372 +212 + 20*forma, +4 u16 = capsula que exige esa forma.
 * Ataques: el bloque del #CCM (BCM) de cada golpe lleva la capsula en w8 (u16 en +16).
@@ -60,7 +62,8 @@ def make_record(template, owner_ids, requires=0):
     for i in owner_ids:
         mask |= 1 << i
     struct.pack_into(">Q", r, 0, mask)
-    struct.pack_into(">I", r, 16, requires)
+    # capsula exigida: u16 en +16 y +18 = 0, como las nativas (SSJ2 de Gohan: 0x0017 0000)
+    struct.pack_into(">HH", r, 16, requires, 0)
     r[28:36] = bytes(8)          # sin "se convierte en" (X10 Kamehameha, etc.)
     return bytes(r)
 
@@ -232,6 +235,107 @@ def remap_caps(ccm, mapping):
             setw(ccm, o, 8, mapping[cap])
             n += 1
     return n
+
+
+def ccm_parse(ccm):
+    """#CCM -> (starters [offset], {offset: [bloque 64 B, [offsets hijos]]})."""
+    n = struct.unpack(">H", ccm[0x1E:0x20])[0]
+    starters = [struct.unpack_from(">I", ccm, 0x50 + 4 * k)[0] for k in range(n)]
+    blocks = {}
+    todo = list(starters)
+    while todo:
+        o = todo.pop()
+        if o in blocks or not (0x50 <= o <= len(ccm) - 0x40):
+            continue
+        nb = min(w(ccm, o, 7), 64)
+        kids = [struct.unpack_from(">I", ccm, o + 0x40 + 4 * k)[0] for k in range(nb)]
+        blocks[o] = [bytearray(ccm[o:o + 0x40]), kids]
+        todo += kids
+    return starters, blocks
+
+
+def ccm_build(head, starters, nodes):
+    """#CCM nuevo (como los nativos: +4 = bloques + 1, sin relleno). nodes = {clave: [bloque
+    64 B, [claves hijas]]}, starters = [claves]; los bloques sueltos se descartan."""
+    order, seen = [], set()
+
+    def visit(k):
+        if k in seen:
+            return
+        seen.add(k)
+        order.append(k)
+        for ch in nodes[k][1]:
+            visit(ch)
+    for s in starters:
+        visit(s)
+    at, pos = {}, 0x50 + 4 * len(starters)
+    for k in order:
+        at[k] = pos
+        pos += 0x40 + 4 * len(nodes[k][1])
+    out = bytearray(head[:0x50])
+    struct.pack_into(">I", out, 0x04, len(order) + 1)
+    struct.pack_into(">H", out, 0x1E, len(starters))
+    for s in starters:
+        out += struct.pack(">I", at[s])
+    for k in order:
+        blk = bytearray(nodes[k][0])
+        setw(blk, 0, 7, len(nodes[k][1]))
+        out += blk
+        for ch in nodes[k][1]:
+            out += struct.pack(">I", at[ch])
+    return bytes(out)
+
+
+TRANSFORM_CODES = (0x2E0, 0x3E0)      # animaciones de la transformacion de B3 (suelo, aire)
+
+
+def is_transform_entry(blk):
+    """Entrada de transformarse: la de B3 (P+K+G, condicion 0x0004) o la de Shin Budokai
+    (abajo+E: w0 0x20 con condicion 0x0020 o codigo 0x500..0x517, coste 4000)."""
+    w0, w1, cond, code = (w(blk, 0, i) for i in (0, 1, COND, 12))
+    if w1 == 0x0007 and cond & 0x0004:
+        return True
+    return bool(w0 & 0x30) and bool(cond & 0x0020 or 0x500 <= code <= 0x517)
+
+
+def has_transform(cam):
+    """El bin de camara tiene la entrada P+K+G de transformarse de B3."""
+    at = ccm_child(cam)
+    if not at:
+        return False
+    ccm = cam[at[0]:at[0] + at[1]]
+    st, bl = ccm_parse(ccm)
+    return any(w(bl[o][0], 0, 1) == 0x0007 and is_transform_entry(bl[o][0]) for o in st if o in bl)
+
+
+def add_b3_transform(ccm, donor_ccm):
+    """Pone en el #CCM la entrada P+K+G del donante (transformarse sin gastar ki: el requisito
+    lo pone la capsula) en lugar de las que haya de transformarse (la de Shin Budokai gastaba
+    4 barras sin cambiar de forma). Va delante del modo hiper, como en los nativos.
+    -> (#CCM nuevo, informe)."""
+    st, bl = ccm_parse(ccm)
+    dst, dbl = ccm_parse(donor_ccm)
+    src = [o for o in dst if o in dbl and w(dbl[o][0], 0, 1) == 0x0007 and is_transform_entry(dbl[o][0])]
+    if not src:
+        raise ValueError("el donante no tiene entrada de transformacion (P+K+G)")
+    nodes = {("p", o): [blk, [("p", k) for k in kids]] for o, (blk, kids) in bl.items()}
+
+    def copy(o):
+        if ("d", o) not in nodes:
+            nodes[("d", o)] = [bytearray(dbl[o][0]), []]
+            nodes[("d", o)][1] = [copy(k) for k in dbl[o][1]]
+        return ("d", o)
+    st = [o for o in st if o in bl]
+    old = [o for o in st if is_transform_entry(bl[o][0])]
+    starters = [("p", o) for o in st if o not in old]
+    hyp = next((i for i, k in enumerate(starters) if w(nodes[k][0], 0, COND) & 0x0400), len(starters))
+    starters.insert(hyp, copy(src[0]))
+    rep = ["entrada P+K+G del donante (codigos %s)" % "/".join(
+        "%#x" % w(dbl[src[0]][0], 0, i) for i in (12, 13))]
+    for o in old:
+        rep.append("quitada la entrada de transformarse del moveset (w0 %#x, botones %#x, ki %d, "
+                   "codigo %#x)" % tuple(w(bl[o][0], 0, i) for i in (0, 1, 9, 12)))
+    return ccm_build(ccm, starters, nodes), rep
 
 
 # ---------------------------------------------------------------- nombres (#AZT)
@@ -449,20 +553,55 @@ def csk_child(amb):
     return None
 
 
+def csk_hr_block(csk, code):
+    """Bloque HR (8 lineas x 16 B) `code` del #CSK (cabecera +0x18 n, +0x1C offset)."""
+    nhr, ho = struct.unpack(">II", csk[0x18:0x20])
+    return bytes(csk[ho + 128 * code:ho + 128 * (code + 1)]) if code < nhr else None
+
+
+def csk_hr_add(out, blk):
+    """Codigo HR de `blk` en el #CSK `out` (bytearray, se modifica): uno identico si ya esta;
+    si no, se anade al final de la tabla (si la tabla no es lo ultimo del #CSK, se copia
+    al final: los golpes la indexan por codigo, no por offset)."""
+    nhr, ho = struct.unpack(">II", out[0x18:0x20])
+    for c in range(nhr):
+        if out[ho + 128 * c:ho + 128 * (c + 1)] == blk:
+            return c
+    if ho + 128 * nhr != len(out):
+        out += bytes((-len(out)) % 0x10)
+        table = bytes(out[ho:ho + 128 * nhr])
+        ho = len(out)
+        out += table
+    out += blk
+    struct.pack_into(">II", out, 0x18, nhr + 1, ho)
+    return nhr
+
+
 def csk_graft(dst, dst_code, src, src_code):
     """Copia el bloque de ataque src_code de otro #CSK (con sus AP) al final de dst y lo
-    enlaza en dst_code. Devuelve el #CSK nuevo."""
+    enlaza en dst_code. Los golpes (AP tipo 1, codigo HR en +4) se llevan su bloque HR
+    (p.ej. el empujon de la transformacion: cada personaje lo tiene en otro codigo).
+    Devuelve el #CSK nuevo."""
     n, lst = struct.unpack(">II", src[0x10:0x18])
     so = struct.unpack(">I", src[lst + 4 * src_code:lst + 4 * src_code + 4])[0]
     blk = bytearray(src[so:so + 48])
     nap, apo = struct.unpack(">II", blk[0x28:0x30])
     aps = [struct.unpack(">HHI", src[apo + 8 * a:apo + 8 * a + 8]) for a in range(nap)]
     out = bytearray(dst)
+    lines = []
+    for t, nl, do in aps:
+        data = bytearray(src[do:do + 16 * nl])
+        for i in range(nl if t == 1 else 0):
+            hr = struct.unpack_from(">I", data, 16 * i + 4)[0]
+            hb = csk_hr_block(src, hr) if hr != 0xFFFFFFFF else None
+            if hb is not None:
+                struct.pack_into(">I", data, 16 * i + 4, csk_hr_add(out, hb))
+        lines.append((t, nl, data))
     out += bytes((-len(out)) % 0x10)
     new_lines = []
-    for t, nl, do in aps:
+    for t, nl, data in lines:
         new_lines.append((t, nl, len(out)))
-        out += src[do:do + 16 * nl]
+        out += data
     out += bytes((-len(out)) % 0x10)
     new_apo = len(out)
     for t, nl, do in new_lines:
@@ -534,3 +673,67 @@ def build_scm(imgs, rows):
 
 def ki_text(n):
     return "%d Ki gauge%s consumed" % (n, "" if n == 1 else "s")
+
+
+# ---------------------------------------------------------------- autocomprobacion
+def _selftest():
+    """python capsulas.py: P+K+G del donante en un #CCM y golpe injertado con su bloque HR."""
+    def blk(*ws):
+        b = bytearray(0x40)
+        for i, v in enumerate(ws):
+            setw(b, 0, i, v)
+        return b
+    head = bytearray(b"#CCM" + bytes(0x4C))
+    normal = blk(0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0x200, 0x300)
+    child = blk(0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0x201, 0x301)
+    sb = blk(0x20, 8, 0, 0, 0, 0x20, 0x101, 0, 0, 4000, 0, 0, 0x500, 0x700)
+    hyper = blk(0, 0xF, 0, 0, 0, 0x400, 1, 0, 0, 0, 0, 0, 0x259, 0x359)
+    trans = blk(0, 7, 0, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0x2E0, 0x3E0, 0x3E0)
+    ccm = ccm_build(head, ["n", "s", "h"], {"n": [normal, ["c"]], "c": [child, []], "s": [sb, []], "h": [hyper, []]})
+    donor = ccm_build(head, ["t"], {"t": [trans, []]})
+    new, rep = add_b3_transform(ccm, donor)
+    st, bl = ccm_parse(new)
+    assert [w(bl[o][0], 0, 1) for o in st] == [1, 7, 0xF], rep        # SB fuera, P+K+G antes del hiper
+    assert struct.unpack(">I", new[4:8])[0] == len(bl) + 1 == 5
+    assert ccm_build(new, st, {o: [b, k] for o, (b, k) in bl.items()}) == new
+    assert has_transform(b"#AMB" + bytes(12) + struct.pack(">II", 1, 0x20) + bytes(8)
+                         + struct.pack(">II", 0x30, len(new)) + bytes(8) + new)
+
+    def csk(n_codes, blocks, hrs, hr_last=True):
+        """#CSK minimo: lista de codigos, bloques {codigo: [(tipo AP, [lineas 16 B])]} y HR."""
+        out = bytearray(b"#CSK" + bytes(0x1C))
+        lst = len(out)
+        out += bytes(4 * n_codes)
+        for code, aps in blocks.items():
+            lines = []
+            for t, ls in aps:
+                lines.append((t, len(ls), len(out)))
+                out += b"".join(ls)
+            apo = len(out)
+            for t, nl, do in lines:
+                out += struct.pack(">HHI", t, nl, do)
+            struct.pack_into(">I", out, lst + 4 * code, len(out))
+            out += bytes(0x28) + struct.pack(">II", len(lines), apo)
+        if not hr_last:
+            out += bytes(16)                                           # algo detras de la tabla
+        ho = len(out) - (0 if hr_last else 16)
+        out[ho:ho] = b"".join(hrs)
+        struct.pack_into(">IIII", out, 0x10, n_codes, lst, len(hrs), ho)
+        return bytes(out)
+    hit = struct.pack(">HHIII", 4, 1, 1, 0xE00012, 0x50000000)        # golpe -> HR 1
+    src = csk(0x400, {0x2E0: [(1, [hit]), (7, [bytes(16)])]}, [bytes(128), b"\x07" * 128])
+    dst = csk(0x400, {}, [b"\x01" * 128], hr_last=False)
+    out = csk_graft(dst, 0x2E0, src, 0x2E0)
+    out = csk_graft(out, 0x3E0, src, 0x2E0)                            # el HR igual no se repite
+    assert struct.unpack(">I", out[0x18:0x1C])[0] == 2
+    for code in (0x2E0, 0x3E0):
+        bo = struct.unpack(">I", out[0x20 + 4 * code:0x24 + 4 * code])[0]
+        nap, apo = struct.unpack(">II", out[bo + 0x28:bo + 0x30])
+        t, nl, do = struct.unpack(">HHI", out[apo:apo + 8])
+        assert (nap, t) == (2, 1) and csk_hr_block(out, struct.unpack(">I", out[do + 4:do + 8])[0]) == b"\x07" * 128
+    assert csk_hr_block(out, 0) == b"\x01" * 128
+    print("capsulas.py: autocomprobacion OK")
+
+
+if __name__ == "__main__":
+    _selftest()

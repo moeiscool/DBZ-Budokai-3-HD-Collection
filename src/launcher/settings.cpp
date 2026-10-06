@@ -166,6 +166,12 @@ REXCVAR_DEFINE_STRING(dbz3_fxaa, "none", "DBZ3/Video",
     .allowed({"none", "fxaa", "fxaa_extreme"})
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+// "Brillo HD" (rim light) on character models: 0 = off, 1 = original (SDK
+// dbz3_rim_light_scale, scales the model shaders' rim strength constant).
+REXCVAR_DEFINE_DOUBLE(dbz3_hd_rim_light, 1.0, "DBZ3/Video",
+                      "HD rim light on character models (0 = off, 1 = original)")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 // Dithering of the final image (SDK present_dither).
 REXCVAR_DEFINE_BOOL(dbz3_present_dither, false, "DBZ3/Video",
                     "Dither the final image (smoother gradients)")
@@ -1698,6 +1704,8 @@ void SetCasSharpness(double sharpness) { REXCVAR_SET(dbz3_cas_sharpness, sharpne
 std::string Fxaa() { return REXCVAR_GET(dbz3_fxaa); }
 void SetFxaa(const std::string& mode) { REXCVAR_SET(dbz3_fxaa, mode); }
 
+double HdRimLight() { return REXCVAR_GET(dbz3_hd_rim_light); }
+void SetHdRimLight(double strength) { REXCVAR_SET(dbz3_hd_rim_light, std::clamp(strength, 0.0, 1.0)); }
 bool PresentDither() { return REXCVAR_GET(dbz3_present_dither); }
 void SetPresentDither(bool enabled) { REXCVAR_SET(dbz3_present_dither, enabled); }
 
@@ -2258,6 +2266,7 @@ void ApplyRuntimeSettingsToSdk(bool for_game) {
   // so FXAA composes with FSR/CAS.
   SetSdkString("swap_post_effect", REXCVAR_GET(dbz3_fxaa));
   SetSdkBool("present_dither", REXCVAR_GET(dbz3_present_dither));
+  SetSdkDouble("dbz3_rim_light_scale", HdRimLight());
   SetSdkBool("async_shader_compilation", REXCVAR_GET(dbz3_async_shaders));
   SetSdkBool("occlusion_query_enable", REXCVAR_GET(dbz3_occlusion_queries));
   // Real audio controls. `audio_gain` is the output gain the SDL callback

@@ -58,8 +58,9 @@ REXCVAR_DEFINE_INT32(frame_cap, 0, "UI/Presenter",
 // (TextureCache::GetConfigDrawResolutionScale) - live on D3D12.
 #if defined(REX_HAS_FIDELITYFX_SDK)
 REXCVAR_DEFINE_STRING(present_effect, "bilinear", "UI/Presenter",
-                      "Guest output effect: bilinear, cas, fsr, fsr2, fsr3")
-    .allowed({"bilinear", "cas", "fsr", "fsr2", "fsr3"});
+                      "Guest output effect: bilinear, cas, fsr, fsr2, fsr3, dlss (NVIDIA RTX, falls back "
+                      "to fsr3)")
+    .allowed({"bilinear", "cas", "fsr", "fsr2", "fsr3", "dlss"});
 
 REXCVAR_DEFINE_DOUBLE(present_cas_additional_sharpness,
                       rex::ui::Presenter::GuestOutputPaintConfig::kCasAdditionalSharpnessDefault,
@@ -80,7 +81,7 @@ REXCVAR_DEFINE_DOUBLE(present_fsr_sharpness_reduction,
 
 REXCVAR_DEFINE_STRING(
     present_fsr_quality_mode, "auto", "UI/Presenter",
-    "Render resolution for fsr/fsr2/fsr3 (like a PC game): auto/nativeaa render at "
+    "Render resolution for fsr/fsr2/fsr3/dlss (like a PC game): auto/nativeaa render at "
     "draw_resolution_scale, quality/balanced/performance/ultra_performance render below it and "
     "upscale. Only whole scales exist: at 3x, quality/balanced/performance = 2x, "
     "ultra_performance = 1x")
@@ -113,7 +114,8 @@ GuestOutputPaintConfig::Effect ParsePresentEffect(const std::string& effect_name
   if (lowered == "fsr2") {
     return GuestOutputPaintConfig::Effect::kFsr2;
   }
-  if (lowered == "fsr3") {
+  // dbz3: dlss takes the fsr3 path; the D3D12 presenter swaps the upscaler.
+  if (lowered == "fsr3" || lowered == "dlss") {
     return GuestOutputPaintConfig::Effect::kFsr3;
   }
 #endif

@@ -104,10 +104,10 @@ SOURCE_NOTES = {
            "Community models (.amb / .amo + .amt) from 'modding resources'."),
     "iw": ("Modelo, voces y gritos de Infinite World; golpes del donante o del port de la comunidad.",
            "Infinite World model, voices and yells; moves from the donor or the community port."),
-    "sdbh": ("Juego de PC con otro motor: el conversor todavía no está listo.",
-             "PC game with another engine: the converter is not ready yet."),
-    "psp": ("Los modelos de PSP usan otro formato: el conversor todavía no está listo.",
-            "PSP models use another format: the converter is not ready yet."),
+    "sdbh": ("Modelos HD de Heroes (boca, 7 caras, rampas); golpes de Shin Budokai o del donante.",
+             "HD models from Heroes (mouth, 7 faces, ramps); Shin Budokai or donor moves."),
+    "psp": ("Modelos de PSP con sus formas; golpes, combos y cámara de Shin Budokai (o del donante).",
+            "PSP models with their forms; Shin Budokai moves, combos and camera (or the donor's)."),
 }
 
 
@@ -658,14 +658,25 @@ CURATED = {
                       "Exports an HD #AWO/#AMB to OBJ (world space).", {}),
     "obj_to_awg_hd.py": ("modelos", "Conversor universal OBJ → bin HD de B3.", "Universal OBJ → B3 HD bin converter.",
                          {}),
-    "psp_amo.py": ("modelos", "Modelo de Shin Budokai (PSP) → bin HD (en desarrollo).",
-                   "Shin Budokai (PSP) model → HD bin (in development).", {}),
+    "psp_amo.py": ("modelos", "Modelo de Shin Budokai (PSP) → bin HD (lo usa el importador).",
+                   "Shin Budokai (PSP) model → HD bin (used by the importer).", {}),
+    "sdbh_model.py": ("modelos", "Modelo de Super Dragon Ball Heroes World Mission (PC) → bin HD de B3.",
+                      "Super Dragon Ball Heroes World Mission (PC) model → B3 HD bin.", {}),
+    "sbport.py": ("moveset", "Moveset de Shin Budokai 1/2 → moveset de B3 (golpes, combos, cámara; lo usa "
+                  "el importador).", "Shin Budokai 1/2 moveset → B3 moveset (hits, combos, camera; used by "
+                  "the importer).", {}),
+    "sb_tecnicas.py": ("moveset", "Técnicas de Shin Budokai (efectos BSP, nombres oficiales) → B3.",
+                       "Shin Budokai techniques (BSP effects, official names) → B3.", {}),
+    "studio_gui.py": ("moveset", "Studio: editor de cámaras de técnicas (ventana propia).",
+                      "Studio: technique camera editor (own window).", {"mods": "mods"}),
+    "studio_core.py": ("moveset", "Núcleo del Studio: cámaras #ACC, guion #SPX, glTF y autocomprobación.",
+                       "Studio core: #ACC cameras, #SPX script, glTF and self-check.", {}),
     "port_b1_to_b3.py": ("modelos", "Port B1 HD → B3 HD (bloqueado por tamaño, ver su ayuda).",
                          "B1 HD → B3 HD port (blocked by size, see its help).", {}),
     "b1port.py": ("moveset", "Moveset de Budokai 1 → moveset de Budokai 3 (lo usa el importador).",
                   "Budokai 1 moveset → Budokai 3 moveset (used by the importer).", {}),
-    "sb_amm.py": ("moveset", "Animaciones de Shin Budokai (PSP) → #AMM de B3 (en desarrollo).",
-                  "Shin Budokai (PSP) animations → B3 #AMM (in development).", {}),
+    "sb_amm.py": ("moveset", "Animaciones de Shin Budokai (PSP) → #AMM de B3 (lo usa sbport.py).",
+                  "Shin Budokai (PSP) animations → B3 #AMM (used by sbport.py).", {}),
     "csk_edit.py": ("moveset", "Edita el daño de una habilidad en el #CSK HD.",
                     "Edits a skill's damage in the HD #CSK.", {}),
     "csk_chain.py": ("moveset", "Recorre la cadena #CSK (attack code → HR).", "Walks the #CSK chain (attack code → HR).",
@@ -985,7 +996,7 @@ def inspect_tool(path):
 
 def scan_tools():
     out = []
-    for d in (HERE, os.path.join(HERE, "ports"), AWO):
+    for d in (HERE, os.path.join(HERE, "studio"), os.path.join(HERE, "ports"), AWO):
         if not os.path.isdir(d):
             continue
         for fn in sorted(os.listdir(d), key=str.lower):
@@ -1310,7 +1321,7 @@ ICONS = {  # (Segoe MDL2 / Fluent, alternativa)
     "setup": ("\uE9D9", "⚙"), "mods": ("\uE8F1", "▤"), "importer": ("\uE896", "⇩"),
     "characters": ("\uE716", "☺"), "create": ("\uE8FA", "✚"), "textures": ("\uE790", "✎"),
     "swap": ("\uE8AB", "⇄"), "help": ("\uE897", "?"), "tools": ("\uE90F", "⚒"), "home": ("\uE80F", "⌂"),
-    "diag": ("\uE9D2", "♥"),
+    "diag": ("\uE9D2", "♥"), "studio": ("\uE714", "◉"),
 }
 
 
@@ -1837,6 +1848,9 @@ PAGE_DEFS = [
      "Export a character's textures to PNG, edit them and rebuild."),
     ("swap", "Cambio de modelo", "Model swap",
      "Pon el modelo de un personaje en el sitio de otro.", "Put one character's model in another's slot."),
+    ("studio", "Studio de cámaras", "Camera Studio",
+     "Rehaz las cámaras de las técnicas: línea de tiempo, plantillas, vista previa y Blender.",
+     "Redo technique cameras: timeline, templates, preview and Blender."),
     ("diag", "Diagnóstico", "Diagnostics",
      "¿Va lento o se cierra? Analiza el registro del juego y te dice qué hacer.",
      "Slow or crashing? Analyse the game log and get what to do."),
@@ -2169,6 +2183,7 @@ TYPE_NAMES = {
     "personaje": ("Personaje nuevo", "New character"), "traje": ("Traje extra", "Extra costume"),
     "generado": ("Generado (no tocar)", "Generated (do not edit)"), "texturas": ("Texturas", "Textures"),
     "data": ("Datos / modelo", "Data / model"), "audio": ("Audio", "Audio"), "other": ("Otro", "Other"),
+    "studio": ("Cámaras (Studio)", "Cameras (Studio)"),
 }
 
 
@@ -2459,8 +2474,9 @@ class TomlFormDialog(tk.Toplevel):
     """Formulario para personaje.toml / traje.toml (las claves sencillas; el resto se conserva)."""
 
     FIELDS_P = [("nombre", "str"), ("donante", "donor"), ("id", "slot"), ("despues_de", "after"),
-                ("formas", "int"), ("voces", "str"), ("gritos", "str"), ("icono_fuente", "src"),
-                ("retrato_fuente", "src")]
+                ("formas", "int"), ("modelos_por_traje", "int"), ("modelo_forma", "raw"), ("ki_base", "raw"),
+                ("fisica", "fis"), ("transformacion", "str"), ("voces", "str"), ("gritos", "str"),
+                ("icono_fuente", "src"), ("retrato_fuente", "src")]
     FIELDS_T = [("personaje", "donor"), ("nombre", "str")]
 
     def __init__(self, app, path, on_save=None):
@@ -2486,6 +2502,14 @@ class TomlFormDialog(tk.Toplevel):
             "formas": T("número de formas (vacío = las del donante)", "number of forms (empty = the donor's)"),
             "despues_de": T("su casilla aparece tras este personaje", "its cell shows up after this character"),
             "id": T("plaza en la rueda (vacío = automática)", "wheel slot (empty = automatic)"),
+            "modelo_forma": T("modelo del traje por forma, p. ej. [0, 1, 2, 3]", "costume model per form, e.g. "
+                              "[0, 1, 2, 3]"),
+            "ki_base": T("barras a las que tiende cada forma, p. ej. [3, 4, 4, 5]", "bars each form drifts to, e.g. "
+                         "[3, 4, 4, 5]"),
+            "fisica": T("donante | ID de personaje (pelo y cinturón con física)", "donante | character ID (hair and "
+                        "belt physics)"),
+            "transformacion": T("donante = P+K+G del donante en su moveset propio", "donante = donor's P+K+G in "
+                                "its own moveset"),
         }
         fields = self.FIELDS_T if self.section == "traje" else self.FIELDS_P
         for r, (key, kind) in enumerate(fields):
@@ -2506,6 +2530,9 @@ class TomlFormDialog(tk.Toplevel):
                 w = ttk.Combobox(g, textvariable=var, values=["", "modelo", "imagen", "terminado"], state="readonly",
                                  width=40)
                 var.set(cur or "")
+            elif kind == "raw":
+                w = ttk.Entry(g, textvariable=var, width=44)
+                var.set("" if cur is None else str(list(cur) if isinstance(cur, (list, tuple)) else cur))
             else:
                 w = ttk.Entry(g, textvariable=var, width=44)
                 var.set("" if cur is None else str(cur))
@@ -2526,6 +2553,16 @@ class TomlFormDialog(tk.Toplevel):
             v = var.get().strip()
             if not v:
                 values[key] = None
+            elif kind == "raw":
+                try:
+                    if tomllib:
+                        tomllib.loads("x = " + v)
+                except Exception:  # noqa: BLE001
+                    self.msg.configure(text=T("Valor no válido en %s", "Invalid value in %s") % key, fg=C["err"])
+                    return
+                values[key] = v
+            elif kind == "fis":
+                values[key] = v if re.fullmatch(r"\d+", v) else toml_literal(v)
             elif kind in ("donor", "after", "slot", "int"):
                 m = re.search(r"ID (-?\d+)\)$", v) or re.match(r"(-?\d+)", v)
                 if not m:
@@ -2897,6 +2934,9 @@ class ImporterPage(Page):
                     % e["count"]
             elif e["kind"] == "trajes":
                 note = T("1 traje", "1 costume") if e["count"] == 1 else T("%d trajes", "%d costumes") % e["count"]
+            elif e["kind"] == "sb":
+                note = (T("1 modelo", "1 model") if e["count"] == 1 else T("%d formas", "%d forms") % e["count"]) + \
+                    T("  ·  golpes de Shin Budokai", "  ·  Shin Budokai moves")
             else:
                 note = T("1 modelo", "1 model") if e["count"] == 1 else T("%d formas", "%d forms") % e["count"]
             base = T("golpes propios (port de la comunidad)", "own moves (community port)") if e["port"] else (
@@ -3186,6 +3226,15 @@ class CharactersPage(Page):
         if self.adv:
             ttk.Button(top, text=T("Ajustes…", "Settings…"), style="Small.TButton",
                        command=lambda: TomlFormDialog(self.app, m["toml"], self.reload)).pack(side="right", padx=6)
+        sb = ttk.Button(top, text=icon("studio") + "  " + T("Cámaras (Studio)", "Cameras (Studio)"),
+                        style="Small.TButton", command=lambda: self.app.open_studio(m["name"]))
+        sb.pack(side="right", padx=(0, 6))
+        if not own:
+            sb.state(["disabled"])
+            Tooltip(sb, T("Usa las cámaras de su donante: para cámaras propias necesita su propio moveset "
+                          "(camara.bin). Las del donante se editan eligiéndolo en el Studio.",
+                          "It uses its donor's cameras: own cameras need its own moveset (camara.bin). Edit the "
+                          "donor's by picking it in the Studio."))
         pv = tk.Frame(c.body, bg=C["card"])
         pv.pack(fill="x", pady=(10, 4))
         for fn, mw, mh, cap in (("icono.png", 84, 84, T("Icono", "Icon")), ("rotulo.png", 200, 50, T("Rótulo",
@@ -3254,6 +3303,8 @@ class CharactersPage(Page):
         acb.grid(row=3, column=1, sticky="w", pady=4)
         acb.bind("<<ComboboxSelected>>", lambda _e: self.preview(
             m, ["--despues-de", str(donor_from_index(acb.current(), True)), "--guardar", "--solo", "icono"]))
+
+        self._forms_card(body, m, own)
 
         c3 = Card(body, T("Imágenes", "Images"), T(
             "El icono y los retratos se generan desde el modelo 3D con el estilo del juego. Puedes usar tu arte.",
@@ -3332,6 +3383,8 @@ class CharactersPage(Page):
                 t = kinds.get(cp.get("tipo", "especial"), cp.get("tipo", "?"))
                 if cp.get("tipo") == "transformacion":
                     t += T(" (forma %s)", " (form %s)") % cp.get("forma", 1)
+                    if cp.get("ki") is not None:
+                        t += T(", %s barras", ", %s bars") % cp["ki"]
                 ct.insert("", "end", iid=str(i), text="  %d. %s" % (i, cp.get("nombre", "?")), values=(t,))
             ct.pack(fill="x", pady=(8, 4))
             cb_ = tk.Frame(g, bg=C["card"])
@@ -3347,6 +3400,22 @@ class CharactersPage(Page):
                            m, ["--quitar", str(sel_idx())], T("¿Quitar la cápsula seleccionada?",
                                                               "Remove the selected capsule?"))).pack(side="left",
                                                                                                     padx=6)
+            kv = tk.StringVar(value="4")
+            label(cb_, "   " + T("Ki (barras):", "Ki (bars):"), bg=C["card"]).pack(side="left")
+            ttk.Spinbox(cb_, from_=0, to=7, width=3, textvariable=kv).pack(side="left", padx=4)
+
+            def set_ki():
+                i = sel_idx()
+                if i < 0 or caps[i].get("tipo") != "transformacion":
+                    self.set_status(self.ed_status, "warn", T("Elige una cápsula de transformación.",
+                                                              "Pick a transformation capsule."))
+                    return
+                self.caps(m, ["--ki", str(i), kv.get().strip() or "4"])
+            kb = ttk.Button(cb_, text=T("Fijar ki", "Set ki"), style="Small.TButton", command=set_ki)
+            kb.pack(side="left")
+            Tooltip(kb, T("Barras de ki que hay que TENER para transformarse (no se gastan). Sale en la ficha de "
+                          "la pausa y en Edit Skills.", "Ki bars you must HAVE to transform (they are not spent). "
+                          "Shown in the pause list and in Edit Skills."))
             if self.adv:
                 rn = tk.StringVar()
                 ttk.Entry(cb_, textvariable=rn, width=22).pack(side="left", padx=(12, 4))
@@ -3401,6 +3470,87 @@ class CharactersPage(Page):
                       "Existing ones are backed up (personaje.toml.antes_de_importar)."), bg=C["card"]).pack(
                 fill="x", pady=(4, 0))
         self.right.top()
+
+    def _forms_card(self, body, m, own):
+        """Formas, ki base, fisica y transformacion (claves de docs/03_formatos/FORMAS_Y_KI.md)."""
+        d = m["data"]
+        c = Card(body, T("Formas, física y aspecto", "Forms, physics and look"), T(
+            "Vacío = lo del donante. Las formas no pueden superar las del donante.",
+            "Empty = the donor's. Forms cannot exceed the donor's."))
+        c.pack(fill="x", pady=(0, 12))
+        g = c.body
+        g.columnconfigure(1, weight=1)
+
+        def lst(v):
+            return ", ".join(str(x) for x in v) if isinstance(v, list) else ("" if v is None else str(v))
+        fv = tk.StringVar(value=lst(d.get("formas")))
+        kv = tk.StringVar(value=lst(d.get("ki_base")))
+        mv = tk.StringVar(value=lst(d.get("modelo_forma")))
+        phys = d.get("fisica")
+        fis_vals = [T("Sin física (rígido)", "No physics (rigid)"), T("La del donante", "The donor's")] + \
+            donor_values()
+        pv = tk.StringVar(value=fis_vals[1] if phys == "donante" else fis_vals[donor_index(phys, False) + 2]
+                          if isinstance(phys, int) and any(x[0] == phys for x in DONORS) else fis_vals[0])
+        tv = tk.BooleanVar(value=d.get("transformacion") == "donante")
+        rows = ((T("Formas", "Forms"), ttk.Spinbox(g, from_=1, to=8, width=5, textvariable=fv),
+                 T("vacío = las del donante (%s)", "empty = the donor's (%s)") % donor_name(d.get("donante", 21))),
+                (T("Ki base por forma", "Base ki per form"), ttk.Entry(g, textvariable=kv, width=18),
+                 T("barras a las que tiende cada forma, p. ej. 3, 4, 4, 5",
+                   "bars each form drifts to, e.g. 3, 4, 4, 5")),
+                (T("Modelo por forma", "Model per form"), ttk.Entry(g, textvariable=mv, width=18),
+                 T("qué modelo del traje usa cada forma, p. ej. 0, 1, 2, 3", "which costume model each form uses, "
+                   "e.g. 0, 1, 2, 3")),
+                (T("Física de pelo y cinturón", "Hair and belt physics"),
+                 ttk.Combobox(g, textvariable=pv, values=fis_vals, state="readonly", width=30),
+                 T("sin física las colas del cinturón quedan rígidas", "without physics belt tails stay rigid")))
+        for r, (txt, w, h) in enumerate(rows):
+            label(g, txt, bg=C["card"]).grid(row=r, column=0, sticky="w", padx=(0, 12), pady=3)
+            w.grid(row=r, column=1, sticky="w")
+            hint(g, h, bg=C["card"], wrap=420).grid(row=r, column=2, sticky="w", padx=8)
+        cb = ttk.Checkbutton(g, text=T("Transformación del donante en su moveset propio (P+K+G)",
+                                       "Donor's transformation in its own moveset (P+K+G)"), variable=tv,
+                             style="Card.TCheckbutton")
+        cb.grid(row=len(rows), column=0, columnspan=3, sticky="w", pady=(6, 0))
+        if not own:
+            cb.state(["disabled"])
+        st = self.status_label(g)
+
+        def save():
+            vals = {}
+            try:
+                for key, var, n_max in (("formas", fv, 8), ("ki_base", kv, 7), ("modelo_forma", mv, 7)):
+                    nums = [int(x) for x in re.split(r"[\s,;\[\]]+", var.get()) if x != ""]
+                    if any(not 0 <= x <= n_max for x in nums) or (key == "formas" and len(nums) > 1):
+                        raise ValueError(key)
+                    vals[key] = None if not nums else str(nums[0]) if key == "formas" else \
+                        "[%s]" % ", ".join(map(str, nums))
+            except ValueError as ex:
+                self.set_status(st, "err", T("Valor no válido en %s", "Invalid value in %s") % ex)
+                return
+            i = fis_vals.index(pv.get()) if pv.get() in fis_vals else 0
+            vals["fisica"] = None if i == 0 else '"donante"' if i == 1 else str(DONORS[i - 2][0])
+            vals["transformacion"] = '"donante"' if tv.get() and own else None
+            try:
+                bk = backup_file(m["toml"], self.env)
+                toml_set_keys(m["toml"], "personaje", vals)
+            except OSError as ex:
+                self.set_status(st, "err", str(ex))
+                return
+            self.app.log_text(T("Guardado %s (copia en %s)\n", "Saved %s (backup at %s)\n") % (m["toml"], bk), "ok")
+            self.want = m["name"]
+            self.reload()
+        bf = tk.Frame(g, bg=C["card"])
+        bf.grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Button(bf, text=T("Guardar", "Save"), style="Small.TButton", command=save).pack(side="left")
+        st.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="ew")
+        hint(g, T("Aspecto: el brillo HD de borde (rim light) se regula para todo el juego en el launcher, "
+                  "pestaña «Mods nativos» → «Brillo HD de los personajes» (y en el menú F1). Si un modelo sale "
+                  "plano, sin sombra toon, sus texturas tienen alfa 255 («sin sombrear»): conviértelo con alfa 0 "
+                  "y rampa por material.",
+                  "Look: the HD rim light is set for the whole game in the launcher, 'Native mods' tab → 'HD "
+                  "shine on characters' (also in the F1 menu). If a model looks flat, without toon shading, its "
+                  "textures have alpha 255 ('unshaded'): convert it with alpha 0 and a ramp per material."),
+             bg=C["card"], wrap=820).grid(row=len(rows) + 3, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _traje_editor(self, body, m):
         d = m["data"]
@@ -4904,7 +5054,24 @@ class App:
         self.save()
         self.rebuild()
 
+    def open_studio(self, personaje=None):
+        """Studio (ventana propia): mismas carpetas de mods/us que el Mod Kit."""
+        cmd = [self.env.python, os.path.join(HERE, "studio", "studio_gui.py"), "--mods", self.env.mods,
+               "--lang", LANG] + (["--us", self.env.us] if self.env.us else []) + (
+            ["--personaje", str(personaje)] if personaje is not None else [])
+        if self.selftest:
+            self.selftest_cmds.append(("studio", [str(c) for c in cmd]))
+            return
+        try:
+            subprocess.Popen([str(c) for c in cmd], cwd=self.env.cwd(), creationflags=NO_WINDOW)
+            self.log_text(T("Studio abierto (ventana aparte).\n", "Studio opened (separate window).\n"), "ok")
+        except OSError as ex:
+            self.info(T("No se pudo abrir el Studio: %s", "Could not open the Studio: %s") % ex)
+
     def goto(self, key, **kw):
+        if key == "studio":
+            self.open_studio(kw.get("personaje"))
+            return
         if key == "home":
             if self.adv:
                 return
@@ -5221,6 +5388,17 @@ def selftest(lang=None):
                                            "--nombre", "Zarbon B1"]:
             ok = False
             say("FAIL: importer page command %s" % imp_cmd)
+        app.goto("studio", personaje=0)
+        st_cmd = ([c for t, c in app.selftest_cmds if t == "studio"] or [None])[-1]
+        if not st_cmd or not st_cmd[1].endswith("studio_gui.py") or st_cmd[-2:] != ["--personaje", "0"]:
+            ok = False
+            say("FAIL: studio command %s" % st_cmd)
+        rc, text = run_sync([env.python, os.path.join(HERE, "studio", "studio_core.py"), "selftest", "--rapido"],
+                            env.cwd(), timeout=300)
+        say("studio_core selftest --rapido -> rc=%s, %s" % (rc, last_line(text)))
+        if rc != 0:
+            ok = False
+            say(text[-800:])
         # cableado real: el mismo constructor y el mismo lanzador que usa la ventana
         if env.tools_installed():
             cmd = cmd_importer(env, ["fuentes"])

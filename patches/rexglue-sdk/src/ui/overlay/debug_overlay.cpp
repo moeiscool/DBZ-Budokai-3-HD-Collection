@@ -52,6 +52,8 @@ std::string UpscalerText() {
     text = "AMD FSR 2";
   } else if (effect == "fsr3") {
     text = "AMD FSR 3";
+  } else if (effect == "dlss") {
+    text = "NVIDIA DLSS";
   } else {
     return "Off";
   }

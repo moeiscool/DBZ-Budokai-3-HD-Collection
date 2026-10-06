@@ -45,17 +45,23 @@
 | [02_mods/TEXTURAS_MOD.md](02_mods/TEXTURAS_MOD.md) | **Pestaña Texturas del launcher** (extraer/editar/reconstruir) |
 | [02_mods/PACKS_DE_TEXTURAS.md](02_mods/PACKS_DE_TEXTURAS.md) | **Packs de texturas (estilo PCSX2)**: volcado dev, cargador en runtime y guía para autores |
 | [02_mods/SESION_MODS_LAUNCHER_2026-09-14.md](02_mods/SESION_MODS_LAUNCHER_2026-09-14.md) | Barrido de mods + cierre/pulido del **Model Swap HD↔HD** + aviso ISO + refactor del Centro de mods |
+| [02_mods/STUDIO_CAMARAS.md](02_mods/STUDIO_CAMARAS.md) | **Studio de cámaras**: editar las cámaras de técnicas, plantillas, ida y vuelta a Blender, guardar como mod |
 | [03_formatos](03_formatos/AMO_AWO.md) | Formato del modelo PS2 (#AMO0) vs HD (#AWO) |
 | [03_formatos/BIN_LAYOUT.md](03_formatos/BIN_LAYOUT.md) | Layout del bin HD (headers, buffers, vértice) |
 | [03_formatos/AWO_FORMAT.md](03_formatos/AWO_FORMAT.md) | Formato #AWO HD campo a campo |
 | [03_formatos/ACM_FORMAT.md](03_formatos/ACM_FORMAT.md) | Formato moveset HD (#AMB→#CSK→#ACM) + edición de habilidades |
 | [03_formatos/STAGES_FORMAT.md](03_formatos/STAGES_FORMAT.md) | Bins de stage (#AMB→#ZDD/#CAD/#CAS/#SPX) + contenedor PS2 (ports IW) |
 | [03_formatos/CAPSULAS_B3.md](03_formatos/CAPSULAS_B3.md) | Cápsulas: catálogo #SKC, fichas de habilidades, plazas extra 44-63 y ports de IW (modo hiper) |
+| [03_formatos/CAMARA_ACC.md](03_formatos/CAMARA_ACC.md) | Cámaras #ACC/#AMC: 4 pistas (posición, punto de mira, giro, fov) |
+| [03_formatos/SB_VS_B3_MOVESET.md](03_formatos/SB_VS_B3_MOVESET.md) | Movesets de Shin Budokai frente a B3 (AP 20→16, HR 160→128, códigos, daño ×0,85) |
+| [03_formatos/FORMAS_Y_KI.md](03_formatos/FORMAS_Y_KI.md) | Transformaciones: barras exigidas, cadena de cápsulas, nivel base de ki |
+| [03_formatos/TOON_Y_BRILLO_HD.md](03_formatos/TOON_Y_BRILLO_HD.md) | Shader toon (base − rampa, alfa = sin sombrear) y brillo HD de borde (c39.x) |
 | [04_herramientas](04_herramientas/TOOLS.md) | Inventario de herramientas y su función |
 | [05_build](05_build/COMO_COMPILAR.md) | Cómo compilar el juego y el SDK |
 | [06_limpieza](06_limpieza/PLAN_LIMPIEZA.md) | Plan de limpieza/reorganización |
 | [06_limpieza/INVENTARIO_FISICO_2026-09](06_limpieza/INVENTARIO_FISICO_2026-09.md) | Inventario físico y artefactos |
 | [06_limpieza/INTEGRACION_MODDING_HD](06_limpieza/INTEGRACION_MODDING_HD.md) | Clasificación de herramientas y recursos para HD |
+| [07_ports/GOHAN_FUTURO_EXPLORACION_2026-10-06](07_ports/GOHAN_FUTURO_EXPLORACION_2026-10-06/README.md) | **Gohan del Futuro al 100 %**: exploración de moveset, técnicas, modelo, formas y Studio |
 | [07_ports](07_ports/ESTRUCTURA_DIBUJO_HD.md) | **Estructura de dibujo HD mapeada (descriptores A/B, mesh-ref, arms)** |
 
 ---

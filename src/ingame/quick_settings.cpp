@@ -106,7 +106,9 @@ void ConfigureQuickMenu(rex::ui::QuickMenuConfig& menu, std::function<void()> op
   menu.text_off = T::T("NO", "OFF");
   menu.on_changed = ApplyAndSave;
 
-  const std::vector<std::string> fsr = {"fsr"};
+  // Render-resolution choice: every upscaler; sharpening: not DLSS (it has none).
+  const std::vector<std::string> fsr = {"fsr", "fsr3", "dlss"};
+  const std::vector<std::string> fsr_sharp = {"fsr", "fsr3"};
 
   auto& image = menu.sections.emplace_back();
   image.title = T::T("IMAGEN", "PICTURE");
@@ -117,23 +119,31 @@ void ConfigureQuickMenu(rex::ui::QuickMenuConfig& menu, std::function<void()> op
            "The resolution the game draws at. Higher is sharper but needs a faster GPU.")));
   image.items.push_back(Choice(
       T::T("Escalado", "Upscaler"), "dbz3_present_effect",
-      {{"bilinear", T::T("Basico", "Basic")}, {"cas", "AMD CAS"}, {"fsr", "AMD FSR"}},
+      {{"bilinear", T::T("Basico", "Basic")},
+       {"cas", "AMD CAS"},
+       {"fsr", "AMD FSR"},
+       {"fsr3", "AMD FSR 3 (beta)"},
+       {"dlss", "NVIDIA DLSS (beta)"}},
       T::T("Como se lleva la imagen al tamano de tu pantalla. FSR es el mas nitido; CAS solo "
-           "afila.",
+           "afila. FSR 3 y DLSS suavizan los bordes usando los fotogramas anteriores (DLSS "
+           "solo en graficas NVIDIA RTX con D3D12; si no, usa FSR 3).",
            "How the picture is brought to your screen size. FSR is the sharpest; CAS only "
-           "sharpens.")));
+           "sharpens. FSR 3 and DLSS smooth edges using previous frames (DLSS only on NVIDIA "
+           "RTX cards with D3D12; otherwise it uses FSR 3).")));
   {
     Item& more = image.items.emplace_back(Choice(
-        T::T("Mas FPS con FSR", "More FPS with FSR"), "dbz3_fsr_render",
+        T::T("Mas FPS", "More FPS"), "dbz3_fsr_render",
         {{"native", T::T("Nativa", "Native")},
          {"quality", T::T("Calidad", "Quality")},
          {"balanced", T::T("Equilibrado", "Balanced")},
          {"performance", T::T("Rendimiento", "Performance")},
          {"ultra_performance", T::T("Ultra rendimiento", "Ultra performance")}},
-        T::T("Dibuja por debajo de la resolucion interna y FSR la recupera: mas FPS con una "
-             "imagen algo mas suave. Con 1x no cambia nada.",
-             "Draws below the internal resolution and FSR brings it back: more FPS with a "
-             "slightly softer picture. At 1x nothing changes.")));
+        T::T("Dibuja por debajo de la resolucion interna y el escalado la recupera: mas FPS "
+             "con una imagen algo mas suave. Solo hay escalas enteras: a 2x solo Rendimiento "
+             "baja (a 1x); a 3x Calidad baja a 2x. Con 1x no cambia nada.",
+             "Draws below the internal resolution and the upscaler brings it back: more FPS "
+             "with a slightly softer picture. Only whole scales exist: at 2x only Performance "
+             "goes lower (to 1x); at 3x Quality renders at 2x. At 1x nothing changes.")));
     more.shown_if_cvar = "dbz3_present_effect";
     more.shown_if_values = fsr;
   }
@@ -146,7 +156,7 @@ void ConfigureQuickMenu(rex::ui::QuickMenuConfig& menu, std::function<void()> op
     sharp.display_offset = 100.0;
     sharp.format = "%.0f%%";
     sharp.shown_if_cvar = "dbz3_present_effect";
-    sharp.shown_if_values = fsr;
+    sharp.shown_if_values = fsr_sharp;
   }
   {
     Item& sharp = image.items.emplace_back(Number(
@@ -167,6 +177,16 @@ void ConfigureQuickMenu(rex::ui::QuickMenuConfig& menu, std::function<void()> op
       {{"0", T::T("No", "Off")}, {"2", "2x"}, {"3", "4x"}, {"4", "8x"}, {"5", "16x"}},
       T::T("Mantiene nitido el suelo y lo que se ve de lado.",
            "Keeps the floor and anything seen at an angle sharp.")));
+  {
+    Item& rim = image.items.emplace_back(Number(
+        T::T("Brillo HD", "HD shine"), "dbz3_hd_rim_light", 0.0, 1.0, 0.25,
+        T::T("Halo brillante en el borde de los personajes que anadio el remaster HD. 0% lo "
+             "quita (aspecto PS2); 100% es el original.",
+             "Bright halo on the characters' edges added by the HD remaster. 0% removes it "
+             "(PS2 look); 100% is the original.")));
+    rim.display_scale = 100.0;
+    rim.format = "%.0f%%";
+  }
 
   auto& sound = menu.sections.emplace_back();
   sound.title = T::T("SONIDO Y MANDO", "SOUND & PAD");

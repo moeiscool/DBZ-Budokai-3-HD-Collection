@@ -404,6 +404,8 @@ assembled by `tools/make_release.ps1` and the modpacks by
 
 ## Credits
 
+- **@ArielPVB**: Guldo, Jeice, Burter, Zarbon (base and monster form), Dodoria
+  and Android 19 models in the character pack.
 - [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) — static recompilation
   tools and runtime (derived from [Xenia](https://xenia.jp)).
 - [DBZ Burst Limit Recompiled](https://github.com/iExplosiveRage/DBZ-Burst-Limit-Recompiled)

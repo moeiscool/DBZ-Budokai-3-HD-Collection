@@ -9,7 +9,9 @@ un banco por personaje (RE 2026-10-04):
     un #ACK pequeno aparte)
     #AMB HD: hijos 0 y 1 = banco de sonidos (los dos iguales), hijo 2 = secuencias (PS2 SQ)
     banco:   +0x08 ID, +0x0C n sonidos (55-56), +0x10 inicio de datos, +0x14 tamano
-             +0x100 + 0x100*i = ficha "xma": +0x14 tamano, +0x18 desplazamiento (paquetes de
+             +0x18 -> tabla de u32 con el desplazamiento de cada ficha (0x100 + 0x100*i; en
+             Goku, Goku nino, Piccolo y Buu M, 0x110 + 0x100*i)
+             ficha "xma": +0x14 tamano, +0x18 desplazamiento (paquetes de
              2048 B), +0xBC XMA2WAVEFORMATEX (16 kHz mono; +0xD4 muestras codificadas,
              +0xE0 duracion en muestras)
 
@@ -19,6 +21,7 @@ de 260 B (512 muestras cada uno). Este modulo fabrica el banco de un personaje n
 partir del de su donante (mismas secuencias y huecos) con sus propios sonidos:
 
     gritos = "iw:JANENBA"    # sus grabaciones de Infinite World, repartidas por duracion
+    gritos = "sb2:GHF"       # su banco de Shin Budokai, tono a hueco (sb_voces.py)
     gritos = "donante"       # los del donante (por defecto si no hay fuente)
     gritos = "ninguno"       # sin gritos (silencio)
 """
@@ -216,6 +219,53 @@ def packets(x):
     return bytes(out), nb
 
 
+def rx_decode(blob, length=None):
+    """Datos RXADPC -> int16, con la misma logica que el runtime (xma_context.cpp):
+    paquete a paquete, min(byte 7, 7) bloques de 260 B. Se quita el bloque mudo del
+    arranque (paquete 1, bloque 0) y se corta a `length` (la duracion de la ficha)."""
+    out = []
+    for p in range(0, len(blob) - PACKET + 1, PACKET):
+        pk = blob[p:p + PACKET]
+        if pk[:7] != MAGIC:
+            raise ValueError("paquete %d sin firma RXADPC" % (p // PACKET))
+        for f in range(min(pk[7], PER_PACKET)):
+            fr = pk[8 + BLOCK * f:8 + BLOCK * (f + 1)]
+            pred, idx = struct.unpack(">h", fr[:2])[0], min(fr[2], 88)
+            for i in range(SPF):
+                nib = fr[4 + i // 2] & 15 if i & 1 else fr[4 + i // 2] >> 4
+                step = IMA_STEP[idx]
+                d = step >> 3
+                if nib & 4:
+                    d += step
+                if nib & 2:
+                    d += step >> 1
+                if nib & 1:
+                    d += step >> 2
+                pred = max(-32768, min(32767, pred - d if nib & 8 else pred + d))
+                idx = max(0, min(88, idx + IMA_INDEX[nib]))
+                out.append(pred)
+    x = np.array(out[SPF:], np.int16)
+    return x if length is None else x[:length]
+
+
+def records(bank):
+    """Desplazamiento de la ficha de cada sonido (tabla apuntada por +0x18)."""
+    n, tbl = struct.unpack(">I", bank[0x0C:0x10])[0], struct.unpack(">I", bank[0x18:0x1C])[0]
+    return list(struct.unpack(">%dI" % n, bank[tbl:tbl + 4 * n]))
+
+
+def bank_sounds(bank):
+    """Sonidos RXADPC de un banco ya construido (None = hueco con datos XMA)."""
+    start = struct.unpack(">I", bank[0x10:0x14])[0]
+    out = []
+    for r in records(bank):
+        size, off = struct.unpack(">II", bank[r + 0x14:r + 0x1C])
+        blob = bank[start + off:start + off + size]
+        ln = struct.unpack(">I", bank[r + 0xE0:r + 0xE4])[0]
+        out.append(rx_decode(blob, ln) if blob[:7] == MAGIC else None)
+    return out
+
+
 # ---------------------------------------------------------------- banco
 def amb_children(b):
     n, tbl = struct.unpack(">II", b[0x10:0x18])
@@ -224,19 +274,16 @@ def amb_children(b):
 
 def bank_lengths(bank):
     """Duracion (muestras) de cada hueco del banco."""
-    n = struct.unpack(">I", bank[0x0C:0x10])[0]
-    return [struct.unpack(">I", bank[0x100 + 0x100 * i + 0xE0:0x100 + 0x100 * i + 0xE4])[0] for i in range(n)]
+    return [struct.unpack(">I", bank[r + 0xE0:r + 0xE4])[0] for r in records(bank)]
 
 
 def build_bank(bank, sounds):
     """Banco del donante con los sonidos `sounds` (int16 a 16 kHz, o None = se queda el
     del donante) en sus huecos."""
-    n = struct.unpack(">I", bank[0x0C:0x10])[0]
     start = struct.unpack(">I", bank[0x10:0x14])[0]
     head = bytearray(bank[:start])
     data = bytearray()
-    for i in range(n):
-        r = 0x100 + 0x100 * i
+    for i, r in enumerate(records(bank)):
         size, off = struct.unpack(">II", head[r + 0x14:r + 0x1C])
         s = sounds[i] if i < len(sounds) else None
         if s is None:
@@ -308,3 +355,15 @@ def iw_pool(iw, who, lang):
         x, r = adx_decode(iw.adx(lang, v))
         pool.append(resample(x, r))
     return pool
+
+
+if __name__ == "__main__":
+    # autocomprobacion: IMA -> RXADPC -> decodificador del runtime = la misma senal
+    t = np.arange(5000)
+    sig = (12000 * np.sin(2 * np.pi * 440 * t / RATE) * np.exp(-t / 3000)).astype(np.int16)
+    blob, nb = packets(sig)
+    assert nb == (len(sig) + SPF - 1) // SPF and len(blob) % PACKET == 0
+    back = rx_decode(blob, len(sig))
+    snr = 10 * np.log10(np.sum(sig.astype(float) ** 2) / np.sum((sig.astype(float) - back) ** 2))
+    assert len(back) == len(sig) and snr > 20, snr
+    print("gritos.py: RXADPC ida y vuelta OK (%d muestras, SNR %.1f dB)" % (len(back), snr))

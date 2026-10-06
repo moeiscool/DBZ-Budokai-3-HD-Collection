@@ -675,18 +675,24 @@ bool ShaderTranslator::TranslateAnalyzedShader(Shader::Translation& translation)
 
   // Translate all instructions.
   const std::set<uint32_t>& label_addresses = shader.label_addresses();
-  for (uint32_t i = 0; i < cf_pair_index_bound; ++i) {
-    ControlFlowInstruction cf_ab[2];
-    UnpackControlFlowInstructions(ucode_dwords + i * 3, cf_ab);
-    for (uint32_t j = 0; j < 2; ++j) {
-      uint32_t cf_index = i * 2 + j;
-      cf_index_ = cf_index;
-      if (label_addresses.find(cf_index) != label_addresses.end()) {
-        ProcessLabel(cf_index);
+  uint32_t body_pass_count = Dbz3BodyPassCount();
+  for (uint32_t pass = 0; pass < body_pass_count; ++pass) {
+    if (pass) {
+      Dbz3BeginBodyPass(pass);
+    }
+    for (uint32_t i = 0; i < cf_pair_index_bound; ++i) {
+      ControlFlowInstruction cf_ab[2];
+      UnpackControlFlowInstructions(ucode_dwords + i * 3, cf_ab);
+      for (uint32_t j = 0; j < 2; ++j) {
+        uint32_t cf_index = i * 2 + j;
+        cf_index_ = cf_index;
+        if (label_addresses.find(cf_index) != label_addresses.end()) {
+          ProcessLabel(cf_index);
+        }
+        ProcessControlFlowInstructionBegin(cf_index);
+        TranslateControlFlowInstruction(cf_ab[j]);
+        ProcessControlFlowInstructionEnd(cf_index);
       }
-      ProcessControlFlowInstructionBegin(cf_index);
-      TranslateControlFlowInstruction(cf_ab[j]);
-      ProcessControlFlowInstructionEnd(cf_index);
     }
   }
 
