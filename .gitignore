@@ -108,3 +108,9 @@ Thumbs.db
 # Archivo local de artefactos de releases antiguas (zips viejos + release-stage
 # movidos aqui para despejar la raiz). Se conserva en disco, nunca se versiona.
 _archive/
+
+# PS5 build (ps5/make_ps5.sh): the staged game and the EU codegen are the
+# user's own data, derived from the copyrighted game. Never commit.
+ps5-game/
+generated_eu/*
+!generated_eu/README.md
