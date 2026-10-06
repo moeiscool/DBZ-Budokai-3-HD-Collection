@@ -1,146 +1,155 @@
-# PLAN DE DISEÑO v1.1.1 — Depurado, mejora interna y bases de Linux
+# v1.1.1 DESIGN PLAN — Debugging, internal improvement and Linux foundations
 
-> Documento de diseño de la fase v1.1.1 (sucesora de la v1.1.0 universal).
-> Objetivo: cerrar los flecos abiertos del feedback, endurecer el runtime,
-> ordenar el proceso interno y **sentar las bases de un port a Linux**.
-> Estado: diseño aprobado por AGENTS §3.4/§14 (consolidado) — fases en curso.
-
----
-
-## 1. Contexto y principios
-
-La v1.1.0 dejó el proyecto con **un solo ejecutable universal** (baseline SSSE3)
-y GitHub limpio (v1.1.0 Latest + v1.1.0-clasico de respaldo). El feedback de
-usuarios (v1.0.6 → v1.1.0) está prácticamente cerrado; lo que queda son:
-
-- **Flecos de robustez** (caminos de error, arranque, teardown).
-- **Mejoras internas de proceso** (la fragilidad de `github/` como repo espejo).
-- **Fundamentos de portabilidad** (el SDK ya es multiplataforma; `src/` no).
-
-Principios de la fase: (1) el build Windows actual no debe romperse jamás,
-(2) cada cambio se valida con smoke test, (3) no tocar la arquitectura ganada
-de "un solo exe", (4) el port de modelos PS2→B3 queda **pausado** (trabajo en
-paralelo, no bloquea 1.1.1).
+> Design document of the v1.1.1 phase (successor of the universal v1.1.0).
+> Goal: close the loose ends from feedback, harden the runtime, tidy the
+> internal process and **lay the foundations of a Linux port**.
+> State: design approved by AGENTS §3.4/§14 (consolidated) — phases in progress.
 
 ---
 
-## 2. Fase A — Depurado (robustez, feedback abierto)
+## 1. Context and principles
 
-### A1. ✅ Sin assets → mensaje claro, no crash (HECHO en 1.1.1)
-- **Síntoma**: con la carpeta de datos vacía, el proceso abría la ventana y
-  moría con 0xC0000005 (teardown tras fallar `Runtime::Setup`).
-- **Fix aplicado** (`src/main.cpp`): pre-flight en `OnPreSetup` — si no hay
-  `default.xex` en la carpeta de datos efectiva, se muestra un MessageBox claro
-  (cómo colocar los assets) y se sale limpio (`_Exit(1)`). Validado: exit 1 sin
-  crash; el camino feliz sigue llegando al launcher a ~880 ms.
+v1.1.0 left the project with **a single universal executable** (SSSE3
+baseline) and a clean GitHub (v1.1.0 Latest + v1.1.0-clasico as fallback).
+User feedback (v1.0.6 → v1.1.0) is practically closed; what remains is:
 
-### A2. ✅ Marcadores de timing de arranque (HECHO en 1.1.1)
-- **Motivo**: reportes de "pantalla negra lenta antes del launcher" (§14.10).
-- **Fix aplicado**: `PhaseLog()` registra ms desde el inicio en cada override
+- **Robustness loose ends** (error paths, startup, teardown).
+- **Internal process improvements** (the fragility of `github/` as a mirror repo).
+- **Portability foundations** (the SDK is already multiplatform; `src/` is not).
+
+Principles of the phase: (1) the current Windows build must never break,
+(2) every change is validated with a smoke test, (3) do not touch the
+hard-won "single exe" architecture, (4) the PS2→B3 model port is **paused**
+(parallel work, it does not block 1.1.1).
+
+---
+
+## 2. Phase A — Debugging (robustness, open feedback)
+
+### A1. ✅ No assets → clear message, no crash (DONE in 1.1.1)
+- **Symptom**: with the data folder empty, the process opened the window and
+  died with 0xC0000005 (teardown after `Runtime::Setup` failed).
+- **Fix applied** (`src/main.cpp`): pre-flight in `OnPreSetup` — if there is no
+  `default.xex` in the effective data folder, a clear MessageBox is shown (how
+  to place the assets) and it exits cleanly (`_Exit(1)`). Validated: exit 1
+  without a crash; the happy path still reaches the launcher at ~880 ms.
+
+### A2. ✅ Startup timing markers (DONE in 1.1.1)
+- **Reason**: reports of a "slow black screen before the launcher" (§14.10).
+- **Fix applied**: `PhaseLog()` records ms since start in every override
   (`OnPreSetup/OnPostSetup/OnCreateDialogs/OnPreLaunchModule/OnPostLaunchModule`).
-  Con esto un log del usuario dirime si el cuello de botella es el init
-  D3D12/swapchain (gap hasta `first present OK`) o algo anterior.
+  With this, a user's log settles whether the bottleneck is the D3D12/swapchain
+  init (gap until `first present OK`) or something earlier.
 
-### A3. Pendiente — `std::terminate` intermitente en `LaunchModule` (mitigado, sin reproducir)
-- §14.14: try/catch + stack dump añadidos; el throw exacto sigue sin localizar
-  (no se reproduce en frío). La medida es diagnóstica: si un usuario lo pilla,
-  el log traerá `LaunchModule deferred threw std::exception: <msg>` + el stack.
-  **Acción 1.1.1**: analizar ese mensaje si llega; si no, cerrar como "mitigado".
+### A3. Pending — intermittent `std::terminate` in `LaunchModule` (mitigated, not reproduced)
+- §14.14: try/catch + stack dump added; the exact throw is still not located
+  (it does not reproduce cold). The measure is diagnostic: if a user hits it,
+  the log will bring `LaunchModule deferred threw std::exception: <msg>` + the
+  stack. **1.1.1 action**: analyse that message if it arrives; if not, close
+  as "mitigated".
 
-### A4. Pendiente — teardown/crash window tras fallos del guest
-- Revisar que las rutas de fallo (`ConstructRuntime`, cuelgue del hilo guest,
-  `OnGuestThreadExit`) no dejen un proceso zombie o un crash sin ventana.
-  Verificar con pruebas sin assets, con regiones a medias (us/ sin eu) y con
-  xex desconocido.
+### A4. Pending — teardown/crash window after guest failures
+- Check that the failure paths (`ConstructRuntime`, a hung guest thread,
+  `OnGuestThreadExit`) do not leave a zombie process or a crash without a
+  window. Verify with tests without assets, with half regions (us/ without
+  eu) and with an unknown xex.
 
-### A5. Pendiente — validar el core EU en combate real
-- §14.13/14.16: el boot EU es estable y la demo pasa, pero los paths profundos
-  (combate real, eventos, skills) podrían revelar funciones no registradas.
-  **Acción**: sesión de juego con el core dual y `DBZ3_COLLECT_UNREGISTERED=1`
-  para recolectar; iterar `dbz3_config_eu.toml`.
+### A5. Pending — validate the EU core in real fights
+- §14.13/14.16: the EU boot is stable and the demo passes, but the deep paths
+  (real fights, events, skills) could reveal unregistered functions.
+  **Action**: a play session with the dual core and
+  `DBZ3_COLLECT_UNREGISTERED=1` to collect; iterate on `dbz3_config_eu.toml`.
 
-### A6. Pendiente — idioma Japonés del selector
-- El launcher traduce EN/ES/IT/DE/FR; el juego tiene 6 idiomas (JP incluido).
-  Decidir si el launcher se traduce a JP o se marca claramente "no disponible".
-
----
-
-## 3. Fase B — Mejora interna (proceso)
-
-### B1. ✅ `tools/sync_github.ps1` (HECHO en 1.1.1)
-- `github/` es un repo espejo versionable; el sync manual (§9.1) era frágil.
-- **Fix**: script que replica el proceso (src/docs/awo_tools/mod center hd/tools
-  + archivos raíz), respeta el `.gitignore` (conserva `tools/*.exe` canónicos,
-  no toca `mods/`), con `-DryRun`. Recuerda que `patches/` es manual.
-
-### B2. ✅ Versión con fuente única (HECHO en 1.1.1)
-- La versión vivía en 3 sitios (version.rc, make_release.ps1, RELEASE_README).
-- **Fix**: `make_release.ps1` lee `VERSION_MAJOR/MINOR/PATCH` de `src/version.rc`
-  por defecto (override con `-Version` para sufijos tipo `-clasico`).
-
-### B3. Pendiente — limpiar herramientas/documentos obsoletos
-- `awo_tools/analyze_bin_hd.py` está DESACTUALIZADO (§13.2, layout 010 "PS3"
-  incorrecto para X360) → marcar o corregir.
-- `docs/HOJA_DE_RUTA_COMUNIDAD.md` tiene mojibake (§14.19) → reescribir.
-- `tools/make_release.ps1` ya avisa de NO usar UPX (§14.20) — documentación OK.
-
-### B4. Pendiente — CI-lite de release (verificación repetible)
-- Un script `tools/verify_release.ps1` que, dado el stage, compruebe: hashes de
-  las DLLs canónicas, presencia del clamp V-Sync (string en rexgpu), VERSIONINFO
-  del exe, ausencia de assets del juego en el zip. Reutilizable antes de subir.
-
-### B5. Pendiente — nota en RELEASE_README sobre el fallback
-- Añadir a RELEASE_README la existencia de `v1.1.0-clasico` y cuándo usarlo.
+### A6. Pending — Japanese in the selector
+- The launcher translates EN/ES/IT/DE/FR; the game has 6 languages (JP
+  included). Decide whether the launcher is translated to JP or clearly marked
+  "not available".
 
 ---
 
-## 4. Fase C — Bases de Linux (ver `docs/PLAN_LINUX.md` para el detalle)
+## 3. Phase B — Internal improvement (process)
 
-Resumen del estado tras la fase (auditoría + guards):
+### B1. ✅ `tools/sync_github.ps1` (DONE in 1.1.1)
+- `github/` is a versionable mirror repo; the manual sync (§9.1) was fragile.
+- **Fix**: a script that replicates the process (src/docs/awo_tools/mod center
+  hd/tools + root files), respects `.gitignore` (keeps the canonical
+  `tools/*.exe`, does not touch `mods/`), with `-DryRun`. It reminds that
+  `patches/` is manual.
 
-- **El SDK ya es portable**: `REX_PLATFORM_WIN32/LINUX/MAC`, pares
-  `*_win/*_posix`, Vulkan ON por defecto en Linux, input/audio SDL, filesystem
-  `std::filesystem` + `FileHandle` abstraído. El cuello de botella era `src/`.
-- **HECHO en 1.1.1 (guards de plataforma en `src/`)**:
-  - `settings.cpp`: MD5 **portable** (elimina CryptoAPI) para `CheckDefaultXex` +
-    detección de GPU DXGI protegida con fallback (tier "medium") + defaults de
-    backend por plataforma (`d3d12`+`xinput` en Windows, `vulkan`+`sdl` en el
-    resto).
-  - `launcher_state.cpp`: diálogos COM (PickFolder/PickFile) y conversiones
-    UTF-16 protegidos con fallback "cancelado" (diálogo portable pendiente).
-  - `mod_pipeline.cpp`: `CreateProcessW` protegido (fallback con error claro).
-  - `mods.cpp`: ya tenía fallback no-Windows para el instalador de zips.
-  - `main.cpp`: `OutputDebugStringA` como no-op fuera de Windows; el crash
-    handler ya era Win32-only; pre-flight portable.
-- **Pendiente para el build Linux real**:
-  1. Dialogos de archivo portables (SDL/GTK/zenity) para el launcher.
-  2. Spawn de scripts portable (`posix_spawn`) en `mod_pipeline.cpp`.
-  3. Extracción de zips portable (libzip/minizip) en `mods.cpp`.
-  4. Verificar que `ppc/` y `codegen/` del SDK no tengan Win32 residual.
-  5. CMake preset `linux-*` + instalación de dependencias (Vulkan, SDL3, X11-xcb,
-     Wayland) y validar Vulkan como backend de juego (hoy experimental: 6.5x
-     más lento que D3D12 en IssueSwap — el reto de rendimiento del port).
+### B2. ✅ Single-source version (DONE in 1.1.1)
+- The version lived in 3 places (version.rc, make_release.ps1, RELEASE_README).
+- **Fix**: `make_release.ps1` reads `VERSION_MAJOR/MINOR/PATCH` from
+  `src/version.rc` by default (override with `-Version` for suffixes like
+  `-clasico`).
 
----
+### B3. Pending — clean up obsolete tools/documents
+- `awo_tools/analyze_bin_hd.py` is OUTDATED (§13.2, the 010 "PS3" layout is
+  wrong for X360) → mark or fix.
+- `docs/HOJA_DE_RUTA_COMUNIDAD.md` has mojibake (§14.19) → rewrite.
+- `tools/make_release.ps1` already warns NOT to use UPX (§14.20) — docs OK.
 
-## 5. Criterios de aceptación de 1.1.1
+### B4. Pending — release CI-lite (repeatable verification)
+- A `tools/verify_release.ps1` script that, given the stage, checks: hashes of
+  the canonical DLLs, presence of the V-Sync clamp (string in rexgpu), the
+  exe's VERSIONINFO, absence of game assets in the zip. Reusable before
+  uploading.
 
-1. El build Windows (dual + release) compila sin warnings nuevos y el smoke test
-   del paquete pasa (launcher shown + first present OK + sin FATAL).
-2. Sin assets → mensaje claro y salida limpia (nunca 0xC0000005).
-3. El log de arranque permite diagnosticar la "pantalla negra" (marcadores A2).
-4. `tools/sync_github.ps1` sincroniza en un solo comando y `make_release.ps1`
-   genera el zip con la versión de `version.rc`.
-5. `src/` compila conceptualmente en Linux (guards en su sitio); `PLAN_LINUX.md`
-   define el orden de trabajo del port.
-6. Release 1.1.1 empaquetada (universal) + respaldo `-clasico` actualizado.
+### B5. Pending — note in RELEASE_README about the fallback
+- Add to RELEASE_README the existence of `v1.1.0-clasico` and when to use it.
 
 ---
 
-## 6. Trabajo no incluido en 1.1.1 (paralelo o posterior)
+## 4. Phase C — Linux foundations (see `docs/PLAN_LINUX.md` for the detail)
 
-- Port de modelos PS2→B3 (pipeline `port_ps2_b3_*`): **pausado por decisión del
-  usuario** (AGENTS §3.4/§15). No bloquea 1.1.1.
-- Reto de rendimiento del backend Vulkan (requiere sesión de perfilado en Linux).
-- Versión de Linux publicable (es el objetivo de largo plazo; 1.1.1 solo sienta
-  las bases de código).
+Summary of the state after the phase (audit + guards):
+
+- **The SDK is already portable**: `REX_PLATFORM_WIN32/LINUX/MAC`, `*_win/*_posix`
+  pairs, Vulkan ON by default on Linux, SDL input/audio, `std::filesystem`
+  filesystem + abstracted `FileHandle`. The bottleneck was `src/`.
+- **DONE in 1.1.1 (platform guards in `src/`)**:
+  - `settings.cpp`: **portable** MD5 (drops CryptoAPI) for `CheckDefaultXex` +
+    DXGI GPU detection guarded with a fallback ("medium" tier) + per-platform
+    backend defaults (`d3d12`+`xinput` on Windows, `vulkan`+`sdl` elsewhere).
+  - `launcher_state.cpp`: COM dialogs (PickFolder/PickFile) and UTF-16
+    conversions guarded with a "cancelled" fallback (portable dialog pending).
+  - `mod_pipeline.cpp`: `CreateProcessW` guarded (fallback with a clear error).
+  - `mods.cpp`: it already had a non-Windows fallback for the zip installer.
+  - `main.cpp`: `OutputDebugStringA` as a no-op outside Windows; the crash
+    handler was already Win32-only; portable pre-flight.
+- **Pending for the real Linux build**:
+  1. Portable file dialogs (SDL/GTK/zenity) for the launcher.
+  2. Portable script spawning (`posix_spawn`) in `mod_pipeline.cpp`.
+  3. Portable zip extraction (libzip/minizip) in `mods.cpp`.
+  4. Check that the SDK's `ppc/` and `codegen/` have no residual Win32.
+  5. CMake `linux-*` preset + dependency installation (Vulkan, SDL3, X11-xcb,
+     Wayland) and validate Vulkan as the game backend (experimental today:
+     6.5x slower than D3D12 in IssueSwap — the port's performance challenge).
+
+> Those portability guards are also what lets the DBZ3 host sources
+> (`settings.cpp`, `region.cpp`, `mods.cpp`, …) compile for the PS5 target
+> (`docs/PS5.md`).
+
+---
+
+## 5. 1.1.1 acceptance criteria
+
+1. The Windows build (dual + release) compiles without new warnings and the
+   package smoke test passes (launcher shown + first present OK + no FATAL).
+2. No assets → clear message and clean exit (never 0xC0000005).
+3. The startup log allows diagnosing the "black screen" (A2 markers).
+4. `tools/sync_github.ps1` syncs in a single command and `make_release.ps1`
+   generates the zip with the version from `version.rc`.
+5. `src/` conceptually compiles on Linux (guards in place); `PLAN_LINUX.md`
+   defines the port's order of work.
+6. Release 1.1.1 packaged (universal) + `-clasico` fallback updated.
+
+---
+
+## 6. Work not included in 1.1.1 (parallel or later)
+
+- PS2→B3 model port (pipeline `port_ps2_b3_*`): **paused by the user's
+  decision** (AGENTS §3.4/§15). It does not block 1.1.1.
+- The Vulkan backend's performance challenge (needs a profiling session on
+  Linux).
+- A publishable Linux version (it is the long-term goal; 1.1.1 only lays the
+  code foundations).

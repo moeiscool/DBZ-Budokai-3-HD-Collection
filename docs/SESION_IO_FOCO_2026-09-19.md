@@ -1,147 +1,151 @@
-# Sesion 2026-09-19 (2) — E/S de disco, diagnostico de foco y QoL al perder foco
+# Session 2026-09-19 (2) — Disk I/O, focus diagnostics and QoL on losing focus
 
-> Origen: reporte de lentitud de SSGPrinceVegeta (v1.2.1, RTX 5090, `internal_scale=3x`
-> + MSAA, audio VB-Audio Virtual Cable, juego en `E:` — ver
-> `docs/ANALISIS_RENDIMIENTO_LOGS_2026-09-18.md`). Se investigo **el camino de
-> lectura real del runtime** (no solo sus logs) y se cerro con una tanda de
-> protecciones + QoL. Release: **v1.2.5**.
+> Origin: SSGPrinceVegeta's slowness report (v1.2.1, RTX 5090,
+> `internal_scale=3x` + MSAA, VB-Audio Virtual Cable audio, game on `E:` — see
+> `docs/ANALISIS_RENDIMIENTO_LOGS_2026-09-18.md`). **The runtime's real read
+> path** was investigated (not just its logs) and it was closed with a batch of
+> safeguards + QoL. Release: **v1.2.5**.
 
-## 1. Que dicen sus logs (y que NO dicen)
+## 1. What his logs say (and what they do NOT say)
 
-Sus logs (parte 1 y parte 2) son **v1.2.1** y **no pueden medir la lentitud**: en
-esa version el log de overrides AFS era incondicional (2 lineas + ruta completa
-por CADA lectura), asi que el 100% son lecturas AFS y no hay ni un dato de
-frametime. Cuantificado: `dbz3_020.log` = 1718 lineas / 145 s, rafagas de ~24
-lecturas/s y, en transiciones, una **cadencia casi perfecta de 50 ms repitiendo
-la MISMA entrada** (`adx_usa.afs entry=4276`, ~0,5-0,9 s entre lecturas: el
-streaming de audio del guest). Es decir: comportamiento normal del guest, no un
-bucle patologico nuestro. Lo que si era coste real: el log incondicional
-(arreglado en v1.2.3, gateado por `dbz1_diag_logging`).
+His logs (part 1 and part 2) are **v1.2.1** and **cannot measure the
+slowness**: in that version the AFS override log was unconditional (2 lines +
+the full path per EVERY read), so 100% are AFS reads and there is not a single
+frametime datum. Quantified: `dbz3_020.log` = 1718 lines / 145 s, bursts of
+~24 reads/s and, during transitions, an **almost perfect 50 ms cadence
+repeating the SAME entry** (`adx_usa.afs entry=4276`, ~0.5-0.9 s between
+reads: the guest's audio streaming). In other words: normal guest behaviour,
+not a pathological loop of ours. What did have a real cost: the unconditional
+log (fixed in v1.2.3, gated by `dbz1_diag_logging`).
 
-## 2. El camino de lectura del runtime (hallazgos concretos)
+## 2. The runtime's read path (concrete findings)
 
 `HostPathFile::ReadSync` (`rexglue-sdk-0.10/src/filesystem/devices/host_path_file.cpp`)
-es **SINCRONO**: el hilo del guest se bloquea en `FileHandle::Read` →
-`ReadFile` durante toda la lectura fisica. Hallazgos:
+is **SYNCHRONOUS**: the guest thread blocks in `FileHandle::Read` →
+`ReadFile` for the whole physical read. Findings:
 
-1. **Se hacia trabajo caro en CADA lectura aunque no hubiera mods**:
-   `AfsModsPresent`-style lookups con **clave `std::string` por lectura** (asigna),
-   dos locks del indice AFS y, para `data_cmn.afs`, **copia COMPLETA de la tabla
-   AFS virtual** (`AfsGetVirtualTable` devolvia el vector por valor) mas
-   `AfsFindEntry` + `AfsFindModOverride` que **no pueden encontrar nada** si no
-   hay mods.
-2. El flag de diagnostico se consultaba con `rex::cvar::GetFlagByName(...) ==
-   "true"` (lookup + conversion a string + compare por lectura).
-3. **No habia ninguna instrumentacion de tiempos de E/S** en el producto: era
-   imposible distinguir "disco lento" de "overhead del host".
-4. `FileHandle` abre con `FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS`
-   (sin `NO_BUFFERING`: la cache del SO funciona; sin `SEQUENTIAL_SCAN`, que
-   deliberadamente **no** se anadio: el guest relee la misma entrada de audio,
-   y ese hint tira las paginas por detras).
+1. **Expensive work was done on EVERY read even without mods**:
+   `AfsModsPresent`-style lookups with a **`std::string` key per read**
+   (allocates), two locks of the AFS index and, for `data_cmn.afs`, a
+   **COMPLETE copy of the virtual AFS table** (`AfsGetVirtualTable` returned
+   the vector by value) plus `AfsFindEntry` + `AfsFindModOverride` which
+   **cannot find anything** when there are no mods.
+2. The diagnostic flag was queried with `rex::cvar::GetFlagByName(...) ==
+   "true"` (lookup + string conversion + compare per read).
+3. **There was no I/O timing instrumentation at all** in the product: it was
+   impossible to tell "slow disk" from "host overhead".
+4. `FileHandle` opens with `FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS`
+   (without `NO_BUFFERING`: the OS cache works; without `SEQUENTIAL_SCAN`, which
+   was deliberately **not** added: the guest re-reads the same audio entry,
+   and that hint drops the pages behind it).
 
-## 3. Cambios (v1.2.5)
+## 3. Changes (v1.2.5)
 
 ### Runtime (SDK)
-- **`dbz3_io_logging`** (default **false** desde la v1.2.5 definitiva; la
-  primera publicacion lo traia true y se corrigio en el mismo tag) +
-  **`dbz3_io_slow_ms`** (25): resumen cada
-  5 s (`dbz3: io reads=… phys=… cache=… mb=… pre_avg_us=… read_avg_us=…
-  p95_us=… p99_us=… max_us=… slow=… opens=…`, percentiles por histograma log2)
-  y una linea por lectura lenta. Es la unica fuente de tiempos de E/S del
-  producto → sin ella, un reporte de "va lento" no es medible.
-- **Camino rapido sin mods**: `AfsModsPresent()` → si no hay mods se saltan
-  entero el lookup de overrides y la tabla virtual (nada puede coincidir).
-- **`AfsGetVirtualTableFast`** (puntero al vector cacheado, sin copia) y
-  `AfsFindEntry` una sola vez por lectura.
-- **`dbz1_diag_logging` leido como bool** (`REXCVAR_DECLARE`+`REXCVAR_GET`) en
-  vez de `GetFlagByName` por lectura.
-- **`AfsIoRecordOpen`**: cuenta aperturas de fichero (una tormenta de opens en
-  un disco lento es una senal).
-- **Lectura anticipada secuencial** (`dbz3_io_readahead`, `dbz3_io_readahead_kb`
-  = 2048): 4 streams LRU por fichero; si el guest lee de forma consecutiva, se
-  lee un bloque mayor de una vez (256 KB..2 MB, adaptativo) y las lecturas
-  siguientes se sirven de RAM. **Solo se activa si NO hay mods** (con mods el
-  mapeo byte→fichero cambia) y se invalida al escribir. En mi SSD **no acelera**
-  (mismo tiempo total: menos lecturas pero mas grandes); esta pensado para
-  **discos mecanicos**, donde convierte N seeks en 1 stream secuencial.
+- **`dbz3_io_logging`** (default **false** since the final v1.2.5; the first
+  publication shipped it true and it was fixed under the same tag) +
+  **`dbz3_io_slow_ms`** (25): a summary every 5 s (`dbz3: io reads=… phys=…
+  cache=… mb=… pre_avg_us=… read_avg_us=… p95_us=… p99_us=… max_us=… slow=…
+  opens=…`, percentiles from a log2 histogram) and one line per slow read. It
+  is the product's only source of I/O timings → without it, a "it runs slow"
+  report is not measurable.
+- **Fast path without mods**: `AfsModsPresent()` → if there are no mods, the
+  override lookup and the virtual table are skipped entirely (nothing can match).
+- **`AfsGetVirtualTableFast`** (pointer to the cached vector, no copy) and
+  `AfsFindEntry` only once per read.
+- **`dbz1_diag_logging` read as a bool** (`REXCVAR_DECLARE`+`REXCVAR_GET`)
+  instead of `GetFlagByName` per read.
+- **`AfsIoRecordOpen`**: counts file opens (an open storm on a slow disk is a
+  signal).
+- **Sequential read-ahead** (`dbz3_io_readahead`, `dbz3_io_readahead_kb` =
+  2048): 4 LRU streams per file; if the guest reads consecutively, a bigger
+  block is read at once (256 KB..2 MB, adaptive) and the following reads are
+  served from RAM. **Only active if there are NO mods** (with mods the
+  byte→file mapping changes) and it is invalidated on write. On my SSD it
+  **does not speed things up** (same total time: fewer but bigger reads); it
+  is meant for **mechanical disks**, where it turns N seeks into 1 sequential
+  stream.
 
-### La pista mas importante: foco de ventana
-`dbz3: perf ... fg=0/1` — el estado de foco. Motivo: **Windows/DWM limita a la
-mitad la presentacion de una ventana visible sin foco** (firma inequivoca:
-`fps=60.0` → `fps=30.0` exacto, no gradual; y con la ventana **fuera de pantalla**
-vuelve a 60 porque no se compone). Sin este campo, un log con `fg=0` a 30 fps se
-lee como "el juego va lento" cuando en realidad es "el jugador hizo alt-tab".
-**No es un bug nuestro** y no se parchea (la unica via seria robar el primer
-plano, que rompe alt-tab/OBS/multi-monitor).
+### The most important clue: window focus
+`dbz3: perf ... fg=0/1` — the focus state. Reason: **Windows/DWM halves the
+presentation of a visible unfocused window** (unmistakable signature:
+`fps=60.0` → exactly `fps=30.0`, not gradual; and with the window
+**off-screen** it goes back to 60 because it is not composited). Without this
+field, a log with `fg=0` at 30 fps reads as "the game is slow" when it really
+is "the player alt-tabbed". **It is not a bug of ours** and it is not patched
+(the only way would be stealing the foreground, which breaks
+alt-tab/OBS/multi-monitor).
 
-### QoL al perder el foco (validado contra otros emuladores)
-- **Silenciar el audio** (`dbz3_mute_unfocused`, default ON): la app escribe
-  `dbz3_window_focused` en cada cambio de foco (`Dbz3App::OnWindowFocusChanged`)
-  y el callback SDL silencia si `dbz3_mute_unfocused && !dbz3_window_focused`.
-  Es lo estandar (Dolphin/RetroArch/PCSX2; Unreal lo trae como
+### QoL on losing focus (validated against other emulators)
+- **Mute the audio** (`dbz3_mute_unfocused`, default ON): the app writes
+  `dbz3_window_focused` on every focus change (`Dbz3App::OnWindowFocusChanged`)
+  and the SDL callback mutes if `dbz3_mute_unfocused && !dbz3_window_focused`.
+  It is the standard (Dolphin/RetroArch/PCSX2; Unreal has it as
   `UnfocusedVolumeMultiplier`).
-- **Oscurecer la pantalla** (`dbz3_dim_unfocused`, default ON): overlay ImGui a
-  pantalla completa ("Juego en segundo plano" + "El audio esta silenciado." +
-  "Vuelve a la ventana para seguir jugando."). Deja claro el estado de un
-  vistazo y evita que la pantalla se pueda "leer" desde lejos.
-- **NO hay pausa real**: este runtime no tiene un mecanismo de pausa seguro
-  (`GraphicsSystem::Pause` existe pero esta muerto y no detiene al guest; la
-  alternativa — suspender los hilos del guest — puede colgar). Se deja para otra
-  sesion, con pruebas dedicadas.
+- **Dim the screen** (`dbz3_dim_unfocused`, default ON): a full-screen ImGui
+  overlay ("Game in the background" + "Audio is muted." + "Return to the
+  window to keep playing."). It makes the state clear at a glance and keeps
+  the screen from being "read" from afar.
+- **There is NO real pause**: this runtime has no safe pause mechanism
+  (`GraphicsSystem::Pause` exists but is dead and does not stop the guest; the
+  alternative — suspending the guest's threads — can hang). Left for another
+  session, with dedicated tests.
 
 ### Launcher
-- Seccion **"Al salir de la ventana"** al principio del tab **Video** (las dos
-  casillas), pensada para usuarios no tecnicos, con tooltips que explican el
-  comportamiento sin jerga (y aclarando que **el juego sigue en marcha**).
+- **"When leaving the window"** section at the top of the **Video** tab (the
+  two checkboxes), aimed at non-technical users, with tooltips explaining the
+  behaviour without jargon (and clarifying that **the game keeps running**).
 
-### i18n (ronda completa)
-- Auditoria de 270 `i18n::T()` / 271 entradas: se cerraron **2 claves que se
-  veian en ingles en IT/DE/FR** (mensajes de "Ejecutable detectado…" y del menu
-  HD) y se tradujeron **13 strings nuevas**.
-- `GpuTierLabel` ("Low/Medium/High") y `ModTypeLabel` ("swap B3"…) se generaban
-  ya en ingles y se pintaban crudos: ahora se traducen en la UI
-  (`ModTypeLabelText`, tier inline). El buscador de mods conserva los ids
-  crudos.
-- Quedan **5 entradas muertas** en `kTable[]` (sliders de musica/SFX/voz
-  eliminados en v1.2.4) — cosmetico.
-- ⚠️ La cabecera de `i18n.cpp` dice "GENERATED from …" pero **no hay generador
-  versionado**: la tabla se mantiene a mano. Conviene recuperar uno en `tools/`.
+### i18n (complete round)
+- Audit of 270 `i18n::T()` / 271 entries: **2 keys shown in English in
+  IT/DE/FR** were closed (the "Executable detected…" and HD menu messages) and
+  **13 new strings** were translated.
+- `GpuTierLabel` ("Low/Medium/High") and `ModTypeLabel` ("swap B3"…) were
+  already generated in English and painted raw: now they are translated in the
+  UI (`ModTypeLabelText`, tier inline). The mod search keeps the raw ids.
+- **5 dead entries** remain in `kTable[]` (music/SFX/voice sliders removed in
+  v1.2.4) — cosmetic.
+- ⚠️ The header of `i18n.cpp` says "GENERATED from …" but **there is no
+  versioned generator**: the table is maintained by hand. Recovering one in
+  `tools/` would be wise.
 
-## 4. Bugs encontrados y corregidos durante la verificacion
+## 4. Bugs found and fixed during verification
 
-- **`out_bytes_read` no se escribia** (regresion propia al reescribir el camino
-  fisico: el original pasaba el puntero directo a `FileHandle::Read`). El guest
-  recibia bytes validos pero un contador sin inicializar y **se quedaba colgado
-  en la pantalla de carga**. Corregido antes de publicar (leccion: al envolver
-  una llamada, conservar TODOS sus efectos observables).
-- La prueba inicial (offscreen, 60-150 s) no veia I/O porque el opening es un
-  video que no pasa por AFS: hay que **llegar al menu** para leer los
-  contenedores.
+- **`out_bytes_read` was not written** (our own regression when rewriting the
+  physical path: the original passed the pointer straight to
+  `FileHandle::Read`). The guest received valid bytes but an uninitialised
+  counter and **hung on the loading screen**. Fixed before publishing (lesson:
+  when wrapping a call, keep ALL of its observable effects).
+- The initial test (offscreen, 60-150 s) saw no I/O because the opening is a
+  video that does not go through AFS: you have to **reach the menu** to read
+  the containers.
 
-## 5. Verificacion
+## 5. Verification
 
-- Log: `mute_unfocused=true dim_unfocused=true` en
-  `applied runtime settings` y eventos `window focused` / `window in the
-  background` en cada cambio.
-- El overlay ImGui **se dibuja en partida** (captura con el contador FPS activo,
-  `Debug##overlay`). La captura de la ventana **sin foco** no es fiable con
-  `PrintWindow` (reactiva la ventana), por eso la atenuacion se valida por su
-  condicion (cvar + flag de foco) y por el overlay conocido.
-- Launcher: seccion nueva visible, sin recortes, con "nivel detectado: **Alta**"
-  ya traducido.
-- I/O medido (menu, SSD): sin lectura anticipada `phys=112/112`; con ella
-  `phys=60 cache=52` en la misma ventana de 5 s.
+- Log: `mute_unfocused=true dim_unfocused=true` in `applied runtime settings`
+  and `window focused` / `window in the background` events on every change.
+- The ImGui overlay **is drawn in game** (capture with the FPS counter on,
+  `Debug##overlay`). Capturing the **unfocused** window is not reliable with
+  `PrintWindow` (it reactivates the window), so the dimming is validated by
+  its condition (cvar + focus flag) and by the known overlay.
+- Launcher: new section visible, no clipping, with "detected level: **High**"
+  already translated.
+- I/O measured (menu, SSD): without read-ahead `phys=112/112`; with it
+  `phys=60 cache=52` in the same 5 s window.
 
-## 6. v1.2.5 definitiva (asset reemplazado, mismo tag)
+## 6. Final v1.2.5 (asset replaced, same tag)
 
-Los diagnosticos salian activados de fabrica y el log creaba un fichero por
-ejecucion sin podar los viejos (138 en las pruebas). Se corrigio **sin subir
-version**, reemplazando el zip de la v1.2.5:
+The diagnostics shipped on from the factory and the log created a file per run
+without pruning old ones (138 in testing). Fixed **without bumping the
+version**, replacing the v1.2.5 zip:
 
-- `dbz3_io_logging` y `dbz3_perf_logging` → **OFF por defecto**; se activan
-  desde el tab Dev (se anadio la casilla "Registro de rendimiento (cada 5 s)",
-  que antes no existia).
-- `logging.cpp` (`NextSequentialLogPath`) **poda** los `dbz3_NNN.log` mas
-  antiguos al arrancar, respetando `log_max_files` (20).
-- Verificado: 138 → 20 ficheros, 0 lineas `dbz3: io` y 0 `dbz3: perf` con los
-  valores por defecto. DLL canonica `rexruntime.dll` **10.910.208 B**.
+- `dbz3_io_logging` and `dbz3_perf_logging` → **OFF by default**; they are
+  turned on from the Dev tab (the checkbox "Performance logging (every 5 s)",
+  which did not exist before, was added).
+- `logging.cpp` (`NextSequentialLogPath`) **prunes** the oldest `dbz3_NNN.log`
+  at startup, respecting `log_max_files` (20).
+- Verified: 138 → 20 files, 0 `dbz3: io` lines and 0 `dbz3: perf` with the
+  default values. Canonical DLL `rexruntime.dll` **10,910,208 B**.
+
+> On **PS5** the log goes to `/data/dbz3/dbz3-play.log` (warnings only, replaced
+> at every start); see `docs/PS5.md`.

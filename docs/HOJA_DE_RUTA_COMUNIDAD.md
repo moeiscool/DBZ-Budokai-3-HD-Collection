@@ -1,166 +1,170 @@
-﻿# HOJA DE RUTA COMUNIDAD — Feedback comunitario (histórico, 2026-08-25)
+# COMMUNITY ROADMAP — Community feedback (historical, 2026-08-25)
 
-> **SUPERSEDIDA por `docs/HOJA_DE_RUTA_2026_09.md`** (2026-09-02). Se conserva
-> como registro de la demanda comunitaria P0-P5 y su resolución. Reescrita
-> 2026-09-02 para arreglar el mojibake (§14.19).
-> Toda la P0-P3 quedó **COMPLETADA**; P4 (centro de mods) y P5 (visión largo
-> plazo) se absorbieron en la hoja de ruta actual.
+> **SUPERSEDED by `docs/HOJA_DE_RUTA_2026_09.md`** (2026-09-02). Kept as a
+> record of the P0-P5 community demand and its resolution. Rewritten on
+> 2026-09-02 to fix the mojibake (§14.19).
+> All of P0-P3 was **COMPLETED**; P4 (mod centre) and P5 (long-term vision)
+> were absorbed into the current roadmap.
 
 ---
 
-## RESUMEN DE LA DEMANDA COMUNITARIA
+## SUMMARY OF THE COMMUNITY DEMAND
 
-| Categoría | Reportes | Impacto percibido |
+| Category | Reports | Perceived impact |
 |---|---|---|
-| **Inicio/ejecución** | No abre, se cierra tras "Play", "Entrypoint XEX not found" | Alto (bloquea primer uso) |
-| **Compatibilidad CPU** | Requiere AVX2 → 0xc0000142 en CPUs antiguas | Alto (deja fuera a usuarios) |
-| **Rendimiento** | 10 FPS en integradas; juego "acelerado" | Medio-alto |
-| **Estructura de archivos** | Confusión `default.xex` / `assets/` vs raíz | Medio (fricción primer uso) |
-| **Controles** | Teclado/botones no responden en juego | Medio |
-| **Nuevas funciones** | Android nativo, online, mods fáciles de gestionar | Bajo-medio (visión a futuro) |
+| **Startup/running** | Does not open, closes after "Play", "Entrypoint XEX not found" | High (blocks first use) |
+| **CPU compatibility** | Requires AVX2 → 0xc0000142 on old CPUs | High (leaves users out) |
+| **Performance** | 10 FPS on integrated graphics; the game "sped up" | Medium-high |
+| **File structure** | Confusion `default.xex` / `assets/` vs root | Medium (first-use friction) |
+| **Controls** | Keyboard/buttons do not respond in game | Medium |
+| **New features** | Native Android, online, easy-to-manage mods | Low-medium (future vision) |
 
 ---
 
-## PRIORIDAD 0 — ACTUALIZAR A REXGLUE 0.10.0 (fundación)
+## PRIORITY 0 — UPDATE TO REXGLUE 0.10.0 (foundation)
 
-### 0.1 ✅ Subir el SDK a 0.10.0 — HECHO y VALIDADO (2026-08-25)
-- **Por qué**: el proyecto usaba una base 0.9.x. Acaba de salir **0.10.0** con
-  mejoras relevantes: input (`gate mnk mouse look`, `comma-list binds`,
+### 0.1 ✅ Move the SDK to 0.10.0 — DONE and VALIDATED (2026-08-25)
+- **Why**: the project used a 0.9.x base. **0.10.0** had just come out with
+  relevant improvements: input (`gate mnk mouse look`, `comma-list binds`,
   `modifier prefixes`, `optional mouse`, `rstick keys`), ui (`imgui style
-  hook`), cvar (`track value source`), system (mejor crash-reporting y
-  estabilidad del recompilado), filesystem (fix POSIX access mode).
-- **Riesgo**: SDK "en desarrollo temprano" (breaking API). El parche del
-  runtime propio (mid-insert virtual en `afs.cpp`/`host_path_file.cpp`/
-  `host_path_entry.cpp`) y los fixes de input/presenter había que re-aplicarlos.
-- **Plan ejecutado**: SDK 0.10.0 compilado en paralelo en `rexglue-sdk-0.10/`
-  (sin tocar el 0.9); parche re-aplicado (9 archivos); instalado en `rexglue/`
-  (respaldo `rexglue_0.9/`); dbz3.exe compilado contra 0.10 (codegen
-  regenerado: `REX_WEAK_FUNC` eliminado en 0.10); **validado en juego** (mods
-  + mid-insert virtual funcionan).
-- **Esfuerzo**: Medio-Alto. **Impacto**: Alto. — **COMPLETADO**.
+  hook`), cvar (`track value source`), system (better crash reporting and
+  stability of the recompiled code), filesystem (POSIX access mode fix).
+- **Risk**: an SDK "in early development" (breaking API). Our own runtime
+  patch (virtual mid-insert in `afs.cpp`/`host_path_file.cpp`/
+  `host_path_entry.cpp`) and the input/presenter fixes had to be re-applied.
+- **Plan carried out**: SDK 0.10.0 built in parallel in `rexglue-sdk-0.10/`
+  (without touching 0.9); patch re-applied (9 files); installed into `rexglue/`
+  (backup `rexglue_0.9/`); dbz3.exe built against 0.10 (codegen regenerated:
+  `REX_WEAK_FUNC` removed in 0.10); **validated in game** (mods + virtual
+  mid-insert work).
+- **Effort**: Medium-High. **Impact**: High. — **COMPLETED**.
 
 ---
 
-## PRIORIDAD 1 — PRIMER USO / ESTABILIDAD (bug de bloqueo)
+## PRIORITY 1 — FIRST USE / STABILITY (blocking bug)
 
-### 1.1 ✅ Diagnóstico automático de layout + mensajes claros — HECHO (2026-08-25)
-- Banner de validación en el launcher (`launcher_state.cpp` OnDraw): verde
-  `[OK] Datos del juego en: <ruta>` o rojo qué falta (default.xex / us / eu).
-- Botón **"Seleccionar carpeta de datos..."**: diálogo nativo de Windows,
-  valida `us/`/`eu/` o `default.xex` (`IsValidGameDataDir`), persiste en
-  `dbz3_game_dir` y **remonta el juego en caliente** (`RelocateGameData` →
-  `RemountGameDrive` re-registra `game:/d:` + re-aplica región) sin reiniciar.
-- **PLAY bloqueado** cuando faltan los assets (`BeginDisabled`); el banner
-  indica cómo arreglarlo.
-- `OnConfigurePaths` prioridad: arg CLI > `dbz3_game_dir` > auto-detección.
-  Raíz efectiva en `dbz3::EffectiveGameRoot` (región.cpp).
-- **Esfuerzo**: Bajo. **Impacto**: Alto. — **COMPLETADO**.
+### 1.1 ✅ Automatic layout diagnosis + clear messages — DONE (2026-08-25)
+- Validation banner in the launcher (`launcher_state.cpp` OnDraw): green
+  `[OK] Game data in: <path>` or red with what is missing (default.xex / us / eu).
+- **"Select data folder..."** button: native Windows dialog, validates `us/`/
+  `eu/` or `default.xex` (`IsValidGameDataDir`), persists in `dbz3_game_dir`
+  and **remounts the game live** (`RelocateGameData` → `RemountGameDrive`
+  re-registers `game:/d:` + re-applies the region) without restarting.
+- **PLAY blocked** when the assets are missing (`BeginDisabled`); the banner
+  says how to fix it.
+- `OnConfigurePaths` priority: CLI arg > `dbz3_game_dir` > auto-detection.
+  Effective root in `dbz3::EffectiveGameRoot` (region.cpp).
+- **Effort**: Low. **Impact**: High. — **COMPLETED**.
 
-### 1.2 ✅ Crash inmediato tras Play (sin mensaje) — HECHO (2026-08-25)
-- `src/main.cpp` SetupCrashHandler: la captura de minidump (`crash_*.dmp`)
-  se mantiene. Ante excepción no controlada se muestra ventana
-  "DBZ Budokai 3 - Error" con: código de excepción, dirección, **ruta del
-  log** (`logs/dbz3_*.log` vía `LatestLogPath`) y ruta del minidump. Con
-  depurador conectado se delega (`EXCEPTION_CONTINUE_SEARCH`).
-  `std::terminate` también muestra la ventana.
-- **Esfuerzo**: Bajo-Medio. **Impacto**: Alto. — **COMPLETADO**.
-- Pendiente (release): `README_PRIMER_ARRANQUE.txt` en el zip (reforzar sección
-  de RELEASE_README).
+### 1.2 ✅ Immediate crash after Play (without a message) — DONE (2026-08-25)
+- `src/main.cpp` SetupCrashHandler: minidump capture (`crash_*.dmp`) is kept.
+  On an unhandled exception a "DBZ Budokai 3 - Error" window is shown with:
+  the exception code, the address, the **log path** (`logs/dbz3_*.log` via
+  `LatestLogPath`) and the minidump path. With a debugger attached it defers
+  (`EXCEPTION_CONTINUE_SEARCH`). `std::terminate` also shows the window.
+- **Effort**: Low-Medium. **Impact**: High. — **COMPLETED**.
+- Pending (release): `README_PRIMER_ARRANQUE.txt` in the zip (reinforce the
+  RELEASE_README section).
 
 ---
 
-## PRIORIDAD 2 — COMPATIBILIDAD DE HARDWARE
+## PRIORITY 2 — HARDWARE COMPATIBILITY
 
-### 2.1 ✅ Detector eficiente de AVX2 + build fallback — HECHO (2026-08-25)
-- **Hallazgo clave**: el exe del juego (dbz3.exe) se compila SIN `-march`
-  (baseline) — el AVX2 vive SOLO en las DLLs del SDK. Por eso el core es un
-  único binario y solo cambian las DLLs.
-- Bootstrap `dbz3.exe` (`src/bootstrap.cpp`) chequeaba CPUID y lanzaba
-  `dbz3_avx2\` o `dbz3_legacy\`. Build v2 del SDK con `-march=x86-64-v2` +
+### 2.1 ✅ Efficient AVX2 detector + fallback build — DONE (2026-08-25)
+- **Key finding**: the game's exe (dbz3.exe) is built WITHOUT `-march`
+  (baseline) — AVX2 lives ONLY in the SDK's DLLs. That is why the core is a
+  single binary and only the DLLs change.
+- The bootstrap `dbz3.exe` (`src/bootstrap.cpp`) checked CPUID and launched
+  `dbz3_avx2\` or `dbz3_legacy\`. SDK v2 build with `-march=x86-64-v2` +
   `REXGLUE_OUTPUT_DIR`. Mods walk-up (`AfsModsRoot`/`ModsRoot`/`ModsOutDir`).
-  Release con dbz3.exe + variantes.
-- **NOTA (2026-08-28, v1.1.1)**: el bootstrap se **ELIMINÓ** (§9.1): ahora el
-  SDK se compila entero en baseline `-march=x86-64 -mssse3` → un solo dbz3.exe
-  universal (Core 2 2006+). El fallback `v1.1.0-clasico` (runtime avx2) queda
-  como release no-Latest. Detalle en `AGENTS.md` §9.
-- **Esfuerzo**: Medio. **Impacto**: Alto. — **COMPLETADO** (evolucionado).
+  Release with dbz3.exe + variants.
+- **NOTE (2026-08-28, v1.1.1)**: the bootstrap was **REMOVED** (§9.1): now the
+  whole SDK is built at baseline `-march=x86-64 -mssse3` → a single universal
+  dbz3.exe (Core 2 2006+). The `v1.1.0-clasico` fallback (avx2 runtime)
+  remains as a non-Latest release. Detail in `AGENTS.md` §9.
+- **Effort**: Medium. **Impact**: High. — **COMPLETED** (evolved).
 
-### 2.2 ✅ Backends / rendimiento en máquinas modestas — HECHO (2026-08-25)
-- **Realidad**: Xenia/ReXGlue NO soporta OpenGL ni D3D11 — solo **D3D12 y
-  Vulkan** (fragment shader interlock / rasterizer-ordered views). D3D12 es YA
-  el backend MÁS compatible. → **NO perseguir OpenGL/D3D11**.
-- **Lo práctico**: presets de calidad por GPU (`dbz3_quality_preset`
-  auto/low/medium/high/ultra/manual; Auto detecta GPU vía DXGI y aplica
-  perfil), **frame_cap REAL** a 30 FPS (parche `d3d12_presenter.cpp` restaura
-  el cvar `frame_cap`). Perfilado Tracy (build win-amd64-tracy) como
-  optimización fina opcional.
-- **Esfuerzo**: Bajo-Medio. **Impacto**: Medio. — **COMPLETADO**.
+### 2.2 ✅ Backends / performance on modest machines — DONE (2026-08-25)
+- **Reality**: Xenia/ReXGlue does NOT support OpenGL or D3D11 — only **D3D12
+  and Vulkan** (fragment shader interlock / rasterizer-ordered views). D3D12 is
+  ALREADY the MOST compatible backend. → **Do NOT pursue OpenGL/D3D11**.
+- **What is practical**: per-GPU quality presets (`dbz3_quality_preset`
+  auto/low/medium/high/ultra/manual; Auto detects the GPU via DXGI and applies
+  a profile), a REAL **frame_cap** at 30 FPS (the `d3d12_presenter.cpp` patch
+  restores the `frame_cap` cvar). Tracy profiling (build win-amd64-tracy) as
+  optional fine-tuning.
+- **Effort**: Low-Medium. **Impact**: Medium. — **COMPLETED**.
 
-### 2.3 ✅ Frame pacing ("el juego corre acelerado") — HECHO (2026-08-25)
-- **Hallazgo**: en el SDK 0.10 el pacing del guest lo hace el worker `vsync`
-  de `GraphicsSystem`. Con `vsync` OFF el vblank corre a ~1000 Hz → la lógica
-  corre ~16x = "acelerado". El cvar `frame_cap` del 0.9 ya no existía.
-- **Qué se hizo**: `vsync` forzado a true (el guest DEBE correr a 60 Hz; el
-  checkbox placebo eliminado → "Game speed: fixed 60 FPS"). `frame_cap` real
-  restaurado (throttle de presentación host). `dbz3_frame_cap` default 60.
-- **Esfuerzo**: Bajo. **Impacto**: Medio. — **COMPLETADO**.
-- Pendiente: validar en juego el frame cap y el preset auto en una máquina con
-  integrada; perfilado Tracy opcional.
-
----
-
-## PRIORIDAD 3 — CONTROLES
-
-### 3.1 ✅ Teclado y mando robusto (compatibilidad SDL) — HECHO (2026-08-25)
-- **Diagnóstico**: el driver MnK del SDK existía completo pero `mnk_mode` estaba
-  en `false` por defecto → el teclado no hacía nada. Los sliders de
-  deadzone/rumble del launcher eran placebo (el SDK 0.10 eliminó esos cvars).
-- **Qué se hizo**: `dbz3_mnk_mode` default **TRUE** (teclado emula el mando de
-  serie). Mando por **XInput** (evita el cuelgue con RTSS/OBS); SDL como
-  selector para mandos genéricos (con aviso del riesgo). **Mapeo configurable**
-  en la pestaña Input: 24 keybinds (sintaxis `Tecla`, comas = alternativas,
-  `Shift+/Ctrl+/Alt+` = modificadores). **Deadzone/rumble REALES** (parche
-  `input_system.cpp` con cvars `deadzone`/`rumble`; registro de cvars de
-  rexruntime.dll compartido con el exe).
-- **Esfuerzo**: Medio. **Impacto**: Medio-Alto. — **COMPLETADO**.
+### 2.3 ✅ Frame pacing ("the game runs sped up") — DONE (2026-08-25)
+- **Finding**: in SDK 0.10 the guest's pacing is done by the `vsync` worker of
+  `GraphicsSystem`. With `vsync` OFF the vblank runs at ~1000 Hz → the logic
+  runs ~16x = "sped up". The 0.9 `frame_cap` cvar no longer existed.
+- **What was done**: `vsync` forced to true (the guest MUST run at 60 Hz; the
+  placebo checkbox removed → "Game speed: fixed 60 FPS"). Real `frame_cap`
+  restored (host presentation throttle). `dbz3_frame_cap` default 60.
+- **Effort**: Low. **Impact**: Medium. — **COMPLETED**.
+- Pending: validate in game the frame cap and the auto preset on a machine
+  with integrated graphics; optional Tracy profiling.
 
 ---
 
-## PRIORIDAD 4 — MODS MÁS FÁCILES DE GESTIONAR
+## PRIORITY 3 — CONTROLS
 
-### 4.1 Centro de mods en el launcher — HECHO (absorbido)
-- **Instalar mod desde `.zip`** (PowerShell Expand-Archive vía
-  `-EncodedCommand` base64; normaliza wrapper de una carpeta).
-- **Perfiles de mods** (`mods/profiles.txt`, cvar `dbz3_mod_profile`).
-- La pestaña Mods lista/activa/desactiva y edita manifiestos; núcleo vanilla
-  por defecto. Detalle en `AGENTS.md` §8.
-- **Esfuerzo**: Medio. **Impacto**: Medio.
-
----
-
-## VISIÓN A LARGO PLAZO (mayor esfuerzo, menor prioridad)
-
-### 5.1 Port nativo a Android
-- Retargetear el recompilador ReXGlue + GPU (Vulkan ya en Android) a ARM64 +
-  launcher como app. Proyecto grande. — No iniciado.
-
-### 5.2 Juego online
-- Netplay (sincronización determinista tipo rollback) sobre el recompilador.
-  Muy complejo. — No iniciado.
-
-### 5.3 Compatibilidad D3D9/10/11
-- **No recomendado / inviable**: el render es D3D12/Vulkan por diseño del SDK
-  (§2.2). Mejor invertir en optimizar D3D12 + afinar Vulkan.
+### 3.1 ✅ Robust keyboard and controller (SDL compatibility) — DONE (2026-08-25)
+- **Diagnosis**: the SDK's MnK driver existed complete but `mnk_mode` was
+  `false` by default → the keyboard did nothing. The launcher's deadzone/rumble
+  sliders were placebo (SDK 0.10 removed those cvars).
+- **What was done**: `dbz3_mnk_mode` default **TRUE** (the keyboard emulates the
+  controller out of the box). Controller via **XInput** (avoids the hang with
+  RTSS/OBS); SDL as a selector for generic controllers (with a warning about
+  the risk). **Configurable mapping** in the Input tab: 24 keybinds (syntax
+  `Key`, commas = alternatives, `Shift+/Ctrl+/Alt+` = modifiers). **REAL
+  deadzone/rumble** (`input_system.cpp` patch with `deadzone`/`rumble` cvars;
+  rexruntime.dll's cvar registry shared with the exe).
+- **Effort**: Medium. **Impact**: Medium-High. — **COMPLETED**.
 
 ---
 
-## REFERENCIAS
+## PRIORITY 4 — EASIER-TO-MANAGE MODS
 
-| Tema | Dónde |
+### 4.1 Mod centre in the launcher — DONE (absorbed)
+- **Install a mod from a `.zip`** (PowerShell Expand-Archive via base64
+  `-EncodedCommand`; normalises a one-folder wrapper).
+- **Mod profiles** (`mods/profiles.txt`, cvar `dbz3_mod_profile`).
+- The Mods tab lists/enables/disables and edits manifests; vanilla core by
+  default. Detail in `AGENTS.md` §8.
+- **Effort**: Medium. **Impact**: Medium.
+
+---
+
+## LONG-TERM VISION (more effort, lower priority)
+
+### 5.1 Native Android port
+- Retarget the ReXGlue recompiler + GPU (Vulkan already on Android) to ARM64 +
+  the launcher as an app. A big project. — Not started.
+
+### 5.2 Online play
+- Netplay (deterministic rollback-style sync) on top of the recompiler. Very
+  complex. — Not started.
+
+### 5.3 D3D9/10/11 compatibility
+- **Not recommended / not viable**: rendering is D3D12/Vulkan by the SDK's
+  design (§2.2). Better to invest in optimising D3D12 + tuning Vulkan.
+
+### 5.4 Consoles (2026-10-06)
+- A **jailbroken PS5** build now exists (Vulkan, adapted from mcla-recomp):
+  see `docs/PS5.md`. Experimental, not yet run on a console.
+
+---
+
+## REFERENCES
+
+| Topic | Where |
 |---|---|
-| Hoja de ruta actual (2026-09) | `docs/HOJA_DE_RUTA_2026_09.md` |
-| Migración a Rexglue 0.10.0 | `docs/MIGRACION_REXGLUE_010.md` |
-| Parche del runtime (SDK) | `github/patches/` |
-| Roadmap de modding | `docs/HOJA_DE_RUTA.md` (histórico) |
-| Estado actual | `docs/01_estructura/ESTADO.md` |
-| Historial de sesiones | `docs/01_estructura/HISTORICO_AGENTS.md` |
+| Current roadmap (2026-09) | `docs/HOJA_DE_RUTA_2026_09.md` |
+| Migration to Rexglue 0.10.0 | `docs/MIGRACION_REXGLUE_010.md` |
+| Runtime patch (SDK) | `github/patches/` |
+| Modding roadmap | `docs/HOJA_DE_RUTA.md` (historical) |
+| Current state | `docs/01_estructura/ESTADO.md` |
+| Session history | `docs/01_estructura/HISTORICO_AGENTS.md` |
+| PS5 build | `docs/PS5.md` |

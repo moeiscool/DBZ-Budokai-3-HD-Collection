@@ -1,143 +1,148 @@
-# PLAN_LINUX — Port de DBZ Budokai 3 HD Collection a Linux
+# PLAN_LINUX — Porting DBZ Budokai 3 HD Collection to Linux
 
-> Estrategia para portar el proyecto a Linux, basada en una auditoría real del
-> código (AGENTS §14.21/§3.4 + barrido de plataforma 2026-08-28). El SDK
-> (derivado de Xenia) ya es multiplataforma; el trabajo está en `src/` (launcher)
-> y en validar Vulkan como backend de juego.
-
----
-
-## 1. Viabilidad (veredicto)
-
-**ALTA.** El SDK (`rexglue-sdk-0.10`) ya tiene:
-- Capa de plataforma explícita: `REX_PLATFORM_WIN32 / LINUX / MAC` y pares de
-  archivos `*_win.cpp` / `*_posix.cpp` (seleccionados por CMake).
-- **Backend Vulkan ON por defecto en Linux** (`REXGLUE_USE_D3D12=OFF,
-  REXGLUE_USE_VULKAN=ON` en el CMake raíz); D3D12 es Windows-only.
-- Input/audio SDL3 (multiplataforma), filesystem `std::filesystem` +
-  `FileHandle` abstraído (Win32FileHandle vs PosixFileHandle), excepciones
-  SEH/POSIX, sockets, memoria mapeada, DLL/son, etc. — todos con su par posix.
-- El CMake raíz del juego ya tiene ramas `WIN32` vs `UNIX`.
-
-El cuello de botella real estaba en `src/` (launcher): 6 archivos con APIs Win32
-sin guardar. **La fase 1.1.1 ya los protegió** (ver §3). Lo que queda es
-funcional (diálogos, spawn, zips) y la validación de Vulkan como backend de
-juego.
+> Strategy for porting the project to Linux, based on a real audit of the code
+> (AGENTS §14.21/§3.4 + platform sweep 2026-08-28). The SDK (derived from
+> Xenia) is already multiplatform; the work is in `src/` (launcher) and in
+> validating Vulkan as the game backend.
+>
+> **Status (2026-10):** Linux shipped (see `docs/LINUX.md`). The same
+> portability work is the basis of the jailbroken-PS5 build (`docs/PS5.md`).
 
 ---
 
-## 2. Mapa de plataforma (auditoría 2026-08-28)
+## 1. Viability (verdict)
 
-### 2.1 `src/` — código específico de Windows (antes de 1.1.1)
+**HIGH.** The SDK (`rexglue-sdk-0.10`) already has:
+- An explicit platform layer: `REX_PLATFORM_WIN32 / LINUX / MAC` and pairs of
+  `*_win.cpp` / `*_posix.cpp` files (selected by CMake).
+- **Vulkan backend ON by default on Linux** (`REXGLUE_USE_D3D12=OFF,
+  REXGLUE_USE_VULKAN=ON` in the root CMake); D3D12 is Windows-only.
+- SDL3 input/audio (multiplatform), `std::filesystem` filesystem + abstracted
+  `FileHandle` (Win32FileHandle vs PosixFileHandle), SEH/POSIX exceptions,
+  sockets, mapped memory, DLL/so, etc. — all with their posix pair.
+- The game's root CMake already has `WIN32` vs `UNIX` branches.
 
-| Archivo | API Win32 | Estado tras 1.1.1 |
+The real bottleneck was in `src/` (launcher): 6 files with unguarded Win32
+APIs. **Phase 1.1.1 already guarded them** (see §3). What remains is
+functional (dialogs, spawning, zips) and validating Vulkan as the game backend.
+
+---
+
+## 2. Platform map (audit 2026-08-28)
+
+### 2.1 `src/` — Windows-specific code (before 1.1.1)
+
+| File | Win32 API | State after 1.1.1 |
 |---|---|---|
-| `src/main.cpp` | `SetUnhandledExceptionFilter`, `CreateFileA`, `MessageBoxA`, `RtlCaptureStackBackTrace`, `OutputDebugStringA` | crash handler ya era Win32-only; `OutputDebugStringA` → no-op fuera de Windows; pre-flight portable |
-| `src/launcher/settings.cpp` | `CryptAcquireContext/CALG_MD5`, `CreateDXGIFactory1/EnumAdapters1`, `EnumDisplaySettingsW`, `WideCharToMultiByte` | **MD5 portable escrito** (elimina CryptoAPI); DXGI protegido con fallback tier "medium"; refresh ya guardado |
-| `src/launcher/launcher_state.cpp` | `CoInitializeEx`, `IFileOpenDialog`, `SHCreateItemFromParsingName`, `MultiByteToWideChar` | diálogos COM y UTF-16 protegidos; fallback "cancelado" |
-| `src/launcher/mod_pipeline.cpp` | `CreateProcessW`, `CreatePipe`, `ReadFile`, `WaitForSingleObject` | protegido; fallback con error claro |
-| `src/mods.cpp` | PowerShell `Expand-Archive` (vía `CreateProcessW`) | ya tenía fallback `#else` (no soportado) |
-| `src/region.cpp`, `src/ingame/menu.cpp`, `i18n.*` | — | multiplataforma (std::filesystem, ImGui, datos) |
+| `src/main.cpp` | `SetUnhandledExceptionFilter`, `CreateFileA`, `MessageBoxA`, `RtlCaptureStackBackTrace`, `OutputDebugStringA` | the crash handler was already Win32-only; `OutputDebugStringA` → no-op outside Windows; portable pre-flight |
+| `src/launcher/settings.cpp` | `CryptAcquireContext/CALG_MD5`, `CreateDXGIFactory1/EnumAdapters1`, `EnumDisplaySettingsW`, `WideCharToMultiByte` | **portable MD5 written** (drops CryptoAPI); DXGI guarded with a "medium" tier fallback; refresh already guarded |
+| `src/launcher/launcher_state.cpp` | `CoInitializeEx`, `IFileOpenDialog`, `SHCreateItemFromParsingName`, `MultiByteToWideChar` | COM dialogs and UTF-16 guarded; "cancelled" fallback |
+| `src/launcher/mod_pipeline.cpp` | `CreateProcessW`, `CreatePipe`, `ReadFile`, `WaitForSingleObject` | guarded; fallback with a clear error |
+| `src/mods.cpp` | PowerShell `Expand-Archive` (via `CreateProcessW`) | already had an `#else` fallback (unsupported) |
+| `src/region.cpp`, `src/ingame/menu.cpp`, `i18n.*` | — | multiplatform (std::filesystem, ImGui, data) |
 
-### 2.2 SDK — subsistemas (resumen)
+### 2.2 SDK — subsystems (summary)
 
-| Subsistema | Linux | Notas |
+| Subsystem | Linux | Notes |
 |---|---|---|
 | core (base) | ✅ `*_posix` | threading/clock/seh/memory/dynlib/filesystem/exception/socket/system |
 | filesystem | ✅ | `std::filesystem` + `FileHandle` (Win/Posix) |
-| graphics | ✅ **Vulkan** | D3D12 solo Windows; Vulkan experimental y lento (reto de perf) |
+| graphics | ✅ **Vulkan** | D3D12 Windows-only; Vulkan experimental and slow (perf challenge) |
 | ui | ✅ | `surface_gnulinux.cpp`; deps `x11-xcb` + `wayland-client` |
-| input | ✅ | SDL por defecto; XInput solo Windows |
+| input | ✅ | SDL by default; XInput Windows-only |
 | audio | ✅ | SDL / NOP |
-| kernel/ppc | ✅ | guards `#if REX_PLATFORM`; codegen portable (verificar `ppc/`) |
+| kernel/ppc | ✅ | `#if REX_PLATFORM` guards; portable codegen (check `ppc/`) |
 
 ---
 
-## 3. HECHO en 1.1.1 (bases de código)
+## 3. DONE in 1.1.1 (code foundations)
 
-1. **`settings.cpp`**: MD5 portable (RFC 1321, ~120 líneas) para `CheckDefaultXex`
-   — elimina la dependencia de CryptoAPI. Detección de GPU DXGI protegida
-   (`GetPrimaryGpu/DetectGpuName/DetectGpuTier`) con fallback (tier medium).
-   Defaults de backend por plataforma: `dbz3_gpu_backend` = `d3d12`/`vulkan`,
-   `dbz3_input_backend` = `xinput`/`sdl`.
-2. **`launcher_state.cpp`**: `PickFolder`/`PickFile` (COM) y `Utf8ToWide`/
-   `WideToUtf8` bajo `#if REX_PLATFORM_WIN32`; fuera de Windows devuelven
-   "cancelado" (el launcher mantiene las rutas por defecto).
-3. **`mod_pipeline.cpp`**: el lanzador de scripts (`CreateProcessW`) protegido
-   con fallback de error claro.
-4. **`mods.cpp`**: ya portable (fallback para el instalador de zips).
-5. **`main.cpp`**: `OutputDebugStringA` no-op fuera de Windows; pre-flight
-   portable (MessageBox en Windows / stderr en el resto).
+1. **`settings.cpp`**: portable MD5 (RFC 1321, ~120 lines) for
+   `CheckDefaultXex` — drops the CryptoAPI dependency. DXGI GPU detection
+   guarded (`GetPrimaryGpu/DetectGpuName/DetectGpuTier`) with a fallback (tier
+   medium). Per-platform backend defaults: `dbz3_gpu_backend` =
+   `d3d12`/`vulkan`, `dbz3_input_backend` = `xinput`/`sdl`.
+2. **`launcher_state.cpp`**: `PickFolder`/`PickFile` (COM) and `Utf8ToWide`/
+   `WideToUtf8` under `#if REX_PLATFORM_WIN32`; outside Windows they return
+   "cancelled" (the launcher keeps the default paths).
+3. **`mod_pipeline.cpp`**: the script launcher (`CreateProcessW`) guarded with
+   a clear-error fallback.
+4. **`mods.cpp`**: already portable (fallback for the zip installer).
+5. **`main.cpp`**: `OutputDebugStringA` no-op outside Windows; portable
+   pre-flight (MessageBox on Windows / stderr elsewhere).
 
-Con esto, `src/` **compila conceptualmente en Linux** (sin dependencias Win32
-obligatorias en rutas de build).
+With this, `src/` **conceptually compiles on Linux** (no mandatory Win32
+dependencies in build paths).
 
 ---
 
-## 4. Pendiente para un build Linux real
+## 4. Pending for a real Linux build
 
-Orden de trabajo recomendado:
+Recommended order of work:
 
 ### 4.1 Build toolchain
-1. **Preset CMake Linux** en `CMakePresets.json`: compilador clang,
-   flags baseline `-march=x86-64 -mssse3`, Vulkan obligatorio y
-   `DBZ3_DUAL_REGION=ON`. El preset no depende de una versión exacta de Clang.
-2. **Dependencias** (apt/pacman): vulkan (libvulkan-dev), SDL3, X11-xcb,
-   wayland-client, xdg. El CMake del SDK ya las contempla.
-3. **Recompilar el codegen**: `generated/` (US) y `generated_eu/` (EU) se
-   regeneran con `rexglue codegen` (el recompilador es portable). Los `.xex`
-   descifrados son los mismos → los `dbz3_config*.toml` funcionan igual.
-4. **DLLs → .so**: el plugin GPU se carga por nombre (`gpu_plugin_loader.cpp` ya
-   distingue `.dll/.dylib/.so`). El runtime Linux produce `librexruntime.so`,
-   `librexgpu-xenos.so`, FFX vk.
+1. **Linux CMake preset** in `CMakePresets.json`: clang compiler, baseline
+   flags `-march=x86-64 -mssse3`, Vulkan mandatory and
+   `DBZ3_DUAL_REGION=ON`. The preset does not depend on an exact Clang version.
+2. **Dependencies** (apt/pacman): vulkan (libvulkan-dev), SDL3, X11-xcb,
+   wayland-client, xdg. The SDK's CMake already covers them.
+3. **Rebuild the codegen**: `generated/` (US) and `generated_eu/` (EU) are
+   regenerated with `rexglue codegen` (the recompiler is portable). The
+   decrypted `.xex` are the same → the `dbz3_config*.toml` work the same.
+4. **DLLs → .so**: the GPU plugin is loaded by name (`gpu_plugin_loader.cpp`
+   already distinguishes `.dll/.dylib/.so`). The Linux runtime produces
+   `librexruntime.so`, `librexgpu-xenos.so`, FFX vk.
 
-### 4.2 Funcional pendiente (launcher)
-1. **Diálogos de archivo portables**: implementados con `zenity` y fallback a
-   `kdialog`; sin ninguno, el launcher conserva el comportamiento de cancelar.
-2. **Spawn de scripts portable**: implementado con `posix_spawn` y un pipe para
-   capturar stdout/stderr, manteniendo el pipeline asíncrono de Windows.
-3. **Instalación de zips**: implementada con `unzip` y la misma normalización
-   de layouts; la dependencia se documenta como paquete de sistema.
-4. **Gestion de `mod center hd/`**: los scripts (`swap_b3.py`, `texture_b3.py`)
-   llaman a `xbcompress.exe`/`xbdecompress.exe` (binarios XDK, solo Windows).
-   En Linux hay que: (a) portar la compresión LZX (el SDK ya tiene
-   `mspack`/`libmspack` — ver si expone LZX), o (b) ejecutar vía Wine, o
-   (c) marcar las herramientas como Windows-only en el launcher.
+### 4.2 Pending functionality (launcher)
+1. **Portable file dialogs**: implemented with `zenity` and a `kdialog`
+   fallback; with neither, the launcher keeps the cancel behaviour.
+2. **Portable script spawning**: implemented with `posix_spawn` and a pipe to
+   capture stdout/stderr, keeping Windows' asynchronous pipeline.
+3. **Zip installation**: implemented with `unzip` and the same layout
+   normalisation; the dependency is documented as a system package.
+4. **Handling `mod center hd/`**: the scripts (`swap_b3.py`, `texture_b3.py`)
+   call `xbcompress.exe`/`xbdecompress.exe` (XDK binaries, Windows only). On
+   Linux we must: (a) port the LZX compression (the SDK already has
+   `mspack`/`libmspack` — see whether it exposes LZX), or (b) run via Wine, or
+   (c) mark the tools as Windows-only in the launcher.
 
-### 4.3 Validación de Vulkan como backend de juego (el reto)
-- Vulkan ya existe y renderiza, pero es **6.5x más lento que D3D12 en IssueSwap**
-  (§3 / AGENTS). El port Linux entero depende de que Vulkan sea fluido.
-- **Plan**: perfilado con Tracy (build `win-amd64-tracy`/Linux equivalente),
-  buscar cuellos en el command processor / barriers / fences del path Vulkan,
-  y el fix de pacing ya blindado (§14.17 clamp vsync a 60 Hz) aplicar igual.
-- Si Vulkan no alcanza el rendimiento, alternativas: DXVK no aplica (el render
-  es nativo); sería revisar el path Vulkan a fondo (está en el SDK).
+### 4.3 Validating Vulkan as the game backend (the challenge)
+- Vulkan already exists and renders, but it is **6.5x slower than D3D12 in
+  IssueSwap** (§3 / AGENTS). The whole Linux port depends on Vulkan being
+  smooth.
+- **Plan**: profiling with Tracy (build `win-amd64-tracy`/Linux equivalent),
+  look for bottlenecks in the command processor / barriers / fences of the
+  Vulkan path, and apply the already-hardened pacing fix (§14.17 vsync clamp
+  at 60 Hz) the same way.
+- If Vulkan does not reach the performance, alternatives: DXVK does not apply
+  (the render is native); the Vulkan path would have to be reviewed in depth
+  (it is in the SDK).
 
-### 4.4 Verificaciones
-- Barrido fino de `ppc/` y `codegen/` del SDK en busca de Win32 residual
-  (no encontrado en el grep inicial, confirmar).
-- Smoke test en Linux: launcher shown + first present OK (log Vulkan) + intro
-  del guest sin FATAL.
+### 4.4 Checks
+- Fine sweep of the SDK's `ppc/` and `codegen/` for residual Win32 (not found
+  in the initial grep, to confirm).
+- Smoke test on Linux: launcher shown + first present OK (Vulkan log) + guest
+  intro without FATAL.
 
 ---
 
-## 5. Alcance por fases
+## 5. Scope by phase
 
-| Fase | Contenido | Resultado |
+| Phase | Contents | Result |
 |---|---|---|
-| **1.1.1 (hecho)** | Guards de plataforma en `src/` + MD5 portable + defaults por plataforma + docs | `src/` portable; estrategia documentada |
-| **1.2 (próxima)** | Preset CMake Linux + build del core dual en Linux + diálogos/spawn/zips portables | Primer binario Linux que arranca el launcher |
-| **1.3** | Vulkan fluido (perfilado + optimización) | Juego jugable en Linux |
-| **1.4** | Toolkit de modding en Linux (LZX portable o Wine) + release Linux | Release Linux pública |
+| **1.1.1 (done)** | Platform guards in `src/` + portable MD5 + per-platform defaults + docs | `src/` portable; strategy documented |
+| **1.2 (next)** | Linux CMake preset + dual-core build on Linux + portable dialogs/spawn/zips | First Linux binary that starts the launcher |
+| **1.3** | Smooth Vulkan (profiling + optimisation) | Game playable on Linux |
+| **1.4** | Modding toolkit on Linux (portable LZX or Wine) + Linux release | Public Linux release |
 
 ---
 
-## 6. Riesgos y decisiones abiertas
+## 6. Risks and open decisions
 
-- **Rendimiento Vulkan** (crítico): sin Vulkan fluido no hay release Linux.
-- **Mando**: SDL por defecto (XInput no existe en Linux) — el mando USB/Bluetooth
-  genérico debería funcionar; validar deadzone/rumble (§14.7) en Linux.
-- **Distribución**: AppImage/Flatpak vs tar.gz con dependencias documentadas.
-  Decidir cuando exista el primer binario jugable.
-- **El port de modelos y el modding dependen de las herramientas de compresión
-  LZX**: es el bloqueador de paridad de características, no del juego base.
+- **Vulkan performance** (critical): without smooth Vulkan there is no Linux release.
+- **Controller**: SDL by default (XInput does not exist on Linux) — a generic
+  USB/Bluetooth controller should work; validate deadzone/rumble (§14.7) on Linux.
+- **Distribution**: AppImage/Flatpak vs a tar.gz with documented dependencies.
+  Decide when the first playable binary exists.
+- **The model port and modding depend on the LZX compression tools**: it is
+  the feature-parity blocker, not the base game's.

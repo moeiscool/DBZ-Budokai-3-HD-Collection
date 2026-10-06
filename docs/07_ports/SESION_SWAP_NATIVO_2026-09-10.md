@@ -1,162 +1,163 @@
-# SESIÓN 2026-09-10 — SWAP NATIVO B3 HD→B3 HD VALIDADO (Cell Forma 2 → Krillin)
+# SESSION 2026-09-10 — NATIVE B3 HD→B3 HD SWAP VALIDATED (Cell Form 2 → Krillin)
 
-> Resultado verificado en juego por el usuario: **100% funcional** (incluida la
-> boca). Mod `cell_native`. Herramienta `mod center hd/swap_b3.py`.
-> Este documento cierra el arco "Cell en el slot de Krillin" y **deslinda** lo
-> que es un *swap nativo HD→HD* (resuelto) de un *port PS2→HD* (pendiente).
-
----
-
-## 0. RESULTADO
-
-- **Cell Forma 2 HD (bin 147) renderiza perfecto en el slot de Krillin (327)**,
-  con todas las funciones (boca incluida). Sin peros.
-- Mod generado: `out/build/win-amd64-release/mods/cell_native/`
-  (`us/data_cmn.afs/327/geom.bin`, override por entrada, ~120 KB).
-- Verificación binaria: el `geom.bin` descomprimido es **idéntico** (MD5) al bin
-  origen 147 extraído de `us/data_cmn.afs`.
+> Result verified in game by the user: **100% functional** (mouth included).
+> Mod `cell_native`. Tool `mod center hd/swap_b3.py`.
+> This document closes the "Cell in Krillin's slot" arc and **separates** what
+> a *native HD→HD swap* is (solved) from a *PS2→HD port* (pending).
 
 ---
 
-## 1. QUÉ ES Y QUÉ NO ES (crítico)
+## 0. RESULT
 
-| | Swap nativo B3 HD→B3 HD | Port PS2→B3 HD |
+- **HD Cell Form 2 (bin 147) renders perfectly in Krillin's slot (327)**, with
+  every function (mouth included). No buts.
+- Generated mod: `out/build/win-amd64-release/mods/cell_native/`
+  (`us/data_cmn.afs/327/geom.bin`, per-entry override, ~120 KB).
+- Binary check: the decompressed `geom.bin` is **identical** (MD5) to source
+  bin 147 extracted from `us/data_cmn.afs`.
+
+---
+
+## 1. WHAT IT IS AND WHAT IT IS NOT (critical)
+
+| | Native B3 HD→B3 HD swap | PS2→B3 HD port |
 |---|---|---|
-| Qué mueve | El `#AMB` **COMPLETO** (AWO+AZT) de un personaje HD a otro slot | Geometría del modelo **PS2** hacia el bin HD |
-| Topología | La del propio bin (viaja con él) | La del HD (inyección) o reconstruida (Vía B) |
-| Estado | ✅ **100% FUNCIONAL** | ⛔ Vía A deforma · Vía B bloqueada |
-| Uso | Cualquier personaje que **ya exista en HD** | Personajes que **solo** existen en PS2/IW |
+| What it moves | A HD character's **COMPLETE** `#AMB` (AWO+AZT) into another slot | The **PS2** model's geometry into the HD bin |
+| Topology | The bin's own (it travels with it) | HD's (injection) or rebuilt (Route B) |
+| State | ✅ **100% FUNCTIONAL** | ⛔ Route A deforms · Route B blocked |
+| Use | Any character that **already exists in HD** | Characters that **only** exist on PS2/IW |
 
-> **Lo conseguido hoy es un swap nativo HD→HD, NO una conversión PS2→HD.**
-> Cell Forma 2 ya existía en HD (entrada 147); lo hemos colocado en el slot de
-> Krillin. Por eso sale perfecto: el runtime dibuja el bin tal cual.
+> **What was achieved today is a native HD→HD swap, NOT a PS2→HD conversion.**
+> Cell Form 2 already existed in HD (entry 147); we placed it in Krillin's
+> slot. That is why it comes out perfect: the runtime draws the bin as it is.
 
 ---
 
-## 2. RECETA REPRODUCIBLE
+## 2. REPRODUCIBLE RECIPE
 
 ```powershell
-# 0) Listar el catálogo (bin = índice de entrada AFS)
+# 0) List the catalogue (bin = AFS entry index)
 python "mod center hd\swap_b3.py" --list
 
-# 1) Swap nativo: bin ORIGEN -> slot DESTINO
+# 1) Native swap: SOURCE bin -> TARGET slot
 python "mod center hd\swap_b3.py" --origen 147 --dest 327 --mod cell_native
 ```
 
-- **Origen/destino**: números del catálogo `mod center hd/catalog_b3.cat`
-  (formato `bin|nombre|label|variante|jugable`). **bin == entrada AFS**
-  (147 = Cell Forma 2, 327 = Krillin).
-- **AFS por defecto**: `<raíz>/us/data_cmn.afs` (293 423 104 B).
-- **Salida**: `out\build\win-amd64-release\mods\<mod>\us\data_cmn.afs\<dest>\geom.bin`.
-- **Sin `.disabled`** = mod activo. ⚠️ **Un solo mod activo por slot**
-  (el runtime sirve el primero por orden alfabético).
+- **Source/target**: numbers from the catalogue `mod center hd/catalog_b3.cat`
+  (format `bin|name|label|variant|playable`). **bin == AFS entry**
+  (147 = Cell Form 2, 327 = Krillin).
+- **Default AFS**: `<root>/us/data_cmn.afs` (293,423,104 B).
+- **Output**: `out\build\win-amd64-release\mods\<mod>\us\data_cmn.afs\<dest>\geom.bin`.
+- **No `.disabled`** = mod active. ⚠️ **Only one active mod per slot** (the
+  runtime serves the first in alphabetical order).
 
-### Verificación (recomendada)
+### Verification (recommended)
 ```powershell
 python "mod center hd\swap_b3.py" --origen 147 --dest 327 --mod check
-# y comprobar que el geom.bin descomprimido == bin origen (MD5)
+# and check that the decompressed geom.bin == the source bin (MD5)
 ```
 
 ---
 
-## 3. MECÁNICA (por qué funciona)
+## 3. MECHANICS (why it works)
 
-1. El `#AMB` HD contiene `#AWO` (malla) + `#AZT` (texturas) del **mismo
-   personaje** → se mueven juntos, sin mismatch.
-2. El runtime **no valida conteos fijos del slot**: dibuja el mesh group, IB,
-   bones y UVs **que vienen dentro del bin instalado**.
-3. Se sirve como **override por entrada AFS** (bajo peso): el mod sólo contiene
-   el bin, no el AFS entero (293 MB).
-4. **Compresión LZX `/N:2048`** + padding; si el bin comprimido excede el
-   `to_read` del slot, el **mid-insert virtual** del runtime hace crecer la
-   entrada in-place y desplaza las posteriores (en memoria).
-5. La animación/expresiones van por **match de labels** entre el modelo y el
-   `#ACM` del slot; al ser el mismo juego, los labels coinciden (boca OK).
-
----
-
-## 4. CATÁLOGO DE PERSONAJES
-
-- Fichero: `mod center hd/catalog_b3.cat` (183 entradas).
-- Columnas: `bin | nombre | label | variante | jugable`.
-- **bin = índice de entrada AFS**. Ejemplos:
-  `146/147/148 = Cell Forma 1/2/3`, `149/150/151 = Cell Forma 1/2/3 alt`,
-  `327/328/329 = Krillin (sin pelo/con pelo/armadura)`.
-- Listar: `python "mod center hd\swap_b3.py" --list`.
+1. The HD `#AMB` contains `#AWO` (mesh) + `#AZT` (textures) of the **same
+   character** → they move together, without mismatch.
+2. The runtime **does not validate fixed slot counts**: it draws the mesh
+   group, IB, bones and UVs **that come inside the installed bin**.
+3. It is served as a **per-AFS-entry override** (lightweight): the mod only
+   contains the bin, not the whole AFS (293 MB).
+4. **LZX `/N:2048` compression** + padding; if the compressed bin exceeds the
+   slot's `to_read`, the runtime's **virtual mid-insert** grows the entry in
+   place and shifts the later ones (in memory).
+5. Animation/expressions go through **label matching** between the model and
+   the slot's `#ACM`; being the same game, the labels match (mouth OK).
 
 ---
 
-## 5. IMPLICACIONES
+## 4. CHARACTER CATALOGUE
 
-### 5.1 Lo que ESTÁ ready
-- **Model swap nativo B3 HD→B3 HD**: 100% funcional y validado
-  (Cell F2 → Krillin). Permite poner cualquier modelo HD en cualquier slot,
-  completamente jugable.
-- Herramientas: `swap_b3.py` (swap), `swap_matrix.py` (mover blobs entre
-  slots/regiones), `texture_b3.py` (texturas), catálogo.
-
-### 5.2 Lo que NO está ready
-- **Conversión PS2 → B3 HD**. Estado (2026-09-10):
-  - **Vía A (inyección)**: funciona técnicamente pero **deforma el cuerpo**,
-    porque el cuerpo HD fue **re-modelado** (distancia media HD↔PS2 **0.69**,
-    máx **5.31**); manos/cara HD ya son PS2 (dist. 0.01‑0.21) → inyectarlas es un
-    no-op. `cell_best2`/`cell_face_only` confirman que no mejora.
-  - **Vía B (port completo)**: bloqueada (consumo posicional del pool; hipótesis
-    NVIDIA "Vertex Offset Method" + 2ª tabla `AWG0+0x1F80`). Requiere RE.
-- **Regla de decisión** (nueva):
-  1. ¿El personaje **existe en HD**? → **swap nativo** (perfecto).
-  2. ¿Solo existe en **PS2/IW**? → Vía A (limitada) o RE Vía B (pendiente).
-
-### 5.3 Consecuencia estratégica
-El port PS2→HD **solo aporta valor para modelos inexistentes en HD**
-(p. ej. personajes de Infinite World / modelos custom). Para el roster de B3,
-el swap nativo cubre todo. Conviene dirigir el esfuerzo de RE (Vía B) a esos
-casos, no a personajes ya presentes en HD.
+- File: `mod center hd/catalog_b3.cat` (183 entries).
+- Columns: `bin | name | label | variant | playable`.
+- **bin = AFS entry index**. Examples:
+  `146/147/148 = Cell Form 1/2/3`, `149/150/151 = Cell Form 1/2/3 alt`,
+  `327/328/329 = Krillin (bald/with hair/armour)`.
+- List: `python "mod center hd\swap_b3.py" --list`.
 
 ---
 
-## 6. ESTADO DE HERRAMIENTAS (replicabilidad)
+## 5. IMPLICATIONS
 
-| Herramienta | Estado | Uso |
+### 5.1 What IS ready
+- **Native B3 HD→B3 HD model swap**: 100% functional and validated
+  (Cell F2 → Krillin). It lets you put any HD model in any slot, completely
+  playable.
+- Tools: `swap_b3.py` (swap), `swap_matrix.py` (move blobs between
+  slots/regions), `texture_b3.py` (textures), catalogue.
+
+### 5.2 What is NOT ready
+- **PS2 → B3 HD conversion**. State (2026-09-10):
+  - **Route A (injection)**: technically works but **deforms the body**,
+    because the HD body was **remodelled** (mean HD↔PS2 distance **0.69**, max
+    **5.31**); HD hands/face are already PS2 (dist. 0.01‑0.21) → injecting them
+    is a no-op. `cell_best2`/`cell_face_only` confirm it does not improve.
+  - **Route B (full port)**: blocked (positional consumption of the pool;
+    NVIDIA "Vertex Offset Method" hypothesis + 2nd table `AWG0+0x1F80`).
+    Needs RE.
+- **Decision rule** (new):
+  1. Does the character **exist in HD**? → **native swap** (perfect).
+  2. Does it only exist on **PS2/IW**? → Route A (limited) or Route B RE (pending).
+
+### 5.3 Strategic consequence
+The PS2→HD port **only adds value for models that do not exist in HD** (e.g.
+Infinite World characters / custom models). For B3's roster, the native swap
+covers everything. RE effort (Route B) should go to those cases, not to
+characters already present in HD.
+
+---
+
+## 6. TOOL STATE (reproducibility)
+
+| Tool | State | Use |
 |---|---|---|
-| `swap_b3.py` | ✅ (`--origen/--dest/--mod/--list`) | Swap nativo HD→HD |
-| `swap_matrix.py` | ✅ | Mover cualquier blob entre slots/regiones |
-| `texture_b3.py` | ✅ | Texturas AZT (extract/build) |
-| `port_ps2_b3_inject.py` | ◑ investigación | Vía A (inyección) |
-| `port_ps2_b3_inject_aux.py` | ◑ investigación | Vía A extendida (16 AWGs) |
-| `catalog_b3.cat` | ✅ | Catálogo (bin|nombre|label|variante) |
+| `swap_b3.py` | ✅ (`--origen/--dest/--mod/--list`) | Native HD→HD swap |
+| `swap_matrix.py` | ✅ | Move any blob between slots/regions |
+| `texture_b3.py` | ✅ | AZT textures (extract/build) |
+| `port_ps2_b3_inject.py` | ◑ research | Route A (injection) |
+| `port_ps2_b3_inject_aux.py` | ◑ research | Route A extended (16 AWGs) |
+| `catalog_b3.cat` | ✅ | Catalogue (bin|name|label|variant) |
 | `mod center\Xbox 360 ...\xbcompress.exe` | ✅ | LZX `/N:2048` |
 
-Instrumentos RE de apoyo: `awo_tools/awg0_export.py` (autodetecta formato A/C),
-`awo_tools/awg_to_obj_b3.py`, `awo_tools/cell_align_check.py`.
+Supporting RE instruments: `awo_tools/awg0_export.py` (auto-detects format
+A/C), `awo_tools/awg_to_obj_b3.py`, `awo_tools/cell_align_check.py`.
 
 ---
 
-## 7. MODS DE ESTA SESIÓN (`out/build/win-amd64-release/mods/`)
+## 7. MODS FROM THIS SESSION (`out/build/win-amd64-release/mods/`)
 
-| Mod | Estado | Contenido |
+| Mod | State | Contents |
 |---|---|---|
-| **`cell_native`** | **ACTIVO** | Swap nativo validado: Cell F2 (147) en slot 327 |
-| `cell_hd_only` | disabled | Igual que `cell_native` (hecho a mano) |
-| `cell_best2` | disabled | Vía A extendida a 16 AWGs (no mejora) |
-| `cell_face_only` | disabled | Vía A sólo cara (fallback) |
-| `cell_best` | disabled | Vía A + guardia anti-estirado |
-| `cell_npm_fix` / `cell_npm4_test` / resto | disabled | Histórico Vía A |
+| **`cell_native`** | **ACTIVE** | Validated native swap: Cell F2 (147) in slot 327 |
+| `cell_hd_only` | disabled | Same as `cell_native` (made by hand) |
+| `cell_best2` | disabled | Route A extended to 16 AWGs (no improvement) |
+| `cell_face_only` | disabled | Route A face only (fallback) |
+| `cell_best` | disabled | Route A + anti-stretch guard |
+| `cell_npm_fix` / `cell_npm4_test` / rest | disabled | Route A history |
 
 ---
 
-## 8. RESPUESTA A "¿PS2 → B3 HD ESTÁ READY?"
+## 8. ANSWER TO "IS PS2 → B3 HD READY?"
 
-**No.** Lo que está ready es el **swap nativo HD→HD**.
+**No.** What is ready is the **native HD→HD swap**.
 
-- **HD→HD** (mismo motor, formato `#AWO`): ✅ 100% (esto).
-- **PS2→HD** (convertir un modelo que no está en HD): ⛔ no. Vía A deforma
-  (cuerpo HD re-modelado), Vía B bloqueada. Es un problema abierto, con plan en
+- **HD→HD** (same engine, `#AWO` format): ✅ 100% (this).
+- **PS2→HD** (converting a model that is not in HD): ⛔ no. Route A deforms
+  (HD body remodelled), Route B blocked. It is an open problem, with a plan in
   `docs/07_ports/PLAN_PS2_B3/PLAN.md`.
 
 ---
 
-### Referencias
-- `docs/07_ports/PLAN_PS2_B3/PLAN.md` (plan del port PS2→HD) y sus 4 informes.
-- `mod center hd/GUIA_SWAPS_Y_PORTS.md` (guía de swaps; actualizada).
-- `AGENTS.md` §3.1 (estado), §3.4 (Vía A/B), §10 (pipeline).
+### References
+- `docs/07_ports/PLAN_PS2_B3/PLAN.md` (the PS2→HD port plan) and its 4 reports.
+- `mod center hd/GUIA_SWAPS_Y_PORTS.md` (swap guide; updated).
+- `AGENTS.md` §3.1 (state), §3.4 (Route A/B), §10 (pipeline).
