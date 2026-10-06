@@ -1,228 +1,240 @@
-# Parches del ReXGlue SDK
+# ReXGlue SDK patches
 
-Este proyecto usa el [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) como
-dependencia externa (no se incluye aqui). Los archivos de esta carpeta son
-**modificaciones del runtime** necesarias para que los model swaps por override
-funcionen con bins que exceden el slot del AFS.
+This project uses the [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) as
+an external dependency (it is not included here). The files in this folder are
+**runtime modifications** needed so that override model swaps work with bins
+that exceed their AFS slot.
 
-> **Version del parche: ReXGlue 0.10.0** (migrado desde 0.9.0 el 2026-08-25).
-> En 0.10 el filesystem fue refactorizado: `src/filesystem/afs.cpp` y
-> `include/rex/filesystem/afs.h` **no existen** en el SDK 0.10 (se eliminaron) y
-> `host_path_file.cpp`/`host_path_entry.cpp` son mucho mas simples (sin logica
-> AFS/override). Por eso el parche 0.10 **recrea** `afs.h`/`afs.cpp`, **porta**
-> la logica a los nuevos `host_path_file.cpp`/`host_path_entry.cpp`, y ademas
-> restaura los 3 cvars dbz1 que 0.10 elimino (necesarios para linkear
-> `REXCVAR_DECLARE`) y modifica 2 CMakeLists para incluir los archivos nuevos.
+> **Patch version: ReXGlue 0.10.0** (migrated from 0.9.0 on 2026-08-25).
+> In 0.10 the filesystem was refactored: `src/filesystem/afs.cpp` and
+> `include/rex/filesystem/afs.h` **do not exist** in SDK 0.10 (they were
+> removed) and `host_path_file.cpp`/`host_path_entry.cpp` are much simpler (no
+> AFS/override logic). That is why the 0.10 patch **recreates**
+> `afs.h`/`afs.cpp`, **ports** the logic to the new
+> `host_path_file.cpp`/`host_path_entry.cpp`, and also restores the 3 dbz1
+> cvars that 0.10 removed (needed to link `REXCVAR_DECLARE`) and modifies 2
+> CMakeLists to include the new files.
 
-## Que hacen estos cambios
+> **PS5.** The PS5 build applies a second patch on top of this overlay:
+> `ps5/patches/rexglue-v0.10.0-dbz3-ps5.patch` (the PS5 platform layer from
+> [holdmysocks/mcla-recomp](https://github.com/holdmysocks/mcla-recomp),
+> rebased onto this folder). **If you change a file here, check that the PS5
+> patch still applies** (`git apply --check` on a clean v0.10.0 checkout with
+> this folder copied in); see [`ps5/README.md`](../ps5/README.md).
 
-### 1. Mid-insert virtual en la tabla AFS (`afs.cpp`, `afs.h`)
+## What these changes do
 
-El guest (juego) lee cada entrada del `data_cmn.afs` con un buffer de tamano
-`to_read = ceil(size/0x1000)*0x1000` derivado de la tabla AFS. Un bin de mod mas
-grande que ese to_read (p.ej. Goten 107006 B en el slot de Krillin, to_read
-106496 B) se truncaba al servirse por override -> crash.
+### 1. Virtual mid-insert in the AFS table (`afs.cpp`, `afs.h`)
 
-Antes de estos cambios, el runtime solo servia un bin de override si cabia en el
-to_read del slot. Para bins mayores habia que reconstruir el AFS completo
-(~280 MB por mod), lo cual impedia tener 2+ mods de modelo simultaneos.
+The guest (game) reads each entry of `data_cmn.afs` with a buffer of size
+`to_read = ceil(size/0x1000)*0x1000` derived from the AFS table. A mod bin
+larger than that to_read (e.g. Goten 107006 B in Krillin's slot, to_read
+106496 B) was truncated when served by override -> crash.
 
-El **mid-insert virtual** presenta al guest una tabla AFS CONSISTENTE que
-replica exactamente un rebuild con mid-insert:
+Before these changes, the runtime only served an override bin if it fitted in
+the slot's to_read. Larger bins required rebuilding the whole AFS (~280 MB per
+mod), which made 2+ simultaneous model mods impossible.
 
-- `AfsGetVirtualTable()`: construye y cachea una tabla virtual donde cada
-  entrada con override mayor que su `to_read` **crece in-place** (slot alineado
-  a 0x800) y **todas las entradas posteriores se desplazan** por el delta
-  acumulado, igual que un AFS reconstruido.
-- `AfsTranslateOffset()`: para las lecturas de datos, traduce el offset
-  virtual -> fisico (resta el delta de la entrada) y sirve el override (bin
-  completo) o lee del archivo fisico en el offset traducido.
+The **virtual mid-insert** presents the guest with a CONSISTENT AFS table that
+replicates exactly a rebuild with mid-insert:
 
-Criterio de crecimiento: solo crece si el override excede `to_read` (lo que el
-guest ya aloca), NO si excede el slot fisico. Asi los mods que caben (p.ej.
-tex_91, 114688 = to_read) no desplazan nada.
+- `AfsGetVirtualTable()`: builds and caches a virtual table where each entry
+  with an override larger than its `to_read` **grows in place** (slot aligned
+  to 0x800) and **all later entries are shifted** by the accumulated delta,
+  just like a rebuilt AFS.
+- `AfsTranslateOffset()`: for data reads, translates the virtual offset ->
+  physical (subtracts the entry's delta) and serves the override (full bin) or
+  reads from the physical file at the translated offset.
 
-Resultado: swaps nativos de modelo B3->B3 que pesan ~100 KB por mod, 2+ mods de
-modelo/textura activos simultaneamente, y swaps en cualquier direccion (el bin
-puede ser mayor o menor que el slot).
+Growth criterion: it only grows if the override exceeds `to_read` (what the
+guest already allocates), NOT if it exceeds the physical slot. So mods that fit
+(e.g. tex_91, 114688 = to_read) shift nothing.
 
-### 2. Override de archivo completo (`host_path_entry.cpp`, `afs.cpp`, `afs.h`)
+Result: native B3->B3 model swaps weighing ~100 KB per mod, 2+ model/texture
+mods active at once, and swaps in any direction (the bin can be larger or
+smaller than the slot).
 
-Ademas de reemplazar entradas individuales de un AFS, los mods pueden reemplazar
-**archivos enteros** (p.ej. `opening.sfd`, `adx_usa.afs`, `Ending00.sfd` del mod
-de musica OG). Esto permite aplicar mods de archivo completo **sin staging ni
-duplicacion de assets**: el runtime los sirve directamente desde
-`mods/<mod>/<filename>` (o `mods/<mod>/us/<filename>` / `mods/<mod>/eu/<filename>`).
+### 2. Whole-file override (`host_path_entry.cpp`, `afs.cpp`, `afs.h`)
 
-- `AfsFindModFileOverride()` (`afs.cpp`): busca un reemplazo completo para un
-  archivo por nombre, en orden alfabetico de mods.
-- `HostPathEntry::Open()` (`host_path_entry.cpp`): si hay un reemplazo completo
-  para el archivo que el guest abre, abre el archivo del mod en su lugar.
+Besides replacing individual entries of an AFS, mods can replace **whole
+files** (e.g. `opening.sfd`, `adx_usa.afs`, `Ending00.sfd` of the OG music
+mod). This lets whole-file mods apply **without staging or duplicating
+assets**: the runtime serves them directly from `mods/<mod>/<filename>` (or
+`mods/<mod>/us/<filename>` / `mods/<mod>/eu/<filename>`).
 
-Esto es lo que permite que el juego use directamente la carpeta de assets
-(`game_data_root`) sin un overlay `active_region` que hardlinkee/copie los
-archivos. La region (us/eu) se monta aparte (ver la seccion de la app).
+- `AfsFindModFileOverride()` (`afs.cpp`): looks for a full replacement of a
+  file by name, in alphabetical mod order.
+- `HostPathEntry::Open()` (`host_path_entry.cpp`): if there is a full
+  replacement for the file the guest opens, it opens the mod's file instead.
 
-### 3. Traduccion de lecturas en el dispositivo de archivos
-(`host_path_file.cpp`)
+This is what lets the game use the assets folder (`game_data_root`) directly
+without an `active_region` overlay that hardlinks/copies the files. The region
+(us/eu) is mounted separately (see the app section).
 
-`HostPathFile::ReadSync` ahora:
+### 3. Read translation in the file device (`host_path_file.cpp`)
 
-1. Si la peticion cae en la region cabecera+tabla del `data_cmn.afs`, sirve la
-   tabla virtual (completando desde el archivo real si la peticion cruza el
-   final de la tabla, porque el guest redondea a 0x8000).
-2. Si la peticion cae en datos y el AFS tiene entradas crecidas, llama a
-   `AfsTranslateOffset` para servir el override completo o leer del archivo
-   fisico en el offset traducido.
-3. Si no hay entradas crecidas, se usa el override por entrada clasico (sin
-   tabla virtual) como antes.
+`HostPathFile::ReadSync` now:
 
-### 4. Mods root con walk-up (`afs.cpp`, `settings.cpp`, `mod_pipeline.cpp`)
+1. If the request falls in the header+table region of `data_cmn.afs`, it
+   serves the virtual table (completing from the real file if the request
+   crosses the end of the table, because the guest rounds to 0x8000).
+2. If the request falls in data and the AFS has grown entries, it calls
+   `AfsTranslateOffset` to serve the full override or read from the physical
+   file at the translated offset.
+3. If there are no grown entries, the classic per-entry override (no virtual
+   table) is used as before.
 
-En la release, el ejecutable del juego vive en una subcarpeta
-(`dbz3_avx2/` o `dbz3_legacy/` — ver bootstrap de ISA en `src/bootstrap.cpp`)
-mientras los mods quedan junto a los datos del juego (`<raiz>/mods`).
-`AfsModsRoot()` (runtime) y los `ModsRoot()`/`ModsOutDir()` del launcher
-suben hasta 3 niveles desde el ejecutable buscando una carpeta `mods/` y usan
-la primera que encuentren (en dev es la del propio exe, sin cambios).
+### 4. Mods root with walk-up (`afs.cpp`, `settings.cpp`, `mod_pipeline.cpp`)
 
-### 5. Input: deadzone y rumble configurables (`input_system.cpp`)
+In the release, the game executable used to live in a subfolder
+(`dbz3_avx2/` or `dbz3_legacy/` — see the ISA bootstrap in
+`src/bootstrap.cpp`) while the mods stay next to the game data
+(`<root>/mods`). `AfsModsRoot()` (runtime) and the launcher's
+`ModsRoot()`/`ModsOutDir()` walk up to 3 levels from the executable looking for
+a `mods/` folder and use the first one found (in dev it is the exe's own, no
+change). On PS5 the executable path comes from `REX_EXECUTABLE_PATH`
+(`/data/dbz3/dbz3`), so the mods root is `/data/dbz3/mods`.
 
-El SDK 0.10 eliminó los cvars `deadzone`/`rumble` que el 0.9 tenía. Este parche
-los restaura y los hace REALES (antes los controles del launcher eran placebo):
-- `REXCVAR_DEFINE_DOUBLE(deadzone, 0.1, ...)` — aplicado en `InputSystem::GetState`
-  sobre el estado fusionado (todos los ejes de los sticks se anulan si su
-  magnitud está por debajo de `deadzone * INT16_MAX`). Cubre los 3 drivers
-  (XInput, SDL y MnK) en el punto unico de salida al guest.
-- `REXCVAR_DEFINE_BOOL(rumble, true, ...)` — en `InputSystem::SetState` acepta
-  la vibracion sin llegar a ningun pad cuando esta desactivado.
-- El launcher escribe ambos por nombre (`SetFlagByName`), el registro de cvars
-  de `rexruntime.dll` es compartido con el exe (los exporta) asi que la
-  propagacion llega al runtime.
+### 5. Input: configurable deadzone and rumble (`input_system.cpp`)
 
-### 6. Frame cap real del presentador (`d3d12_presenter.cpp`)
+SDK 0.10 removed the `deadzone`/`rumble` cvars that 0.9 had. This patch
+restores them and makes them REAL (the launcher controls used to be placebo):
+- `REXCVAR_DEFINE_DOUBLE(deadzone, 0.1, ...)` — applied in
+  `InputSystem::GetState` on the merged state (all stick axes are zeroed if
+  their magnitude is below `deadzone * INT16_MAX`). Covers the 3 drivers
+  (XInput, SDL and MnK) at the single output point to the guest.
+- `REXCVAR_DEFINE_BOOL(rumble, true, ...)` — in `InputSystem::SetState`
+  accepts the vibration without reaching any pad when disabled.
+- The launcher writes both by name (`SetFlagByName`); the cvar registry of
+  `rexruntime.dll` is shared with the exe (it exports them), so the
+  propagation reaches the runtime.
 
-El SDK 0.10 **elimino el cvar `frame_cap`** del 0.9 (el pacing del juego lo hace
-ahora el vblank del guest via `vsync`). La opcion "Frame cap" del launcher era
-por tanto un placebo. Este parche lo restaura de verdad en el backend D3D12:
-- `REXCVAR_DEFINE_INT32(frame_cap, 0, "UI/Presenter", ...)` (0 = sin limite).
-- En `D3D12Presenter::PaintAndPresentImpl`, antes de pintar/presentar, se espera
-  al siguiente slot de `frame_cap` FPS con `std::chrono::steady_clock` +
-  `rex::thread::Sleep`. La pintura esta serializada (un unico owner), asi que un
-  timestamp file-scope es seguro.
-- Solo afecta a la tasa de presentacion host (30 = media carga en GPUs
-  integradas); NO toca el vblank del guest ni la velocidad del juego (eso es el
-  cvar `vsync`, que el launcher fuerza a 60 Hz).
-- El launcher lo propaga con `SetSdkInt("frame_cap", ...)` SOLO en el modo
-  juego (el launcher mantiene sus repaints sin limite).
-- Tambien anade un log diagnostico del primer `Present` (`dbz3: first present
-  OK (...)`) para medir desde el log la duracion de la pantalla negra del
-  launcher en maquinas lentas (cuanto tarda el init de device/swapchain).
+### 6. Real presenter frame cap (`d3d12_presenter.cpp`)
 
-### 6.b Frame cap y modo seguro del presenter Vulkan (`vulkan_presenter.cpp`)
+SDK 0.10 **removed the `frame_cap` cvar** from 0.9 (game pacing is now done by
+the guest's vblank via `vsync`). The launcher's "Frame cap" option was
+therefore a placebo. This patch truly restores it in the D3D12 backend:
+- `REXCVAR_DEFINE_INT32(frame_cap, 0, "UI/Presenter", ...)` (0 = no limit).
+- In `D3D12Presenter::PaintAndPresentImpl`, before painting/presenting, it
+  waits for the next `frame_cap` FPS slot with `std::chrono::steady_clock` +
+  `rex::thread::Sleep`. Painting is serialised (a single owner), so a
+  file-scope timestamp is safe.
+- It only affects the host presentation rate (30 = half load on integrated
+  GPUs); it does NOT touch the guest's vblank or the game speed (that is the
+  `vsync` cvar, which the launcher forces to 60 Hz).
+- The launcher propagates it with `SetSdkInt("frame_cap", ...)` ONLY in game
+  mode (the launcher keeps its repaints unlimited).
+- It also adds a diagnostic log of the first `Present` (`dbz3: first present
+  OK (...)`) to measure from the log how long the launcher's black screen lasts
+  on slow machines (how long device/swapchain init takes).
 
-El presenter Vulkan del SDK 0.10 podia elegir `IMMEDIATE` o `MAILBOX` por
-defecto y no compartia el cvar `frame_cap` del presenter D3D12. En Linux esto
-es problematico con MangoHud y Steam, que interceptan cada
-`vkQueuePresentKHR`: se podia generar un bucle de presents sin limite, causar
-tirones severos con MangoHud y hacer que Steam mostrara cientos o miles de FPS
-aunque la cadencia logica del guest siguiera siendo 60 Hz.
+### 6.b Frame cap and safe mode of the Vulkan presenter (`vulkan_presenter.cpp`)
 
-El parche:
+SDK 0.10's Vulkan presenter could pick `IMMEDIATE` or `MAILBOX` by default and
+did not share the D3D12 presenter's `frame_cap` cvar. On Linux this is a
+problem with MangoHud and Steam, which intercept every `vkQueuePresentKHR`: an
+unlimited present loop could happen, causing severe stutter with MangoHud and
+making Steam show hundreds or thousands of FPS even though the guest's logical
+cadence stayed at 60 Hz.
 
-- restaura `frame_cap` en el presenter Vulkan y aplica el mismo pacing host que
-  D3D12;
-- fuerza FIFO cuando hay un cap configurado;
-- cambia `IMMEDIATE`, `MAILBOX` y `FIFO_RELAXED` a opt-in, dejando FIFO como
-  comportamiento seguro por defecto;
-- no altera el vblank ni la velocidad logica del guest.
+The patch:
 
-### 7. Build de la variante legacy (SDK CMakeLists, opcional)
+- restores `frame_cap` in the Vulkan presenter and applies the same host
+  pacing as D3D12;
+- forces FIFO when a cap is configured;
+- makes `IMMEDIATE`, `MAILBOX` and `FIFO_RELAXED` opt-in, leaving FIFO as the
+  safe default;
+- does not alter the guest's vblank or logical speed.
 
-Para compilar el SDK sin AVX2 (`-march=x86-64-v2`) en un directorio aparte sin
-pisar `out/win-amd64`, el CMakeLists raiz del SDK acepta la cache var
-`REXGLUE_OUTPUT_DIR` (si se deja vacia usa el default). No es un cambio del
-runtime; es una ayuda de build para generar `out/win-amd64-legacy`.
+(The PS5 patch keeps this pacing and adds its paint logging after it.)
 
-### 8. Timeout del tick de UI del presentador (`presenter.cpp`)
+### 7. Legacy variant build (SDK CMakeLists, optional)
 
-El hilo UI espera el vblank del monitor (via el hilo `DXGIUITickThread`) antes
-de pintar cada frame, para no saturar la GPU. Si ese vblank deja de llegar
-(monitor perdido/stale, `WaitForVBlank` atascado, cambio de modo de pantalla),
-`WaitForUITickFromUIThread` se quedaba esperando para siempre: la ventana se
-ponia negra y "No responde", y el cierre por ventana (Alt+F4) no se procesaba.
+To build the SDK without AVX2 (`-march=x86-64-v2`) in a separate directory
+without overwriting `out/win-amd64`, the SDK's root CMakeLists accepts the cache
+var `REXGLUE_OUTPUT_DIR` (if left empty it uses the default). It is not a
+runtime change; it is a build aid to generate `out/win-amd64-legacy`.
 
-Parche: la espera usa `condition_variable::wait_for(50 ms)` en vez de
-`wait()` indefinido. Si no llega tick a tiempo, la UI pinta igualmente (caida a
-~20 FPS como mucho). El hilo UI nunca se bloquea, el launcher siempre aparece y
-los mensajes de la ventana siempre se procesan.
+### 8. Presenter UI tick timeout (`presenter.cpp`)
 
-### 9. Inicializacion asincrona del driver SDL (`sdl_input_driver.{h,cpp}`)
+The UI thread waits for the monitor's vblank (via the `DXGIUITickThread`
+thread) before painting each frame, so as not to saturate the GPU. If that
+vblank stops arriving (lost/stale monitor, stuck `WaitForVBlank`, display mode
+change), `WaitForUITickFromUIThread` waited forever: the window went black and
+"Not responding", and closing the window (Alt+F4) was not processed.
 
-`SDL_InitSubSystem(SDL_INIT_GAMEPAD)` puede bloquearse indefinidamente cuando
-hay software de captura cargado (RTSS/OBS) o la enumeracion de joysticks es
-lenta. El driver SDL lo llamaba de forma sincrona desde `OnWindowAvailable`
-(va `CallInUIThreadSynchronous`), con lo que el launcher se quedaba en negro +
-"No responde" al abrir (reproducido: el arranque se colgaba en `AttachWindow`).
+Patch: the wait uses `condition_variable::wait_for(50 ms)` instead of an
+indefinite `wait()`. If no tick arrives in time, the UI paints anyway (drop to
+~20 FPS at most). The UI thread never blocks, the launcher always appears and
+window messages are always processed.
 
-Parche: `OnWindowAvailable` solo asocia la ventana y lanza un `std::thread`
-que hace toda la init SDL (events + gamepad + mappings) en segundo plano. La
-init SDL es thread-safe; los mandos aparecen via eventos cuando el hilo acaba,
-y `EnumerateDevices` no devuelve nada hasta entonces. Los flags de init pasan
-a ser `std::atomic<bool>` (los lee el hilo de input). El hilo se deja detached
-(jamás se une): si sigue bloqueado en `SDL_InitSubSystem` en el cierre, un
-`join()` colgaria el shutdown (el juego hard-exit al cerrar de todos modos).
+### 9. Asynchronous SDL driver initialisation (`sdl_input_driver.{h,cpp}`)
 
-### 10. Idioma del guest = idioma del launcher (`xam_info.cpp`)
+`SDL_InitSubSystem(SDL_INIT_GAMEPAD)` can block indefinitely when capture
+software is loaded (RTSS/OBS) or joystick enumeration is slow. The SDL driver
+called it synchronously from `OnWindowAvailable` (via
+`CallInUIThreadSynchronous`), so the launcher stayed black + "Not responding"
+on open (reproduced: startup hung in `AttachWindow`).
 
-El juego (guest) elige su idioma de texto via `XGetLanguage`. Antes devolvía
-inglés fijo (basado en region). Ahora devuelve `user_language`, el cvar que el
-launcher ya propagaba desde `dbz3_language` en `ApplyUserSettingsToSdk`
-(`REXCVAR_SET(user_language, Language())`). Asi el selector "Idioma del launcher
-y del juego" controla TAMBIEN el texto del juego, no solo la UI del launcher.
+Patch: `OnWindowAvailable` only attaches the window and launches a
+`std::thread` that does the whole SDL init (events + gamepad + mappings) in the
+background. SDL init is thread-safe; controllers appear via events when the
+thread finishes, and `EnumerateDevices` returns nothing until then. The init
+flags become `std::atomic<bool>` (read by the input thread). The thread is left
+detached (never joined): if it is still blocked in `SDL_InitSubSystem` at
+shutdown, a `join()` would hang the shutdown (the game hard-exits on close
+anyway).
 
-`XGetLanguage_entry` lee `REXCVAR_GET(user_language)`. Ojo con el scope:
-`user_language` se define con `REXCVAR_DEFINE_UINT32` en `xam_user.cpp` ANTES
-de abrir los namespaces, asi que su accesor vive a nivel GLOBAL — el
-`REXCVAR_DECLARE(uint32_t, user_language)` de este archivo debe ir tambien
-fuera de `namespace rex::kernel::xam` (si no, el link falla con
+### 10. Guest language = launcher language (`xam_info.cpp`)
+
+The game (guest) picks its text language via `XGetLanguage`. It used to return
+a fixed English (based on region). Now it returns `user_language`, the cvar the
+launcher already propagated from `dbz3_language` in `ApplyUserSettingsToSdk`
+(`REXCVAR_SET(user_language, Language())`). So the "Launcher and game
+language" selector ALSO controls the game's text, not just the launcher UI.
+
+`XGetLanguage_entry` reads `REXCVAR_GET(user_language)`. Mind the scope:
+`user_language` is defined with `REXCVAR_DEFINE_UINT32` in `xam_user.cpp`
+BEFORE the namespaces are opened, so its accessor lives at GLOBAL level — this
+file's `REXCVAR_DECLARE(uint32_t, user_language)` must also go outside
+`namespace rex::kernel::xam` (otherwise the link fails with
 `undefined symbol: rex::kernel::xam::FLAGS_user_language_storage_`).
 
-### 11. Recoleccion de funciones no registradas (`function_dispatcher.cpp`)
+### 11. Collecting unregistered functions (`function_dispatcher.cpp`)
 
-`InvalidFunctionTrap` (lo que el runtime ejecuta cuando el guest llama a una
-funcion indirecta que no esta en la tabla) ahora, si existe la variable de
-entorno `DBZ3_COLLECT_UNREGISTERED`, escribe cada direccion a
-`dbz3_unregistered.txt` y continua en vez de abortar con `REX_FATAL`. Sin la
-variable, el comportamiento es identico (aborta). Es una ayuda de diagnostico
-para la variante EU/PAL (segunda recompilacion): si el guest alcanza en combate
-una funcion no registrada, se recolectan las direcciones y se declaran en
-`dbz3_config_eu.toml`.
+`InvalidFunctionTrap` (what the runtime runs when the guest calls an indirect
+function that is not in the table) now, if the environment variable
+`DBZ3_COLLECT_UNREGISTERED` exists, writes each address to
+`dbz3_unregistered.txt` and continues instead of aborting with `REX_FATAL`.
+Without the variable, the behaviour is identical (it aborts). It is a
+diagnostic aid for the EU/PAL variant (second recompilation): if the guest
+reaches an unregistered function in battle, the addresses are collected and
+declared in `dbz3_config_eu.toml`.
 
-Ademas, en cada indirect call no registrado se loguea (nivel critical) el target,
-el `caller_lr` del guest y los registros r3/r4/r11 — sirvio para localizar la
-causa raiz del crash de la batalla DEMO EU (v1.0.11): calls virtuales a
-vtable/mid-function blocks mal clasificados como jump tables (ver AGENTS 14.16).
+In addition, each unregistered indirect call logs (critical level) the target,
+the guest's `caller_lr` and registers r3/r4/r11 — it helped locate the root
+cause of the EU DEMO battle crash (v1.0.11): virtual calls to vtable/
+mid-function blocks misclassified as jump tables (see AGENTS 14.16 in
+HISTORICO_AGENTS). The same diagnosis applies to a first PS5 boot.
 
-### 12. Diagnostico del lanzamiento del juego (`rex_app.cpp`)
+### 12. Game launch diagnostics (`rex_app.cpp`)
 
-`ReXApp::LaunchModule` (el lambda diferido que arranca el guest en el hilo UI)
-se envuelve en try/catch que registra `e.what()` y re-lanza. Convierte el
-`std::terminate` intermitente del arranque (0xC0000409) en un log con el
-mensaje de la excepcion. Se compila en el juego (no en rexruntime.dll) desde
-`rexglue/share/rexglue/rex_app.cpp` — el parche va a la fuente del SDK.
+`ReXApp::LaunchModule` (the deferred lambda that starts the guest on the UI
+thread) is wrapped in a try/catch that logs `e.what()` and rethrows. It turns
+the intermittent startup `std::terminate` (0xC0000409) into a log with the
+exception message. It is compiled into the game (not into rexruntime.dll) from
+`rexglue/share/rexglue/rex_app.cpp` — the patch goes to the SDK source.
 
-### 13. Blindaje del pacing del guest a 60 Hz (`graphics_system.cpp`)
+### 13. Hardening guest pacing at 60 Hz (`graphics_system.cpp`)
 
-El worker "GPU VSync" de `GraphicsSystem` marca el vblank del guest con un
-intervalo derivado del modo de video (60 Hz) cuando el cvar `vsync` esta ON,
-pero con el cvar OFF lo colapsaba a ~1 ms (1000 Hz) y la logica del juego
-corria ~16x mas rapida ("juego acelerado", reportado por usuarios al
-desactivar el V-Sync). El launcher ya forzaba `vsync=true` al arrancar, pero
-cualquier ruta que lo apagara en runtime (toml, config, cvar residual) volvia a
-acelerar el juego.
+The `GraphicsSystem` "GPU VSync" worker marks the guest's vblank with an
+interval derived from the video mode (60 Hz) when the `vsync` cvar is ON, but
+with the cvar OFF it collapsed it to ~1 ms (1000 Hz) and the game logic ran
+~16x faster ("sped-up game", reported by users who disabled V-Sync). The
+launcher already forced `vsync=true` at startup, but any path that turned it
+off at runtime (toml, config, leftover cvar) sped the game up again.
 
-El parche **clampa el intervalo** en el propio worker:
+The patch **clamps the interval** in the worker itself:
 
 ```cpp
 uint64_t interval_ticks = std::max(
@@ -230,25 +242,27 @@ uint64_t interval_ticks = std::max(
     vsync_interval_ticks);
 ```
 
-asi el vblank del guest nunca puede ser mas corto que un frame de 60 Hz y
-`vsync=false` se convierte en un no-op (el juego siempre corre a su velocidad).
-Vive en **rexgpu-xenos.dll** (no en rexruntime.dll): tras aplicar el parche hay
-que recompilar `rexgpu-xenos` en ambas variantes (v3 y v2) y copiar las DLLs.
+so the guest's vblank can never be shorter than a 60 Hz frame and
+`vsync=false` becomes a no-op (the game always runs at its own speed). It lives
+in **rexgpu-xenos.dll** (not rexruntime.dll): after applying the patch,
+`rexgpu-xenos` must be rebuilt in both variants (v3 and v2) and the DLLs
+copied. (The PS5 patch keeps this clamp and adds mcla-recomp's resync after a
+backwards guest tick.)
 
-## Como aplicar (ReXGlue 0.10.0)
+## How to apply (ReXGlue 0.10.0)
 
-> **Desde la v1.4.0** basta con copiar la carpeta entera encima de un checkout
-> limpio del tag `v0.10.0` (es lo que hace el CI de Linux):
+> **Since v1.4.0** it is enough to copy the whole folder over a clean checkout
+> of the `v0.10.0` tag (that is what the Linux CI and `ps5/make_ps5.sh` do):
 >
 > ```
 > git clone --branch v0.10.0 https://github.com/rexglue/rexglue-sdk.git rexglue-sdk-0.10
 > cp -a patches/rexglue-sdk/. rexglue-sdk-0.10/        # PowerShell: Copy-Item -Recurse -Force
 > ```
 >
-> La lista de abajo es la historica (parches 1-13, v1.0-v1.3); el detalle de lo
-> anadido en la v1.4.0 esta en la ultima seccion de este README.
+> The list below is the historical one (patches 1-13, v1.0-v1.3); the detail of
+> what was added in v1.4.0 is in the last section of this README.
 
-Copiar los 19 archivos sobre el SDK (rutas relativas a la raiz del SDK):
+Copy the 19 files over the SDK (paths relative to the SDK root):
 
 ```
 patches/rexglue-sdk/include/rex/filesystem/afs.h      ->  rexglue-sdk/include/rex/filesystem/afs.h
@@ -276,11 +290,11 @@ patches/rexglue-sdk/src/filesystem/CMakeLists.txt      ->  rexglue-sdk/src/files
 patches/rexglue-sdk/src/system/CMakeLists.txt          ->  rexglue-sdk/src/system/CMakeLists.txt
 ```
 
-Los 2 CMakeLists anaden los archivos nuevos a los targets (`afs.cpp` a
-`rexfilesystem`, los 3 `dbz1_*_flag.cpp` a `REXSYSTEM_SOURCES`). Sin ellos el
-link de rexruntime falla con `undefined symbol: FLAGS_dbz1_*_storage_(void)`.
+The 2 CMakeLists add the new files to the targets (`afs.cpp` to
+`rexfilesystem`, the 3 `dbz1_*_flag.cpp` to `REXSYSTEM_SOURCES`). Without them
+the rexruntime link fails with `undefined symbol: FLAGS_dbz1_*_storage_(void)`.
 
-Luego recompilar el runtime y copiar las DLLs al build del juego:
+Then rebuild the runtime and copy the DLLs to the game build:
 
 ```powershell
 cmake --build rexglue-sdk/out/build-win-vulkan --target rexruntime
@@ -289,274 +303,297 @@ Copy-Item rexglue-sdk/out/win-amd64/rexruntime.dll out/build/win-amd64-release/
 Copy-Item rexglue-sdk/out/win-amd64/rexgpu-xenos.dll out/build/win-amd64-release/
 ```
 
-> El parche 13 (`graphics_system.cpp`) vive en **rexgpu-xenos.dll** (no en
-> rexruntime.dll): recompilar `rexgpu-xenos` en ambas variantes (v3 y v2) y
-> copiar las DLLs.
+> Patch 13 (`graphics_system.cpp`) lives in **rexgpu-xenos.dll** (not
+> rexruntime.dll): rebuild `rexgpu-xenos` in both variants (v3 and v2) and copy
+> the DLLs.
 
-⚠️ En 0.10 el compilador del juego debe ser `C:/Program Files/LLVM/bin/clang++.exe`
-(target MSVC). El toolchain retcomm (MinGW/libstdc++) NO compila el header
-`rex/chrono/chrono.h` (falta `std::chrono::clock_time_conversion`).
+⚠️ In 0.10 the game compiler must be `C:/Program Files/LLVM/bin/clang++.exe`
+(MSVC target). The retcomm toolchain (MinGW/libstdc++) does NOT compile the
+`rex/chrono/chrono.h` header (missing `std::chrono::clock_time_conversion`).
 
-Los scripts `mod center hd/swap_b3.py` y `mod center hd/texture_b3.py` generan
-los overrides con el padding correcto (al to_read del slot, o al to_read
-virtual si el bin es mayor) y el runtime los sirve con el mid-insert virtual.
+The scripts `mod center hd/swap_b3.py` and `mod center hd/texture_b3.py`
+generate the overrides with the correct padding (to the slot's to_read, or to
+the virtual to_read if the bin is larger) and the runtime serves them with the
+virtual mid-insert.
 
-## Cambios 2026-09-18 (rendimiento + texturas HD)
+## Changes 2026-09-18 (performance + HD textures)
 
 - **`src/graphics/d3d12/texture_cache.cpp` + `include/rex/graphics/d3d12/texture_cache.h`**
-  y los shaders **`src/graphics/shaders/texture_upscale_cs.hlsl`** /
-  **`bytecode/d3d12_5_1/texture_upscale_cs.h`**: capa exterior de upscale de
-  texturas en runtime (recurso host Nx + pasada bicubica). Cvar
-  **`dbz3_texture_upscale`** (1 = off). El launcher lo controla con
-`dbz3_hd_textures` (Video -> "Texturas HD (WIP)", x2/x3/x4; tambien genera
-la cadena de mips promediando bloques del nivel 0). **WIP y OFF por
-defecto**: funciona, pero provoca tirones al cargar texturas nuevas. Ver
+  and the shaders **`src/graphics/shaders/texture_upscale_cs.hlsl`** /
+  **`bytecode/d3d12_5_1/texture_upscale_cs.h`**: outer layer of runtime texture
+  upscaling (Nx host resource + bicubic pass). Cvar
+  **`dbz3_texture_upscale`** (1 = off). The launcher controls it with
+  `dbz3_hd_textures` (Video -> "HD textures (WIP)", x2/x3/x4; it also generates
+  the mip chain by averaging level-0 blocks). **WIP and OFF by default**: it
+  works, but causes hitches when new textures load. See
   `docs/07_ports/TEXTURAS_HD_RUNTIME_UPSCALE.md`.
-- **`src/filesystem/afs.cpp`**: el log de overrides
-  (`AFS OVERRIDE LOOKUP/HIT/MISS`) pasa a estar condicionado a
-  `dbz1_diag_logging`; antes se escribia en CADA lectura AFS (miles de
-  lineas por sesion).
+- **`src/filesystem/afs.cpp`**: the override log
+  (`AFS OVERRIDE LOOKUP/HIT/MISS`) becomes conditional on
+  `dbz1_diag_logging`; before, it was written on EVERY AFS read (thousands of
+  lines per session).
 - **`src/ui/d3d12/d3d12_presenter.cpp`**: cvar **`dbz3_perf_logging`**
-  (default true) con una linea cada 5 s `dbz3: perf fps=... frames=...
+  (default true) with a line every 5 s `dbz3: perf fps=... frames=...
   max_frame_ms=... cap=...`.
-- DLLs recompiladas (baseline): `rexruntime.dll` 10.870.272 B,
-  `rexgpu-xenos.dll` 6.180.864 B (2026-09-18).
+- Rebuilt DLLs (baseline): `rexruntime.dll` 10,870,272 B,
+  `rexgpu-xenos.dll` 6,180,864 B (2026-09-18).
 
-### 2026-09-18 (cont.) - contador de rendimiento en el swap del guest
+### 2026-09-18 (cont.) - performance counter on the guest swap
 
 - **`src/graphics/d3d12/command_processor.cpp`** (rexgpu-xenos):
-  `Dbz3LogGuestPerformance()` al inicio de `D3D12CommandProcessor::IssueSwap`
-  -> cvar `dbz3_perf_logging` (leida por nombre via
-  `rex::cvar::GetFlagByName`, definida en el runtime) y una linea cada 5 s
-  con `fps`, `frames` y `max_frame_ms` del juego. Es la medicion valida en
-  partida y funciona con la ventana fuera de pantalla (el presentador de la
-  UI solo pinta el launcher).
-- **`src/system/dbz1_diag_flags.cpp`**: definicion compartida de
-  `dbz1_diag_logging` (rexruntime), usada para gatear los logs de overrides
-  AFS y el trace de reads.
-- Arnes de pruebas offscreen: **`tools/hidden_run.ps1`**.
-- DLLs canonicas finales (2026-09-19): `rexgpu-xenos.dll` **6.202.368 B**,
-  `rexruntime.dll` **10.870.272 B** (ambas con el marker `dbz3_perf_logging`).
-  ⚠️ Compilar el juego sobrescribe `rexruntime.dll` con el stale de
-  `rexglue/bin` -> recopiar del baseline tras cada build (AGENTS 7).
+  `Dbz3LogGuestPerformance()` at the start of `D3D12CommandProcessor::IssueSwap`
+  -> cvar `dbz3_perf_logging` (read by name via `rex::cvar::GetFlagByName`,
+  defined in the runtime) and a line every 5 s with the game's `fps`, `frames`
+  and `max_frame_ms`. It is the valid in-game measurement and works with the
+  window off-screen (the UI presenter only paints the launcher).
+- **`src/system/dbz1_diag_flags.cpp`**: shared definition of
+  `dbz1_diag_logging` (rexruntime), used to gate the AFS override logs and the
+  read trace.
+- Offscreen test harness: **`tools/hidden_run.ps1`**.
+- Final canonical DLLs (2026-09-19): `rexgpu-xenos.dll` **6,202,368 B**,
+  `rexruntime.dll` **10,870,272 B** (both with the `dbz3_perf_logging` marker).
+  ⚠️ Building the game overwrites `rexruntime.dll` with the stale one from
+  `rexglue/bin` -> re-copy from the baseline after every build (AGENTS 7).
 - **`src/audio/sdl/sdl_audio_driver.cpp`** (rexruntime, 2026-09-19): cvar
-  `audio_gain` (double, 0.0-1.0) multiplicada en el callback SDL
-  (`gain = GetOutputGain() * clamp(audio_gain, 0, 1)`); `audio_mute` ya existia.
-  Es el volumen REAL del launcher: antes los sliders escribian `master_volume`,
-  una cvar que **no existe** en el SDK, asi que no hacian nada (y el launcher
-  forzaba `audio_mute=false`, por lo que tampoco se podia silenciar).
-- **DLLs canonicas (2026-09-19)**: `rexruntime.dll` **10.873.856 B** (con
-  `audio_gain` + `dbz3_perf_logging`), `rexgpu-xenos.dll` **6.202.368 B**,
-  `amd_fidelityfx_dx12.dll` **5.413.888 B** (el de `rexglue-sdk-0.10/bin/` se
-  regenera distinto al compilar: NO copiarlo).
+  `audio_gain` (double, 0.0-1.0) multiplied in the SDL callback
+  (`gain = GetOutputGain() * clamp(audio_gain, 0, 1)`); `audio_mute` already
+  existed. It is the launcher's REAL volume: before, the sliders wrote
+  `master_volume`, a cvar that **does not exist** in the SDK, so they did
+  nothing (and the launcher forced `audio_mute=false`, so muting was not
+  possible either).
+- **Canonical DLLs (2026-09-19)**: `rexruntime.dll` **10,873,856 B** (with
+  `audio_gain` + `dbz3_perf_logging`), `rexgpu-xenos.dll` **6,202,368 B**,
+  `amd_fidelityfx_dx12.dll` **5,413,888 B** (the one in `rexglue-sdk-0.10/bin/`
+  is regenerated differently on build: do NOT copy it).
 
-### 2026-09-19 (cont.) - los logs de diagnostico pasan a ser opt-in
+### 2026-09-19 (cont.) - diagnostic logs become opt-in
 
-Los diagnosticos salian activados de fabrica: quien no tocaba el tab Dev
-acababa con lineas de log que no habia pedido, y el log creaba un fichero nuevo
-por ejecucion sin borrar los viejos.
+Diagnostics shipped enabled: anyone who did not touch the Dev tab ended up with
+log lines they had not asked for, and the log created a new file per run
+without deleting the old ones.
 
-- **`src/filesystem/afs.cpp`**: `dbz3_io_logging` pasa de `true` a **`false`**
-  por defecto (sigue activable desde el tab Dev del launcher).
-- **`src/ui/d3d12/d3d12_presenter.cpp`**: `dbz3_perf_logging` pasa de `true` a
-  **`false`** por defecto (nueva casilla "Registro de rendimiento (cada 5 s)"
-  en el tab Dev; `Dbz3IsOurWindowForeground` sigue aportando el `fg=`).
-- **`src/core/logging.cpp`** (NUEVO parche): `NextSequentialLogPath` poda los
-  `dbz3_NNN.log` mas antiguos al arrancar, respetando `log_max_files`
-  (default 20). Antes el tope de 20 no aplicaba entre ejecuciones porque cada
-  run usa un nombre secuencial nuevo (138 ficheros acumulados en pruebas;
-  verificado 138 -> 20).
-- **DLLs canonicas (2026-09-19, v1.2.5 definitiva)**: `rexruntime.dll`
-  **10.910.208 B**, `rexgpu-xenos.dll` **6.202.368 B**,
-  `amd_fidelityfx_dx12.dll` **5.413.888 B**.
+- **`src/filesystem/afs.cpp`**: `dbz3_io_logging` goes from `true` to
+  **`false`** by default (still switchable from the launcher's Dev tab).
+- **`src/ui/d3d12/d3d12_presenter.cpp`**: `dbz3_perf_logging` goes from `true`
+  to **`false`** by default (new "Performance log (every 5 s)" checkbox in the
+  Dev tab; `Dbz3IsOurWindowForeground` still provides the `fg=`).
+- **`src/core/logging.cpp`** (NEW patch): `NextSequentialLogPath` prunes the
+  oldest `dbz3_NNN.log` files at startup, honouring `log_max_files` (default
+  20). Before, the cap of 20 did not apply across runs because each run uses a
+  new sequential name (138 files accumulated in testing; verified 138 -> 20).
+- **Canonical DLLs (2026-09-19, final v1.2.5)**: `rexruntime.dll`
+  **10,910,208 B**, `rexgpu-xenos.dll` **6,202,368 B**,
+  `amd_fidelityfx_dx12.dll` **5,413,888 B**.
 
-### 2026-09-19 (cont.) - Texturas HD: fix de tirones + alcance RGBA8
+### 2026-09-19 (cont.) - HD textures: hitch fix + RGBA8 coverage
 
-> Detalle completo: `docs/07_ports/TEXTURAS_HD_RUNTIME_UPSCALE.md` §8-§10.
+> Full detail: `docs/07_ports/TEXTURAS_HD_RUNTIME_UPSCALE.md` §8-§10.
 
 - **`src/graphics/shaders/texture_upscale_cs.hlsl`** + **`bytecode/d3d12_5_1/
-  texture_upscale_cs.h`**: `XeLoadLevelTexel` muestrea una rejilla de como maximo
-  `kXeMaxBlockSamples = 8` por eje (antes promediaba el bloque `2^level x
-  2^level` completo = `16 * 4^level` lecturas EN SERIE; en los mips altos quedan
-  pocos hilos -> frames de cientos de ms). Recompilar con
+  texture_upscale_cs.h`**: `XeLoadLevelTexel` samples a grid of at most
+  `kXeMaxBlockSamples = 8` per axis (before, it averaged the whole
+  `2^level x 2^level` block = `16 * 4^level` reads IN SERIES; at high mips few
+  threads remain -> frames of hundreds of ms). Rebuild with
   `fxc /nologo /T cs_5_1 /E main /Vn texture_upscale_cs /O3 /Fh
   bytecode/d3d12_5_1/texture_upscale_cs.h texture_upscale_cs.hlsl`.
 - **`src/graphics/d3d12/texture_cache.cpp` + `include/rex/graphics/d3d12/
-  texture_cache.h`**: el upscale pasa a cubrir tambien las **RGBA8 nativas**
-  (`fmt=6`), no solo las DXT:
-  - `GetTextureUpscaleFactor`: acepta `dxgi_format_unsigned == R8G8B8A8_UNORM`
-    cuando el load shader produce RGBA8 (`bytes_per_host_block == 4`); rechaza
-    los demas formatos (`not_rgba8`/`load_not_rgba8`) para no corromper texturas.
-  - **Exclusion del frontbuffer** (`swap_texture_key_`): `RequestSwapTexture`
-    registra la key ANTES de crearla y el upscale la rechaza (`swap_texture`).
-    Sin esto el recurso de presentacion se creaba a Nx y el swap fallaba.
-  - Nuevo helper `GetTextureUpscaleRgba8Format` para `GetDXGIResourceFormat` /
-    `GetDXGIUnormFormat(TextureKey)` (antes devolvian `dxgi_format_uncompressed`,
-    que en `k_8_8_8_8` es `UNKNOWN` -> miles de
-    `Unsupported texture formats used in the frame`).
-  - Nueva cvar **`dbz3_upscale_max_texels`** (default `1 << 19` texeles = 0.5 M,
-    area max. 1024x512 / 512x1024; `0` = sin limite) para acotar VRAM. El
-    launcher la expone como ajuste **avanzado** en el tab Dev
-    ("HD textures: spending", Bajo/Medio/Alto) -> cvar
-    `dbz3_hd_texture_max_texels`.
-  - **Guardia de video** (`UpscaleBudgetAllows`): la intro/SFD reescribe la
-    textura de video ~60 veces/s y cada reescritura regeneraba la cadena de mips
-    (`upx` llegaba a **32182**, GPU al 80 % / 133 W). Ventana deslizante: >24
-    upscales en 0.5 s -> deja de conceder 3 s. La decision se **cachea por key**
-    (`upscale_granted_keys_`) para que sea estable entre la creacion del recurso
-    Nx y sus recargas (si no, el recurso Nx queda sin rellenar -> `device
-    removed 0x887A0001`). Medido: upx 32182->237, GPU 80->39 %, 133->34 W.
-  - **Tope x3** (`dbz3_texture_upscale` rango 1-3, antes 1-4): x4 multiplicaba
-    VRAM/GPU casi sin ganancia visible.
-  - **Minimo de tamano** (`dbz3_upscale_min_size`, default **16**): no se escalan
-    texturas menores de 16 texeles de ancho/alto. Son de HUD/UI (segmentos de
-    barra de vida, iconos) y el bicubico las emborronaba. Fix del HUD sucio
-    (feedback del usuario).
-  - **Clamp anti-ringing** en `texture_upscale_cs.hlsl`: el resultado del kernel
-    Catmull-Rom se acota al `[min, max]` de las 16 muestras, sin sobre-disparo
-    en contornos (glifos/letras). Bytecode regenerado con `fxc /T cs_5_1 /E main
+  texture_cache.h`**: the upscale now also covers **native RGBA8** (`fmt=6`),
+  not just DXT:
+  - `GetTextureUpscaleFactor`: accepts `dxgi_format_unsigned == R8G8B8A8_UNORM`
+    when the load shader produces RGBA8 (`bytes_per_host_block == 4`); rejects
+    other formats (`not_rgba8`/`load_not_rgba8`) so as not to corrupt textures.
+  - **Frontbuffer exclusion** (`swap_texture_key_`): `RequestSwapTexture`
+    registers the key BEFORE creating it and the upscale rejects it
+    (`swap_texture`). Without this the presentation resource was created at Nx
+    and the swap failed.
+  - New helper `GetTextureUpscaleRgba8Format` for `GetDXGIResourceFormat` /
+    `GetDXGIUnormFormat(TextureKey)` (before, they returned
+    `dxgi_format_uncompressed`, which for `k_8_8_8_8` is `UNKNOWN` -> thousands
+    of `Unsupported texture formats used in the frame`).
+  - New cvar **`dbz3_upscale_max_texels`** (default `1 << 19` texels = 0.5 M,
+    max area 1024x512 / 512x1024; `0` = no limit) to bound VRAM. The launcher
+    exposes it as an **advanced** setting in the Dev tab ("HD textures:
+    spending", Low/Medium/High) -> cvar `dbz3_hd_texture_max_texels`.
+  - **Video guard** (`UpscaleBudgetAllows`): the intro/SFD rewrites the video
+    texture ~60 times/s and each rewrite regenerated the mip chain (`upx`
+    reached **32182**, GPU at 80 % / 133 W). Sliding window: >24 upscales in
+    0.5 s -> stop granting for 3 s. The decision is **cached per key**
+    (`upscale_granted_keys_`) so it is stable between the creation of the Nx
+    resource and its reloads (otherwise the Nx resource stays unfilled ->
+    `device removed 0x887A0001`). Measured: upx 32182->237, GPU 80->39 %,
+    133->34 W.
+  - **x3 cap** (`dbz3_texture_upscale` range 1-3, before 1-4): x4 multiplied
+    VRAM/GPU with almost no visible gain.
+  - **Minimum size** (`dbz3_upscale_min_size`, default **16**): textures
+    smaller than 16 texels wide/high are not scaled. They are HUD/UI (health bar
+    segments, icons) and bicubic blurred them. Fix for the dirty HUD (user
+    feedback).
+  - **Anti-ringing clamp** in `texture_upscale_cs.hlsl`: the Catmull-Rom kernel
+    result is clamped to the `[min, max]` of the 16 samples, without overshoot
+    on edges (glyphs/letters). Bytecode regenerated with `fxc /T cs_5_1 /E main
     /Vn texture_upscale_cs /O3 /Fh ...`.
-- **Medicion** (`hd_tex=3x` + limite 0.5 M, preset Calidad, RTX 4070 SUPER,
-  combate real): **0 errores**, fps min 54.7, GPU **39 % / 33 W / 1.67 GB**.
-- **DLLs canonicas (2026-09-19b, texturas HD: RGBA8 + guardia + min-size)**: `rexgpu-xenos.dll`
-  **6.227.456 B** (baseline; SHA256 varia por build), `rexruntime.dll`
-  **10.910.208 B**, `amd_fidelityfx_dx12.dll` **5.413.888 B**.
+- **Measurement** (`hd_tex=3x` + 0.5 M limit, Quality preset, RTX 4070 SUPER,
+  real battle): **0 errors**, fps min 54.7, GPU **39 % / 33 W / 1.67 GB**.
+- **Canonical DLLs (2026-09-19b, HD textures: RGBA8 + guard + min-size)**:
+  `rexgpu-xenos.dll` **6,227,456 B** (baseline; SHA256 varies per build),
+  `rexruntime.dll` **10,910,208 B**, `amd_fidelityfx_dx12.dll` **5,413,888 B**.
 
-### 2026-09-29 - DRED activo en release + gamecontrollerdb
+### 2026-09-29 - DRED active in release + gamecontrollerdb
 
-Dos cosas aprendidas de la recompilacion hermana **reblue** (ReXGlue 0.10, misma
-base que este proyecto): el DRED solo estaba armado cuando `d3d12_debug=ON`, y el
-`gamecontrollerdb.txt` que el runtime ya sabe leer **no se enviaba**. Los dos
-ficheros de abajo ya forman parte del arbol de parches.
+Two things learned from the sister recompilation **reblue** (ReXGlue 0.10, same
+base as this project): DRED was only armed when `d3d12_debug=ON`, and the
+`gamecontrollerdb.txt` the runtime already knows how to read **was not
+shipped**. The two files below are now part of the patch tree.
 
-- **`src/ui/d3d12/d3d12_provider.cpp`** (rexruntime): DRED sale de dentro del
-  `if (d3d12_debug)` y pasa a su propia cvar **`d3d12_dred`** (default **true**).
-  `ID3D12DeviceRemovedExtendedDataSettings` se obtiene con
-  `D3D12GetDebugInterface`, que **no** requiere la capa debug (esa es pesada y
-  sigue OFF por defecto): armar DRED en release es gratis y es lo unico que,
-  cuando el device se pierde, nombra la operacion que fallo (auto-breadcrumbs) y
-  la asignacion en la VA del page fault.
+- **`src/ui/d3d12/d3d12_provider.cpp`** (rexruntime): DRED moves out of the
+  `if (d3d12_debug)` and gets its own cvar **`d3d12_dred`** (default
+  **true**). `ID3D12DeviceRemovedExtendedDataSettings` is obtained with
+  `D3D12GetDebugInterface`, which does **not** require the debug layer (that
+  one is heavy and stays OFF by default): arming DRED in release is free and is
+  the only thing that, when the device is lost, names the failing operation
+  (auto-breadcrumbs) and the allocation at the page-fault VA.
 - **`src/graphics/d3d12/command_processor.cpp`** (rexgpu-xenos):
-  `LogDeviceRemovalDiagnostics` enriquece el reporte:
-  - cada breadcrumb imprime ademas el nombre (SetName) de la **command queue** y
-    la **command list** que iba ejecutando;
-  - del page fault se vuelcan los nodos `D3D12_DRED_ALLOCATION_NODE`
-    (existentes + liberados recientemente) con su tipo y nombre.
-- **`gamecontrollerdb.txt`** (~608 KB, raiz + espejo en `github/`): base de mandos
-  de la comunidad (SDL_GameControllerDB, zlib). El runtime ya tiene la cvar
-  **`hid_mappings_file`** (default `gamecontrollerdb.txt`) y carga el fichero con
-  `SDL_AddGamepadMappingsFromFile`; lo que faltaba era **enviarlo** junto al exe.
-  `CMakeLists.txt` lo copia en POST_BUILD, `tools/make_release.ps1` lo mete en el
-  zip y `tools/sync_github.ps1` lo versiona. Beneficio: el backend SDL reconoce
-  mandos genericos que no van por XInput.
-- **DLLs canonicas (2026-09-29)**: `rexruntime.dll` **10.920.448 B**,
-  `rexgpu-xenos.dll` **6.360.064 B**, `amd_fidelityfx_dx12.dll` **5.413.888 B**.
+  `LogDeviceRemovalDiagnostics` enriches the report:
+  - each breadcrumb also prints the name (SetName) of the **command queue** and
+    the **command list** it was executing;
+  - from the page fault, the `D3D12_DRED_ALLOCATION_NODE` nodes (existing +
+    recently freed) are dumped with their type and name.
+- **`gamecontrollerdb.txt`** (~608 KB, root + mirror in `github/`): community
+  controller database (SDL_GameControllerDB, zlib). The runtime already has the
+  cvar **`hid_mappings_file`** (default `gamecontrollerdb.txt`) and loads the
+  file with `SDL_AddGamepadMappingsFromFile`; what was missing was **shipping**
+  it next to the exe. `CMakeLists.txt` copies it in POST_BUILD,
+  `tools/make_release.ps1` puts it in the zip and `tools/sync_github.ps1`
+  versions it. Benefit: the SDL backend recognises generic controllers that do
+  not go through XInput. (The PS5 host sets `hid_mappings_file=""`: the
+  DualSense goes through scePad.)
+- **Canonical DLLs (2026-09-29)**: `rexruntime.dll` **10,920,448 B**,
+  `rexgpu-xenos.dll` **6,360,064 B**, `amd_fidelityfx_dx12.dll` **5,413,888 B**.
 
-## 2026-10-04 - v1.4.0: menu rapido, FSR en vivo, VFS diferido, personajes nuevos
+## 2026-10-04 - v1.4.0: quick menu, live FSR, deferred VFS, new characters
 
-A partir de la v1.4.0 esta carpeta es el **overlay COMPLETO** de nuestro SDK sobre
-ReXGlue **v0.10.0** (`git diff v0.10.0` de la rama local `dbz3-burstlimit`): copiar
-`patches/rexglue-sdk/.` encima de un checkout limpio de v0.10.0 deja el arbol
-identico al que compila las DLL canonicas. Se anaden, ademas de los parches de las
-secciones anteriores, `CMakeLists.txt` (raiz del SDK: `REXGLUE_OUTPUT_DIR`),
-`src/core/CMakeLists.txt`, `src/ui/CMakeLists.txt`, `include/rex/rex_app.h`
-(`ResolveImageInfo` del nucleo dual y `OnConfigureQuickMenu`) y el resto de
-ficheros listados abajo.
+From v1.4.0 this folder is the **FULL overlay** of our SDK over ReXGlue
+**v0.10.0** (`git diff v0.10.0` of the local branch `dbz3-burstlimit`):
+copying `patches/rexglue-sdk/.` over a clean v0.10.0 checkout leaves the tree
+identical to the one that builds the canonical DLLs. In addition to the patches
+in the previous sections, it adds `CMakeLists.txt` (SDK root:
+`REXGLUE_OUTPUT_DIR`), `src/core/CMakeLists.txt`, `src/ui/CMakeLists.txt`,
+`include/rex/rex_app.h` (the dual core's `ResolveImageInfo` and
+`OnConfigureQuickMenu`) and the rest of the files listed below.
 
-### Funciones adaptadas de Burst Limit Recompiled (iExplosiveRage)
+### Features adapted from Burst Limit Recompiled (iExplosiveRage)
 
-Cherry-picks de la rama `burstlimit` de
+Cherry-picks from the `burstlimit` branch of
 [iExplosiveRage/rexglue-sdk](https://github.com/iExplosiveRage/rexglue-sdk)
-(proyecto *DBZ Burst Limit Recompiled*), que desciende del mismo `v0.10.0`
-(commits originales 0f57cc6, 284e15b, 5f3abd4, be4bdb0, 9296733, 156a164,
-d197cd7, 431266b, 3360458, 0f1ae03 + port minimo de 1fc298c). Licencia del SDK
-(BSD-3) intacta en las cabeceras.
+(the *DBZ Burst Limit Recompiled* project), which descends from the same
+`v0.10.0` (original commits 0f57cc6, 284e15b, 5f3abd4, be4bdb0, 9296733,
+156a164, d197cd7, 431266b, 3360458, 0f1ae03 + minimal port of 1fc298c). The
+SDK licence (BSD-3) is intact in the headers.
 
-- **Menu rapido con mando** (`ui/overlay/quick_menu.{h,cpp}`, `rex_app.{h,cpp}`):
-  F1 o el combo `quick_menu_buttons` (Back+Start por defecto; L3+R3 o solo
-  teclado). La app lo rellena con `ReXApp::OnConfigureQuickMenu`. Adaptado a
-  DBZ3: paleta naranja/azul del launcher, banda de cabecera, textos traducibles,
-  elementos de tipo accion (`kAction`), `on_changed` (guardar en
-  `dbz3_user.toml`) y `can_open` (solo en partida).
-- **Bloqueo de entrada para la UI** (`input/input_system.{h,cpp}`): combo de
-  apertura y *input blockers*; con un dialogo abierto el guest no recibe teclas ni
-  botones.
-- **Panel de FPS F3 restilizado** (`ui/overlay/debug_overlay.{h,cpp}`,
-  `overlay_text.{h,cpp}`, `perf/frame_rate.{h,cpp}`): FPS del juego (swaps del
-  guest por segundo) y FPS de pantalla, grafica de tiempo de frame, esquina
-  configurable (`debug_overlay_position`).
-- **Ajustes de video en vivo** (`ui/presenter.cpp`, `ui/d3d12/d3d12_presenter.cpp`,
+- **Controller quick menu** (`ui/overlay/quick_menu.{h,cpp}`,
+  `rex_app.{h,cpp}`): F1 or the `quick_menu_buttons` combo (Back+Start by
+  default; L3+R3 or keyboard only). The app fills it with
+  `ReXApp::OnConfigureQuickMenu`. Adapted to DBZ3: the launcher's
+  orange/blue palette, header band, translatable texts, action items
+  (`kAction`), `on_changed` (save to `dbz3_user.toml`) and `can_open` (in game
+  only).
+- **Input blocking for the UI** (`input/input_system.{h,cpp}`): opening combo
+  and *input blockers*; with a dialog open the guest receives no keys or
+  buttons.
+- **Restyled F3 FPS panel** (`ui/overlay/debug_overlay.{h,cpp}`,
+  `overlay_text.{h,cpp}`, `perf/frame_rate.{h,cpp}`): game FPS (guest swaps
+  per second) and display FPS, frame-time graph, configurable corner
+  (`debug_overlay_position`).
+- **Live video settings** (`ui/presenter.cpp`, `ui/d3d12/d3d12_presenter.cpp`,
   `graphics/d3d12/command_processor.{h,cpp}`, `graphics/graphics_system.cpp`):
-  `present_effect`, FSR/CAS, nitidez, FXAA (`swap_post_effect`) y
-  `draw_resolution_scale` se aplican sin reiniciar; el upscaler FidelityFX no se
-  libera mientras un pintado lo usa.
-- **FSR por debajo de la resolucion** (`present_fsr_quality_mode`): los modos
-  calidad/equilibrado/rendimiento renderizan por debajo de `draw_resolution_scale`
-  (FPS reales). En DBZ3 lo expone la cvar `dbz3_fsr_render` («Mas FPS con FSR»).
-- **Fix de pantalla negra** con `present_effect` fsr2/fsr3.
-- **Guardado TOML valido** (`core/cvar.cpp`, test en `tests/unit/core/cvar_test.cpp`).
-- No portado (especifico de su juego): tope de FPS por vblank, FOV/modo foto,
-  mips/precarga de packs de texturas.
+  `present_effect`, FSR/CAS, sharpness, FXAA (`swap_post_effect`) and
+  `draw_resolution_scale` apply without restarting; the FidelityFX upscaler is
+  not freed while a paint uses it.
+- **FSR below native resolution** (`present_fsr_quality_mode`): the
+  quality/balanced/performance modes render below `draw_resolution_scale` (real
+  FPS). In DBZ3 it is exposed by the cvar `dbz3_fsr_render` ("More FPS with
+  FSR").
+- **Black screen fix** with `present_effect` fsr2/fsr3.
+- **Valid TOML saving** (`core/cvar.cpp`, test in
+  `tests/unit/core/cvar_test.cpp`).
+- Not ported (specific to their game): vblank FPS cap, FOV/photo mode,
+  texture-pack mips/preload.
 
-### Cambios propios v1.4.0
+### Own v1.4.0 changes
 
-- **Cerrojo de entrada** (`input/input_system.cpp`): `GetCapabilities`, `SetState`,
-  `GetKeystroke` y `RefreshDevices` toman el mutex del `InputSystem`. El menu rapido
-  lee el mando desde el hilo de la UI mientras el juego lo lee desde los suyos;
-  sin el cerrojo habia corrupcion del heap (0xC0000374 en `RefreshDevices`).
-- **VFS diferido** (`filesystem/devices/host_path_device.cpp`,
-  `host_path_entry.{h,cpp}`, `filesystem/entry.{h,cpp}`): `HostPathDevice::Initialize`
-  ya no recorre toda la carpeta del juego (30 s en frio); los directorios se listan
-  bajo demanda (`EnsureChildrenListed` al enumerar, busqueda exacta al abrir). La
-  cvar `vfs_eager_scan=true` recupera el modo antiguo. Sellos `dbz3 startup:` en el
-  log (`system/runtime.cpp`). Launcher: de ~31 s a <1 s.
-- **Entradas AFS anadidas** (`filesystem/afs.{h,cpp}`, `host_path_file.cpp`): los
-  mods pueden ANADIR entradas detras de la ultima de cualquier AFS
-  (`mods/<mod>/us/<afs>/<N>` con `N` >= numero de entradas: `data_cmn`, `data_usi`,
-  `lang_*`... para los personajes nuevos); `AfsVirtualSize` presenta al guest el
-  tamano virtual del contenedor. Capacidad publicada por la cvar `dbz3_afs_append` (si falta, el
-  launcher desactiva `mods/_roster` para que el juego arranque).
-- **Gritos RXADPC** (`audio/xma_context.cpp`): `Decode()` acepta paquetes
-  `"RXADPC\x01"` (cabecera de 8 B + hasta 7 bloques IMA ADPCM de 260 B / 512
-  muestras) y los decodifica sin FFmpeg. Es la pasarela de gritos de combate de
-  los personajes nuevos (no hay codificador XMA).
-- **Diagnostico opcional** (`graphics/pipeline/shader/translator.cpp`,
+- **Input lock** (`input/input_system.cpp`): `GetCapabilities`, `SetState`,
+  `GetKeystroke` and `RefreshDevices` take the `InputSystem` mutex. The quick
+  menu reads the controller from the UI thread while the game reads it from its
+  own; without the lock there was heap corruption (0xC0000374 in
+  `RefreshDevices`).
+- **Deferred VFS** (`filesystem/devices/host_path_device.cpp`,
+  `host_path_entry.{h,cpp}`, `filesystem/entry.{h,cpp}`):
+  `HostPathDevice::Initialize` no longer walks the whole game folder (30 s
+  cold); directories are listed on demand (`EnsureChildrenListed` when
+  enumerating, exact lookup when opening). The cvar `vfs_eager_scan=true`
+  restores the old mode. `dbz3 startup:` stamps in the log
+  (`system/runtime.cpp`). Launcher: from ~31 s to <1 s.
+- **Appended AFS entries** (`filesystem/afs.{h,cpp}`, `host_path_file.cpp`):
+  mods can APPEND entries after the last one of any AFS
+  (`mods/<mod>/us/<afs>/<N>` with `N` >= number of entries: `data_cmn`,
+  `data_usi`, `lang_*`... for the new characters); `AfsVirtualSize` presents the
+  container's virtual size to the guest. Capability published by the cvar
+  `dbz3_afs_append` (if missing, the launcher disables `mods/_roster` so the
+  game starts).
+- **RXADPC yells** (`audio/xma_context.cpp`): `Decode()` accepts
+  `"RXADPC\x01"` packets (8 B header + up to 7 IMA ADPCM blocks of 260 B / 512
+  samples) and decodes them without FFmpeg. It is the battle-yell gateway of
+  the new characters (there is no XMA encoder).
+- **Optional diagnostics** (`graphics/pipeline/shader/translator.cpp`,
   `graphics/pipeline/texture/cache.cpp`, `graphics/command_processor.cpp`):
-  registro del layout de vertex fetch (solo con `DBZ3_LOG_DRAWS=1` o el marcador
-  `dbz3_drawlog.on`) y contadores de swap del guest para el panel de FPS.
-- **Sello de version**: `include/rex/dbz3_build.h` -> `1.4.0`.
-- **DLLs canonicas v1.4.0 (2026-10-04)**: `rexruntime.dll` **11.034.624 B**,
-  `rexgpu-xenos.dll` **6.372.864 B**, `amd_fidelityfx_dx12.dll` **5.413.888 B**
-  (sin cambios). `tools/verify_release.ps1` comprueba hash contra el SDK baseline y
-  estos tamanos de referencia.
+  vertex-fetch layout log (only with `DBZ3_LOG_DRAWS=1` or the marker
+  `dbz3_drawlog.on`) and guest swap counters for the FPS panel.
+- **Version stamp**: `include/rex/dbz3_build.h` -> `1.4.0`.
+- **Canonical v1.4.0 DLLs (2026-10-04)**: `rexruntime.dll` **11,034,624 B**,
+  `rexgpu-xenos.dll` **6,372,864 B**, `amd_fidelityfx_dx12.dll`
+  **5,413,888 B** (unchanged). `tools/verify_release.ps1` checks the hash
+  against the SDK baseline and these reference sizes.
 
-## 2026-10-05 - v1.4.1: rendimiento y diagnostico
+## 2026-10-05 - v1.4.1: performance and diagnostics
 
-- `src/core/threading_win.cpp` (solo Windows, no esta en el overlay de Linux):
-  `timeBeginPeriod(1)` + opt-out de power throttling (EcoQoS e
-  IGNORE_TIMER_RESOLUTION) la primera vez que se duerme, y `Sleep`/`AlertableSleep`
-  con un waitable timer de alta resolucion por hilo (fallback a `::Sleep`).
-  Motivo: issue #8 (30 FPS clavados con i9-14900K + RTX 4090).
+- `src/core/threading_win.cpp` (Windows only, not in the Linux overlay):
+  `timeBeginPeriod(1)` + power-throttling opt-out (EcoQoS and
+  IGNORE_TIMER_RESOLUTION) the first time it sleeps, and `Sleep`/
+  `AlertableSleep` with a per-thread high-resolution waitable timer (fallback to
+  `::Sleep`). Reason: issue #8 (30 FPS lock with i9-14900K + RTX 4090).
 - `src/graphics/command_processor.cpp` + `include/rex/graphics/command_processor.h`:
-  contador `g_dbz3_regmem_wait_us` (tiempo dormido en WAIT_REG_MEM).
-- `src/graphics/d3d12/command_processor.cpp`: esperas a fences cronometradas
-  (`gpu_wait=`/`syncs=`/`cp_wait=` en la linea `perf`), lineas `tiron` para los
-  frames del guest de mas de 50 ms (max 30/sesion) y aviso de FPS bajo que solo
-  sugiere los ajustes activos y distingue CPU de GPU.
-- `src/ui/d3d12/d3d12_provider.cpp`: `d3d12_dred` pasa a **false** por defecto;
-  el juego lo arma para la sesion siguiente a un `D3D12 device removed`
+  counter `g_dbz3_regmem_wait_us` (time slept in WAIT_REG_MEM).
+- `src/graphics/d3d12/command_processor.cpp`: timed fence waits
+  (`gpu_wait=`/`syncs=`/`cp_wait=` in the `perf` line), `tiron` lines for guest
+  frames over 50 ms (max 30/session) and a low-FPS warning that only suggests
+  active settings and distinguishes CPU from GPU.
+- `src/ui/d3d12/d3d12_provider.cpp`: `d3d12_dred` becomes **false** by
+  default; the game arms it for the session after a `D3D12 device removed`
   (`src/launcher/settings.cpp`, `ArmGpuCrashDiagnostics`).
-- `src/graphics/d3d12/pipeline_cache.cpp` (solo D3D12): contador
-  `g_dbz3_sync_shader_work` (traducciones/pipelines hechos en el hilo de la GPU
-  emulada) que la linea `tiron` muestra como `shaders +N`.
-- `include/rex/dbz3_build.h`: sello `1.4.1`.
-- `src/filesystem/devices/host_path_file.cpp` + `host_path_entry.cpp`: la tabla virtual de
-  un AFS (mods que anaden/agrandan entradas) se calcula sobre el fichero que de verdad se
-  abre. Con un pack de musica que trae su propio `adx_usa.afs` (override de fichero
-  completo) y el mod de personajes anadiendo voces a ese AFS, se leia el pack con los
-  offsets del original y la musica salia en silencio (reproducido con un pack reordenado:
-  menu a 0.000 sin el arreglo, musica con el).
-- `src/audio/sdl/sdl_audio_driver.cpp`: linea `dbz3: audio pico=... rms=...` cada 5 s con
-  `dbz3_perf_logging` (nivel de la mezcla del guest, antes de mute/volumen).
-- `src/graphics/vulkan/command_processor.cpp`: linea `perf` (backend=vulkan) y lineas
-  `tiron` tambien en Vulkan/Linux.
+- `src/graphics/d3d12/pipeline_cache.cpp` (D3D12 only): counter
+  `g_dbz3_sync_shader_work` (translations/pipelines done on the emulated GPU's
+  thread) that the `tiron` line shows as `shaders +N`.
+- `include/rex/dbz3_build.h`: stamp `1.4.1`.
+- `src/filesystem/devices/host_path_file.cpp` + `host_path_entry.cpp`: the
+  virtual table of an AFS (mods that append/enlarge entries) is computed on the
+  file actually opened. With a music pack that brings its own `adx_usa.afs`
+  (whole-file override) and the characters mod adding voices to that AFS, the
+  pack was read with the original's offsets and the music came out silent
+  (reproduced with a reordered pack: menu at 0.000 without the fix, music with
+  it).
+- `src/audio/sdl/sdl_audio_driver.cpp`: line `dbz3: audio pico=... rms=...`
+  every 5 s with `dbz3_perf_logging` (guest mix level, before mute/volume).
+- `src/graphics/vulkan/command_processor.cpp`: `perf` line (backend=vulkan)
+  and `tiron` lines on Vulkan/Linux too.
+
+## 2026-10-06 - PS5 build (experimental)
+
+No file in this folder changed for the PS5 port. The PS5 platform layer is a
+separate patch applied **after** this overlay:
+`ps5/patches/rexglue-v0.10.0-dbz3-ps5.patch` (mcla-recomp's PS5 patch rebased
+onto this overlay, plus `GetExecutablePath()` honouring `REX_EXECUTABLE_PATH`
+and a `__PROSPERO__` byte-order branch in `thirdparty/crypto/sha256.cpp`) and
+`ps5/patches/rexglue-ffmpeg-ps5-config.patch`. Of the files here, the PS5 patch
+touches `graphics_system.cpp` (keeps patch 13's clamp, adds the backwards-tick
+resync) and `vulkan_presenter.cpp` (keeps patch 6.b's pacing, adds paint
+logging). Keep those two in mind when editing them. Details:
+[`ps5/README.md`](../ps5/README.md), [`docs/PS5.md`](../docs/PS5.md).
