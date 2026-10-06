@@ -1,215 +1,220 @@
-# ESTUDIO DEL ECOSISTEMA DE MODS — Ports PS2 → B3 HD
+# STUDY OF THE MOD ECOSYSTEM — PS2 → B3 HD ports
 
-> Fecha: 2026-08-26. Estudio sistemático de cómo funcionan los mods, inventario
-> y comparativa de las herramientas (comunidad vs nuestras), y evaluación de
-> cuánto hay que modificar las nuestras para especializarlas en ports
-> **PS2 (#AMO0/#AMG LE) → B3 HD (#AWO/#AWG/#AZT BE)**.
+> Date: 2026-08-26. Systematic study of how mods work, an inventory and a
+> comparison of the tools (community vs ours), and an evaluation of how much
+> ours must be modified to specialise them in
+> **PS2 (#AMO0/#AMG LE) → B3 HD (#AWO/#AWG/#AZT BE)** ports.
 
 ---
 
-## 1. CÓMO FUNCIONAN LOS MODS EN ESTE PROYECTO
+## 1. HOW MODS WORK IN THIS PROJECT
 
-### 1.1 Los dos tipos de mod (runtime rexruntime.dll)
+### 1.1 The two types of mod (runtime rexruntime.dll)
 
-| Tipo | Layout | Hook | Uso |
+| Type | Layout | Hook | Use |
 |---|---|---|---|
-| Override de archivo completo | `mods/<mod>/us/<afs>` | `AfsFindModFileOverride` | Música/packs (og_music) |
-| **Override por entrada** (RECOMENDADO) | `mods/<mod>/us/data_cmn.afs/<entry>/geom.bin` | `AfsFindModOverride` + **mid-insert virtual** | Modelos, texturas (~100KB) |
+| Whole-file override | `mods/<mod>/us/<afs>` | `AfsFindModFileOverride` | Music/packs (og_music) |
+| **Per-entry override** (RECOMMENDED) | `mods/<mod>/us/data_cmn.afs/<entry>/geom.bin` | `AfsFindModOverride` + **virtual mid-insert** | Models, textures (~100KB) |
 
-El runtime sirve archivos por ENTRADA del AFS sin reempaquetar nada; con el
-**mid-insert virtual** (tabla AFS virtual consistente) el bin del mod puede ser
-cualquier tamaño (>slot), la entrada crece in-place y las posteriores se
-desplazan. 2+ mods de modelo/textura activos simultáneamente.
+The runtime serves files per AFS ENTRY without repacking anything; with the
+**virtual mid-insert** (consistent virtual AFS table) the mod's bin can be any
+size (>slot), the entry grows in place and later ones shift. 2+ model/texture
+mods active at once. (The same mods also work on the PS5 build, from
+`/data/dbz3/mods/`.)
 
-### 1.2 Pipeline de un mod de modelo (validado end-to-end)
+### 1.2 Pipeline of a model mod (validated end to end)
 
 ```
-1. extraer bin LZX del AFS (tabla en offset 8)      → xbdecompress
-2. modificar el bin (swap/textura/geometría)
-3. comprimir  xbcompress /N:2048                    → SIEMPRE /N:2048
-4. pad al to_read (o to_read_virtual si excede)     → swap_b3.py lo hace solo
-5. instalar  mods/<mod>/us/data_cmn.afs/<entry>/geom.bin
-6. activar   (quitar .disabled)
-7. verificar logs: "AFS OVERRIDE HIT (folder)" + "AFS MOD READ: got=to_read"
+1. extract the LZX bin from the AFS (table at offset 8)  → xbdecompress
+2. modify the bin (swap/texture/geometry)
+3. compress  xbcompress /N:2048                          → ALWAYS /N:2048
+4. pad to to_read (or to_read_virtual if it exceeds)     → swap_b3.py does it
+5. install  mods/<mod>/us/data_cmn.afs/<entry>/geom.bin
+6. enable   (remove .disabled)
+7. check logs: "AFS OVERRIDE HIT (folder)" + "AFS MOD READ: got=to_read"
 ```
 
-### 1.3 Herramientas ESTABLES del Launcher (NO tocar)
+### 1.3 STABLE Launcher tools (do NOT touch)
 
-| Herramienta | Función | Launcher |
+| Tool | Function | Launcher |
 |---|---|---|
-| `swap_b3.py` | Swap nativo B3→B3 (extrae bin #AMB, LZX /N:2048, override) | Pestaña Model Swap |
-| `texture_b3.py` | Texturas: #AZT→PNG, re-codifica DXT3, reconstruye bin | Pestaña Texturas |
-| `catalog_b3.cat` | Catálogo de 183 personajes del data_cmn.afs | Pestañas Model Swap/Texturas |
+| `swap_b3.py` | Native B3→B3 swap (extracts the #AMB bin, LZX /N:2048, override) | Model Swap tab |
+| `texture_b3.py` | Textures: #AZT→PNG, re-encodes DXT3, rebuilds the bin | Textures tab |
+| `catalog_b3.cat` | Catalogue of 183 characters of data_cmn.afs | Model Swap/Textures tabs |
 
-Estas funcionan y están en producción. El estudio **no las toca** salvo para
-reusar sus utilidades (LZX, padding, instalación de override) dentro del nuevo
-pipeline de ports.
+These work and are in production. The study **does not touch them** except to
+reuse their utilities (LZX, padding, override installation) inside the new port
+pipeline.
 
 ---
 
-## 2. EL ECOSISTEMA DE LA COMUNIDAD (inventario verificado)
+## 2. THE COMMUNITY ECOSYSTEM (verified inventory)
 
-Exploradas: `mod center\` (36 programas), `modding resources\`,
+Explored: `mod center\` (36 programs), `modding resources\`,
 `modding resources discord\` (research/245, tools/58, tutorials/78),
-`modding resources update\`, `modding resources update 2\` (MOD EJEMPLO).
+`modding resources update\`, `modding resources update 2\` (EXAMPLE MOD).
 
-### 2.1 Herramientas de modelo (todas PS2 little-endian)
+### 2.1 Model tools (all PS2 little-endian)
 
-| Herramienta | Qué hace | Formato |
+| Tool | What it does | Format |
 |---|---|---|
-| **B3_IW Model Converter** (amb_model.py/functions.py) | Solo desempaqueta/empaqueta el contenedor #AMB (AMO+AMT por tabla). NO toca geometría | PS2 |
-| **OBJ to AMG v0.92** | OBJ→mesh parts PS2 desde cero (templates `model_part_header.bin`, `triangle.bin`; vértices 48B expandidos por triángulo, FaceType=1) | PS2 |
-| **EMD to AMG v0.90** | EMD Xenoverse/SDBH → AMG PS2 por model part (solo malla V/VN/UV, lee bone labels pero NO mapea) | PS2 |
-| **AMO Decompiler/Compiler** (Model Compiling Tools) | #AMO0 ⇄ (AXES.bin + *.mesh + *.rig1/rig2 + AMO.txt). Reconstruye ejes, rig chunks, labels | PS2 |
-| **Model Merger (AMO_LGBT)** | Fusiona el 1er AMG de 2 #AMO0 (Ginyu bodyswap), reubica rig offsets | PS2 |
-| **Model-Rig Extractor v0.6/v0.9** | Extrae part + **rig data por hueso**: chunks 32B/sub-chunks 16B con offset de vértice en +12 → mapeo rig→malla 100% | PS2 |
-| **Model Part Editor** | Convierte mesh parts B3⇄B1 (headers/shader/rgb_lines) | PS2 |
-| **B3-IW AMO Converter + Shadows** (Scoops999) | B3/IW→B1 (re-mapea cabeceras mesh part; sin source) | PS2 |
-| **B3-to-SB2.py** | AMG B5 01 de B3/IW→SB2 | PS2 |
-| **Bone Addition Tool v1.02** | Añade hueso al AMO (eje 80B, child/sibling/parent, labels) | PS2 |
-| **Bin to OBJ V3 / AMG to OBJ V2** | AMG PS2 → OBJ (solo los generados por las herramientas de la comunidad) | PS2 |
-| **budokai_updated.ms** (MaxScript) | Importa AMO/AMG B3 PS2 a 3ds Max; **documenta el IB implícito** (FaceType 1=strip, 0=triplete) | PS2 |
-| **Zero Devs' Tool** | BT3p→Budokai (APK Android; solo tutorials en el acervo) | PS2 |
-| **ama10.java, AMA tools** | Parser del esqueleto AMA de B1/B2/GC | PS2 |
+| **B3_IW Model Converter** (amb_model.py/functions.py) | Only unpacks/packs the #AMB container (AMO+AMT by table). Does NOT touch geometry | PS2 |
+| **OBJ to AMG v0.92** | OBJ→PS2 mesh parts from scratch (templates `model_part_header.bin`, `triangle.bin`; 48B vertices expanded per triangle, FaceType=1) | PS2 |
+| **EMD to AMG v0.90** | Xenoverse/SDBH EMD → PS2 AMG per model part (mesh V/VN/UV only, reads bone labels but does NOT map them) | PS2 |
+| **AMO Decompiler/Compiler** (Model Compiling Tools) | #AMO0 ⇄ (AXES.bin + *.mesh + *.rig1/rig2 + AMO.txt). Rebuilds axes, rig chunks, labels | PS2 |
+| **Model Merger (AMO_LGBT)** | Merges the 1st AMG of 2 #AMO0 (Ginyu bodyswap), relocates rig offsets | PS2 |
+| **Model-Rig Extractor v0.6/v0.9** | Extracts part + **rig data per bone**: 32B chunks/16B sub-chunks with a vertex offset at +12 → 100% rig→mesh mapping | PS2 |
+| **Model Part Editor** | Converts mesh parts B3⇄B1 (headers/shader/rgb_lines) | PS2 |
+| **B3-IW AMO Converter + Shadows** (Scoops999) | B3/IW→B1 (remaps mesh part headers; no source) | PS2 |
+| **B3-to-SB2.py** | B5 01 AMG of B3/IW→SB2 | PS2 |
+| **Bone Addition Tool v1.02** | Adds a bone to the AMO (80B axis, child/sibling/parent, labels) | PS2 |
+| **Bin to OBJ V3 / AMG to OBJ V2** | PS2 AMG → OBJ (only those generated by the community tools) | PS2 |
+| **budokai_updated.ms** (MaxScript) | Imports B3 PS2 AMO/AMG into 3ds Max; **documents the implicit IB** (FaceType 1=strip, 0=triplet) | PS2 |
+| **Zero Devs' Tool** | BT3p→Budokai (Android APK; only tutorials in the collection) | PS2 |
+| **ama10.java, AMA tools** | Parser of the B1/B2/GC AMA skeleton | PS2 |
 
-### 2.2 Herramientas HD 360 (las únicas que tocan el lado 360)
+### 2.2 360 HD tools (the only ones that touch the 360 side)
 
-| Herramienta | Qué hace |
+| Tool | What it does |
 |---|---|
-| **xbcompress / xbdecompress** (XDK) | LZX `/N:2048` (el formato del juego). Agnóstico del contenido |
-| **AZT_Tools** | Edición de texturas #AZT (360) |
-| **B3_AMB_PS3.bt** (010 Editor) | Template big-endian del #AMB→#AWO→#AWG. ⚠️ PS3: algunos campos (off+size vs offsets) no coinciden con X360 (AGENTS §13.2) |
-| **DBZ B3 (X360) Lesson 1/2** | Tutoriales de compresión LZX y edición de texturas AZT (DDS BC2/DXT3) |
+| **xbcompress / xbdecompress** (XDK) | LZX `/N:2048` (the game's format). Content-agnostic |
+| **AZT_Tools** | Editing #AZT textures (360) |
+| **B3_AMB_PS3.bt** (010 Editor) | Big-endian template of #AMB→#AWO→#AWG. ⚠️ PS3: some fields (off+size vs offsets) do not match X360 (AGENTS §13.2) |
+| **DBZ B3 (X360) Lesson 1/2** | Tutorials on LZX compression and AZT texture editing (DDS BC2/DXT3) |
 
-### 2.3 Datasets de modelos fuente (acceso ilimitado)
+### 2.3 Source model datasets (unlimited access)
 
-| Dataset | Contenido | Uso |
+| Dataset | Content | Use |
 |---|---|---|
-| `ps2_games\` (B1, B2, B2V, B3 GH, IW) | AFS completos PS2 | **Fuente para ports** |
-| `modding resources\All Character Models from IW into AMB format\` | **241 .amb** (Janemba, Pikkon, Pan, Super 17, Super Baby...) | Personajes que NO existen en HD |
-| `modding resources\Budokai Models\` | 279 .amo/.amt IW + B3GHC (28) + B2V (48) | Idem |
+| `ps2_games\` (B1, B2, B2V, B3 GH, IW) | Full PS2 AFS | **Source for ports** |
+| `modding resources\All Character Models from IW into AMB format\` | **241 .amb** (Janemba, Pikkon, Pan, Super 17, Super Baby...) | Characters that do NOT exist in HD |
+| `modding resources\Budokai Models\` | 279 .amo/.amt IW + B3GHC (28) + B2V (48) | Same |
 | `modding resources update\Budokai 1 Models Converted to AMB\` | 230 .bin B1→AMB | B1 |
-| `modding resources update 2\MOD EJEMPLO\` | Ginyu Force en B3 AMB + IW AMO/AMT | Ejemplo del patrón comunitario |
-| SDBH WM (`modding resources\Super Dragon Ball Heroes...\`) | 10.997 .emd + 972 .esk + 442 .ean | Modelos Xenoverse chibi |
+| `modding resources update 2\MOD EJEMPLO\` | Ginyu Force in B3 AMB + IW AMO/AMT | Example of the community pattern |
+| SDBH WM (`modding resources\Super Dragon Ball Heroes...\`) | 10,997 .emd + 972 .esk + 442 .ean | Xenoverse chibi models |
 
 ---
 
-## 3. COMPARATIVA: COMUNIDAD vs NUESTRAS HERRAMIENTAS
+## 3. COMPARISON: COMMUNITY vs OUR TOOLS
 
-### 3.1 VEREDICTO CENTRAL
+### 3.1 CENTRAL VERDICT
 
-**NINGUNA herramienta de la comunidad convierte PS2 → HD 360.** Verificado por
-código: todas usan `struct.pack('<L')` (LE → PS2); la única BE es A3T Analyzer
-(solo lee texturas). La comunidad trabaja PS2→PS2 (B1⇄B3, IW→B3, EMD→AMG,
-OBJ→AMG) o edita el HD con 010 Editor + template. El salto PS2→360 es un
-**re-layout propio** (endianness + magics renombrados + tabla de offsets AMG).
+**NO community tool converts PS2 → 360 HD.** Verified by code: they all use
+`struct.pack('<L')` (LE → PS2); the only BE one is A3T Analyzer (it only reads
+textures). The community works PS2→PS2 (B1⇄B3, IW→B3, EMD→AMG, OBJ→AMG) or
+edits the HD with 010 Editor + a template. The PS2→360 jump is a **re-layout of
+our own** (endianness + renamed magics + AMG offset table).
 
-### 3.2 Qué aporta cada lado
+### 3.2 What each side brings
 
-| Pieza | Comunidad | Nuestro proyecto |
+| Piece | Community | Our project |
 |---|---|---|
-| Parseo malla PS2 (IB real por FaceType) | `budokai_updated.ms` (MaxScript) | `parse_ps2_mesh.py` ✅ |
-| Skin/rig PS2 (bone+peso por vértice) | `Model-Rig Extractor` (documenta el desfase relativo al AMG) | `ps2_rig_skin.py` ✅ (desfase `amg_abs` resuelto) |
-| Esqueleto/pose PS2 | `AMO Decompiler`, `Axis Line Tool` | `pose_matrix.py` ✅ |
-| Retopología (OBJ→AMG→AMB) | `OBJ to AMG`, `EMD to AMG`, Blender+EmdFbx | `obj_to_awg_hd.py` (layout B1, desactualizado) |
-| Estructura de dibujo HD (descriptores/arms) | **NADA** (editan con 010 Editor) | `analyze_meshgroup.py`, `analyze_mesh.py` (parseo) — **falta generador** |
-| Export HD→OBJ (feedback) | **NADA** | `awg_to_obj_b3.py`, `awg0_export.py`, `awg_cara_export.py` ✅ |
-| Geometría PS2→buffers HD | **NADA** | `ps2_to_hd_geometry.py` ✅ |
-| Empaquetar bin HD autocontenido | **NADA** | `build_from_template.py` / `build_awo_autocontenido.py` (a medio hacer) |
-| Texturas #AMT→#AZT | `AZT_Tools` (edita AZT directo) | `texture_b3.py` (AZT→PNG→AZT) |
-| Instalación del mod | AFS Toolset | `swap_b3.py` + runtime (override + mid-insert virtual) ✅ |
+| PS2 mesh parsing (real IB by FaceType) | `budokai_updated.ms` (MaxScript) | `parse_ps2_mesh.py` ✅ |
+| PS2 skin/rig (bone+weight per vertex) | `Model-Rig Extractor` (documents the offset relative to the AMG) | `ps2_rig_skin.py` ✅ (`amg_abs` offset solved) |
+| PS2 skeleton/pose | `AMO Decompiler`, `Axis Line Tool` | `pose_matrix.py` ✅ |
+| Retopology (OBJ→AMG→AMB) | `OBJ to AMG`, `EMD to AMG`, Blender+EmdFbx | `obj_to_awg_hd.py` (B1 layout, outdated) |
+| HD draw structure (descriptors/arms) | **NOTHING** (they edit with 010 Editor) | `analyze_meshgroup.py`, `analyze_mesh.py` (parsing) — **generator missing** |
+| HD→OBJ export (feedback) | **NOTHING** | `awg_to_obj_b3.py`, `awg0_export.py`, `awg_cara_export.py` ✅ |
+| PS2 geometry→HD buffers | **NOTHING** | `ps2_to_hd_geometry.py` ✅ |
+| Packing a self-contained HD bin | **NOTHING** | `build_from_template.py` / `build_awo_autocontenido.py` (half done) |
+| #AMT→#AZT textures | `AZT_Tools` (edits AZT directly) | `texture_b3.py` (AZT→PNG→AZT) |
+| Mod installation | AFS Toolset | `swap_b3.py` + runtime (override + virtual mid-insert) ✅ |
 
-### 3.3 Conclusión de la comparativa
+### 3.3 Conclusion of the comparison
 
-- **No hay atajo comunitario PS2→360**: nadie en la comunidad lo ha resuelto
-  públicamente (lo más cercano es `.aerithdevs`, Java en desarrollo, sin link).
-- **La mitad PS2 está resuelta** (parseo, rig, retopología) — por la comunidad
-  y por nosotros.
-- **La mitad HD la construimos nosotros** y ya está validada hasta: swap nativo
-  B3→B3 ✅, formato C descifrado ✅, mid-insert virtual ✅, exportadores OBJ ✅,
-  geometría PS2→HD ✅, rig PS2 ✅.
-- **EL GAP ÚNICO** es la **estructura de dibujo HD** (mesh-ref blocks +
-  descriptores + arms) generada desde cero coherente con geometría nueva. Es lo
-  que falló en Janemba/Krillin PS2/A18 (inyección en plantilla) y lo que nunca
-  se validó en `janemba_from_cell` (por la DLL stale del runtime).
+- **There is no community PS2→360 shortcut**: nobody in the community has
+  solved it publicly (the closest is `.aerithdevs`, Java in development, no
+  link).
+- **The PS2 half is solved** (parsing, rig, retopology) — by the community and
+  by us.
+- **The HD half we build ourselves** and it is validated up to: native B3→B3
+  swap ✅, format C decoded ✅, virtual mid-insert ✅, OBJ exporters ✅, PS2→HD
+  geometry ✅, PS2 rig ✅.
+- **THE ONLY GAP** is the **HD draw structure** (mesh-ref blocks + descriptors
+  + arms) generated from scratch consistently with new geometry. It is what
+  failed in Janemba/Krillin PS2/A18 (injection into a template) and what was
+  never validated in `janemba_from_cell` (because of the runtime's stale DLL).
 
 ---
 
-## 4. EVALUACIÓN: CUÁNTO HAY QUE MODIFICAR NUESTRAS HERRAMIENTAS
+## 4. EVALUATION: HOW MUCH OUR TOOLS NEED TO CHANGE
 
-### 4.1 Clasificación de nuestras herramientas (inventario completo)
+### 4.1 Classification of our tools (full inventory)
 
-| Categoría | Scripts | Acción |
+| Category | Scripts | Action |
 |---|---|---|
-| **STABLE-Launcher** | `swap_b3.py`, `texture_b3.py`, `catalog_b3.cat` | **NO tocar** (producción). Reusar sus utilidades |
-| **ANALISIS-funciona** | `awg_to_obj_b3.py`, `awg0_export.py`, `awg_cara_export.py`, `awg_parts2.py`, `parse_ps2_mesh.py`, `ps2_rig_skin.py`, `pose_matrix.py`, `build_hd_world_mats_b3.py`, `build_afs.py`, `build_big_amb.py`, `build_ib_from_ps2.py`, `decimar.py`, `decimar_tri.py`, `fbx_ascii.py`, `fbx_parser.py`, `json_to_obj.py` | **Mantener** (bucle de feedback + etapas) |
-| **COMPONENTE-conversor** (a medio hacer) | `ps2_to_hd_geometry.py`, `build_awo*.py` (4), `build_hd_pipeline.py`, `build_awo_autocontenido.py`, `build_from_template.py`, `retarget_hd.py`, `emd_to_awo_hd.py`, `obj_to_awg_hd.py`, `build_awo_from_json.py` | **Reconstruir/consolidar** en pipeline nombrado |
-| **EXPERIMENTO-fallido** | `mezclar_ps2_hd*.py` (v1-v6), `inyeccion_awg.py`, `port_ps2_to_b3.py`, `port_b1_to_b3.py`, `relayout_*.py`, `swap_cabeza*.py`, `swap_cuerpo_hd*.py`, `inject_a18*.py`, `build_janemba*.py`, `convert_personaje.py`, `rig_mapeo.py` | **NO usar como base** (archivados/`historial_fallidos`) |
-| **DESACTUALIZADO** | `analyze_bin_hd.py` (layout PS3), `awg_to_obj.py`/`obj_to_awg.py` (layout B1) | Corregir o marcar como PS3/B1-only |
+| **STABLE-Launcher** | `swap_b3.py`, `texture_b3.py`, `catalog_b3.cat` | **Do NOT touch** (production). Reuse their utilities |
+| **ANALYSIS-works** | `awg_to_obj_b3.py`, `awg0_export.py`, `awg_cara_export.py`, `awg_parts2.py`, `parse_ps2_mesh.py`, `ps2_rig_skin.py`, `pose_matrix.py`, `build_hd_world_mats_b3.py`, `build_afs.py`, `build_big_amb.py`, `build_ib_from_ps2.py`, `decimar.py`, `decimar_tri.py`, `fbx_ascii.py`, `fbx_parser.py`, `json_to_obj.py` | **Keep** (feedback loop + stages) |
+| **CONVERTER-component** (half done) | `ps2_to_hd_geometry.py`, `build_awo*.py` (4), `build_hd_pipeline.py`, `build_awo_autocontenido.py`, `build_from_template.py`, `retarget_hd.py`, `emd_to_awo_hd.py`, `obj_to_awg_hd.py`, `build_awo_from_json.py` | **Rebuild/consolidate** into a named pipeline |
+| **FAILED-experiment** | `mezclar_ps2_hd*.py` (v1-v6), `inyeccion_awg.py`, `port_ps2_to_b3.py`, `port_b1_to_b3.py`, `relayout_*.py`, `swap_cabeza*.py`, `swap_cuerpo_hd*.py`, `inject_a18*.py`, `build_janemba*.py`, `convert_personaje.py`, `rig_mapeo.py` | **Do NOT use as a base** (archived/`historial_fallidos`) |
+| **OUTDATED** | `analyze_bin_hd.py` (PS3 layout), `awg_to_obj.py`/`obj_to_awg.py` (B1 layout) | Fix or mark as PS3/B1-only |
 
-### 4.2 El gap a resolver (único bloqueador)
+### 4.2 The gap to solve (the only blocker)
 
-La estructura de dibujo de un bin HD se compone de:
-- **mesh-ref blocks** (13×0x50 en el mesh group) + **arms** (sellos 0x204) que
-  definen límites del IB en bytes.
-- **descriptores de submesh** (0x60 bytes; label en +00, `max N m` en +18,
-  rangos A en +50/+54, B en +58/+5C) — layout mapeado en
-  `awo_tools/SUBMESH_DATA_B3.md`.
-- La **zona de submesh data** del AWG0 (labels + strings `max N m` en
+The draw structure of an HD bin is made of:
+- **mesh-ref blocks** (13×0x50 in the mesh group) + **arms** (0x204 seals)
+  that define IB limits in bytes.
+- **submesh descriptors** (0x60 bytes; label at +00, `max N m` at +18, A ranges
+  at +50/+54, B at +58/+5C) — layout mapped in `awo_tools/SUBMESH_DATA_B3.md`.
+- The AWG0's **submesh data area** (labels + `max N m` strings at
   0x2D61-0x3471).
 
-La comunidad construye esto para PS2 con `amg_c.py` (templates `b3_amg_*.bin`).
-**Falta el equivalente HD**: un generador que, dada la geometría convertida
-(sec34/vb2/IB) y el esqueleto, emita la estructura de dibujo coherente.
+The community builds this for PS2 with `amg_c.py` (`b3_amg_*.bin` templates).
+**The HD equivalent is missing**: a generator that, given the converted
+geometry (sec34/vb2/IB) and the skeleton, emits the consistent draw structure.
 
-### 4.3 Evaluación de esfuerzo por pieza
+### 4.3 Effort evaluation per piece
 
-| Pieza | Esfuerzo | Base |
+| Piece | Effort | Base |
 |---|---|---|
-| `port_ps2_b3_extract` (parseo PS2 completo) | Bajo | Clonar `parse_ps2_mesh.py` + `ps2_rig_skin.py` + `pose_matrix.py` |
-| `port_ps2_b3_geometry` (coords→buffers HD) | Bajo | Clonar `ps2_to_hd_geometry.py` |
-| `port_ps2_b3_draw` (**estructura de dibujo HD**) | **ALTO (RE fina)** | `analyze_meshgroup.py` + patrón `amg_c.py` (comunidad) en HD |
-| `port_ps2_b3_pack` (AMB autocontenido + LZX + override) | Medio | Clonar `build_from_template.py`/`build_awo_autocontenido.py` + utilidades de `swap_b3.py` |
-| `port_ps2_b3_verify` (feedback loop) | Bajo | Clonar `awg_to_obj_b3.py` + chequeo bounds/NaN |
-| `port_ps2_b3_textures` (#AMT→#AZT) | Medio | Formato AZT mapeado + `texture_b3.py` |
+| `port_ps2_b3_extract` (full PS2 parsing) | Low | Clone `parse_ps2_mesh.py` + `ps2_rig_skin.py` + `pose_matrix.py` |
+| `port_ps2_b3_geometry` (coords→HD buffers) | Low | Clone `ps2_to_hd_geometry.py` |
+| `port_ps2_b3_draw` (**HD draw structure**) | **HIGH (fine RE)** | `analyze_meshgroup.py` + the community `amg_c.py` pattern in HD |
+| `port_ps2_b3_pack` (self-contained AMB + LZX + override) | Medium | Clone `build_from_template.py`/`build_awo_autocontenido.py` + `swap_b3.py` utilities |
+| `port_ps2_b3_verify` (feedback loop) | Low | Clone `awg_to_obj_b3.py` + bounds/NaN check |
+| `port_ps2_b3_textures` (#AMT→#AZT) | Medium | Mapped AZT format + `texture_b3.py` |
 
 ---
 
-## 5. LECCIONES DE LOS FRACASOS (para NO repetir)
+## 5. LESSONS FROM THE FAILURES (do NOT repeat)
 
-1. **Inyectar geometría PS2 en la plantilla de Krillin SIEMPRE deforma**: el HD
-   de Krillin es re-topologizado (0% correspondencia de vértices) y la
-   estructura de dibujo de Krillin no coincide con la geometría inyectada. →
-   Construir **bins HD autocontenidos** con estructura de dibujo propia.
-2. **Reconstruir el IB/arms de un bin existente rompe el render**: el guest
-   deserializa la estructura por los offsets del AWG header y los conteos son
-   fijos. → Para un personaje NUEVO, emitir con conteos propios y estructura
-   coherente (formato de plantilla simple probada, Babidi/Bulma).
-3. **El bone index del vértice HD va en +28 (u32)**; el layout real es
-   `[0xFFFFFFFF, u, v, z_local, x_local, y_local, peso, BONE@+28, nz, -ny, nx]`
-   (formato A). **NO copiar el layout del B1** (bone@+16) al B3.
-4. **El IB PS2 es implícito** (FaceType strips/tripletes), NO lista de índices.
-   No asumir tripletes (`extract_geometry.py` obsoleto; usar `parse_ps2_mesh.py`).
-5. **Compresión SIEMPRE `/N:2048`** (no `/N:32`). **Padding al to_read** exacto.
-6. **El runtime del build debe tener la DLL correcta** (mid-insert virtual);
-   el cmake sobrescribe `rexruntime.dll` con la versión stale de `rexglue/bin`.
-   Si falta, los overrides grandes fallan EN SILENCIO (se ve el personaje
-   original, sin crash) — costó 2 sesiones entenderlo.
-7. **Cada bin HD es autocontenido con su propio formato de vértice** (A/C/otros).
-   El guest autodetecta. No forzar el formato A de Krillin.
-8. **La vía de la comunidad para añadir personajes = reconstrucción completa**
-   (EMD/OBJ→AMG→AMB), NO inyección. Confirmado repetidamente.
+1. **Injecting PS2 geometry into Krillin's template ALWAYS deforms**: Krillin's
+   HD is re-topologised (0% vertex correspondence) and Krillin's draw structure
+   does not match the injected geometry. → Build **self-contained HD bins**
+   with their own draw structure.
+2. **Rebuilding the IB/arms of an existing bin breaks the render**: the guest
+   deserialises the structure by the AWG header offsets and the counts are
+   fixed. → For a NEW character, emit with its own counts and a consistent
+   structure (a proven simple template format, Babidi/Bulma).
+3. **The HD vertex's bone index is at +28 (u32)**; the real layout is
+   `[0xFFFFFFFF, u, v, z_local, x_local, y_local, weight, BONE@+28, nz, -ny,
+   nx]` (format A). **Do NOT copy the B1 layout** (bone@+16) into B3.
+4. **The PS2 IB is implicit** (FaceType strips/triplets), NOT an index list.
+   Do not assume triplets (`extract_geometry.py` obsolete; use
+   `parse_ps2_mesh.py`).
+5. **Compression ALWAYS `/N:2048`** (not `/N:32`). **Exact padding to
+   to_read**.
+6. **The build's runtime must have the correct DLL** (virtual mid-insert);
+   cmake overwrites `rexruntime.dll` with the stale version from `rexglue/bin`.
+   If it is missing, large overrides fail SILENTLY (the original character is
+   shown, no crash) — it took 2 sessions to understand.
+7. **Each HD bin is self-contained with its own vertex format** (A/C/others).
+   The guest auto-detects. Do not force Krillin's format A.
+8. **The community's path to add characters = full reconstruction**
+   (EMD/OBJ→AMG→AMB), NOT injection. Confirmed repeatedly.
 
 ---
 
-## 6. DOCUMENTOS DE REFERENCIA
+## 6. REFERENCE DOCUMENTS
 
-- `AWO_FORMAT.md` — formato del modelo PS2 vs HD (re-layout, no formato distinto).
-- `awo_tools/CONSOLIDADO.md`, `RE_PROGRESO.md`, `RE_AWO_HD_CONVERSOR.md` — RE completa.
-- `awo_tools/SUBMESH_DATA_B3.md` — layout de los descriptores de submesh (mapeado).
-- `awo_tools/SESION_2026-08-17.md` — vía de reconstrucción completa.
-- `mod center hd/GUIA_SWAPS_Y_PORTS.md` — principio de los swaps.
-- `docs/02_mods/COMO_HACER_MODS.md` — pipeline de mods.
-- `docs/03_formatos/AMO_AWO.md`, `BIN_LAYOUT.md` — formatos.
-- Siguiente: `docs/07_ports/HOJA_DE_RUTA_PORT_PS2_B3.md` — hoja de ruta con el
-  pipeline nombrado.
+- `AWO_FORMAT.md` — PS2 vs HD model format (re-layout, not a different
+  format).
+- `awo_tools/CONSOLIDADO.md`, `RE_PROGRESO.md`, `RE_AWO_HD_CONVERSOR.md` — full
+  RE.
+- `awo_tools/SUBMESH_DATA_B3.md` — layout of the submesh descriptors (mapped).
+- `awo_tools/SESION_2026-08-17.md` — the full reconstruction path.
+- `mod center hd/GUIA_SWAPS_Y_PORTS.md` — the swap principle.
+- `docs/02_mods/COMO_HACER_MODS.md` — mod pipeline.
+- `docs/03_formatos/AMO_AWO.md`, `BIN_LAYOUT.md` — formats.
+- Next: `docs/07_ports/HOJA_DE_RUTA_PORT_PS2_B3.md` — roadmap with the named
+  pipeline.
