@@ -1,14 +1,14 @@
-PON AQUI TUS COPIAS DE LOS JUEGOS DE PS2 (para importar personajes)
-===================================================================
+PUT YOUR COPIES OF THE PS2 GAMES HERE (to import characters)
+============================================================
 
-El importador del launcher los detecta solo si tienen estos nombres:
+The launcher's importer only detects them if they have these names:
 
-- Budokai 1:  un .iso cuyo nombre contenga "Budokai (Europe)" o "Budokai (USA)"
-              ejemplo: DragonBall Z - Budokai (Europe) (En,Fr,De,Es,It).iso
-- Budokai 2:  un .iso cuyo nombre contenga "Budokai 2"
-- Infinite World:  una CARPETA cuyo nombre contenga "Infinite World" con el disco
-              extraido dentro (debe tener USR\DATA_CMN.AFS)
-- Budokai 3 Greatest Hits (PS2): carpeta "Budokai 3 Greatest Hits (USA)" con el disco
-              extraido (la usan los golpes base de los personajes de Budokai 1)
+- Budokai 1:  an .iso whose name contains "Budokai (Europe)" or "Budokai (USA)"
+              example: DragonBall Z - Budokai (Europe) (En,Fr,De,Es,It).iso
+- Budokai 2:  an .iso whose name contains "Budokai 2"
+- Infinite World:  a FOLDER whose name contains "Infinite World" with the disc
+              extracted inside (it must have USR\DATA_CMN.AFS)
+- Budokai 3 Greatest Hits (PS2): a "Budokai 3 Greatest Hits (USA)" folder with the disc
+              extracted (used for the base moves of the Budokai 1 characters)
 
-Las ISOs se leen tal cual: no hace falta extraerlas.
+ISOs are read as they are: no need to extract them.
