@@ -3916,6 +3916,15 @@ void LauncherDialog::DrawNewCharactersTab() {
           "Your game is the European version (EU/PAL): new characters only work with the US/NA "
           "version. The game will start normally, but without them."));
     }
+    // v1.4.2.1: la causa mas comun de "no salen los personajes": jugar desde el ISO.
+    if (dbz3::settings::IsIsoMode()) {
+      ImGui::Dummy(ImVec2(0, 4));
+      ImGui::TextColored(ui::kError, "%s  %s", ICON_WARN, i18n::T(
+          "Estas jugando desde el ISO: asi los mods y los personajes nuevos NO se cargan. Extrae el "
+          "ISO a una carpeta y eligela en Inicio > 'Carpeta extraida'.",
+          "You are playing from the ISO: mods and new characters are NOT loaded that way. Extract "
+          "the ISO to a folder and pick it in Home > 'Extracted folder'."));
+    }
     ImGui::PopTextWrapPos();
     ImGui::EndChild();
     ImGui::PopStyleVar(3);

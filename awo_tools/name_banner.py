@@ -28,6 +28,14 @@ import sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+
+def _has_font(name):
+    try:
+        ImageFont.truetype(name, 8)
+        return True
+    except OSError:
+        return False
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from afs_pair import hd, ROOT  # noqa: E402
@@ -58,7 +66,11 @@ def render_like(ref, text, font):
     ys, xs = np.where(ref[..., 3] > 40)
     x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
     h, w = ref.shape[:2]
-    f = ImageFont.truetype(font, 64)
+    try:
+        f = ImageFont.truetype(font, 64)
+    except OSError:             # font missing on this PC: any bold system font, then Pillow's
+        f = next((ImageFont.truetype(c, 64) for c in ("arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf")
+                  if _has_font(c)), None) or ImageFont.load_default()
     tmp = Image.new("RGBA", (64 * len(text) + 40, 120), (0, 0, 0, 0))
     ImageDraw.Draw(tmp).text((10, 10), text, font=f, fill=(255, 255, 255, 255),
                              stroke_width=7, stroke_fill=(0, 0, 0, 255))

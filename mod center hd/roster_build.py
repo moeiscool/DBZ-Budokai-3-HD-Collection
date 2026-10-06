@@ -469,7 +469,7 @@ NAME_MARGIN = 13      # margen izquierdo de los rotulos oficiales (px HD)
 
 
 def make_name(text, px_h, max_px_w):
-    f = ImageFont.truetype(FONT, 64)
+    f = capsulas.load_font(FONT, 64)
     tmp = Image.new("RGBA", (64 * len(text) + 60, 120), (0, 0, 0, 0))
     ImageDraw.Draw(tmp).text((15, 15), text, font=f, fill=(255, 255, 255, 255),
                              stroke_width=7, stroke_fill=(0, 0, 0, 255))

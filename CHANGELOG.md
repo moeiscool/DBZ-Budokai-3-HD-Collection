@@ -6,6 +6,10 @@ are summarized at the end; the full history (in Spanish) is in
 
 Downloads: [latest release](../../releases/latest).
 
+## v1.4.2.1 (2026-10-07)
+- New characters not showing: the rebuild crashed with "OSError: cannot open resource" when Arial Rounded (an Office font) was missing; fonts now fall back.
+- The New characters tab warns when playing from the ISO (mods are not loaded) or with the EU version.
+
 ## v1.4.2 (2026-10-06)
 - NVIDIA DLSS (beta, RTX + D3D12) and AMD FSR 3 (beta) with real depth, jitter, motion vectors and reactive mask; live switching; FSR 3 fallback.
 - Shadows fixed with temporal upscalers; "More FPS" presets no longer drop below their promised scale.

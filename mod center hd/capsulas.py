@@ -40,6 +40,24 @@ NAMES_LONG = 2684        # data_usi: nombres largos por ID
 N_NATIVE = 596           # registros del catalogo original
 REC = 40
 NAME_FONT = "C:/Windows/Fonts/ARLRDBD.TTF"
+# Not every PC has every font (Arial Rounded comes with Office): fall back instead of failing
+# the whole build with "OSError: cannot open resource".
+FONT_FALLBACKS = ("ARLRDBD.TTF", "arialbd.ttf", "comicbd.ttf", "arial.ttf", "segoeuib.ttf",
+                  "DejaVuSans-Bold.ttf", "DejaVuSans.ttf")
+
+
+def load_font(path, size):
+    """ImageFont.truetype(path) or the first font that exists; Pillow's default as last resort."""
+    for p in (path,) + FONT_FALLBACKS:
+        for cand in (p, os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts", os.path.basename(p))):
+            try:
+                return ImageFont.truetype(cand, size)
+            except OSError:
+                pass
+    try:
+        return ImageFont.load_default(size)
+    except TypeError:          # Pillow < 10.1
+        return ImageFont.load_default()
 NAME_H = 28              # alto logico de los nombres (las texturas son de 32)
 
 KINDS = ("transformacion", "especial", "definitiva")
@@ -342,7 +360,7 @@ def add_b3_transform(ccm, donor_ccm):
 def render_name(text, h=NAME_H, color=(255, 255, 255, 255)):
     """Nombre de capsula al estilo del juego (blanco con borde oscuro): mismo tamano y
     posicion que los nativos (calibrado con "Kamehameha" de los bancos 2682 / SCMKLL)."""
-    f = ImageFont.truetype(NAME_FONT, 18)
+    f = load_font(NAME_FONT, 18)
     wid = int(f.getlength(text)) + 10
     out = Image.new("RGBA", (min(wid, 508), h), (0, 0, 0, 0))
     ImageDraw.Draw(out).text((3, h // 2 - (0 if h >= 28 else 1)), text, font=f, anchor="lm", fill=color,
@@ -378,7 +396,7 @@ def _wrap(text, f, width):
 def render_lines(text):
     if not text:
         return np.zeros((24, 16, 4), np.uint8)
-    f = ImageFont.truetype(DESC_FONT, 16)
+    f = load_font(DESC_FONT, 16)
     lines = _wrap(text, f, DESC_W)
     wid = min(DESC_W + 8, int(max(f.getlength(t) for t in lines)) + 6)
     h = DESC_TOP + DESC_PITCH * len(lines) + 5
