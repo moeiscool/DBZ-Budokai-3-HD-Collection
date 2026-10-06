@@ -1,206 +1,211 @@
-# FORMATO #AMB / #CSK / #ACM HD — MOVESET Y CONTENEDOR (RE 2026-09-08)
+# HD #AMB / #CSK / #ACM FORMAT — MOVESET AND CONTAINER (RE 2026-09-08)
 
-> RE estática del bin de moveset HD 360 (Krillin bin 333, verificada sobre el
-> corpus: los 120 bins `cluster=moveset` de `data_cmn.afs` comparten estructura).
-> El #ACM HD es el equivalente big-endian del AMM PS2; el #CSK del BSK PS2
-> (renombrado, como #AMO0→#AWO). La RE partió del conocimiento PS2
-> (`IW_moveset_editing_notes`, PDFs NIM) + volcado de bins reales HD.
+> Static RE of the HD 360 moveset bin (Krillin bin 333, verified over the
+> corpus: the 120 `cluster=moveset` bins of `data_cmn.afs` share the
+> structure). The HD #ACM is the big-endian equivalent of the PS2 AMM; the
+> #CSK of the PS2 BSK (renamed, like #AMO0→#AWO). The RE started from PS2
+> knowledge (`IW_moveset_editing_notes`, NIM PDFs) + dumps of real HD bins.
 
-## 1. CONTENEDOR BIG-ENDIAN GENÉRICO (#AMB, #CSK, #ACM)
+## 1. GENERIC BIG-ENDIAN CONTAINER (#AMB, #CSK, #ACM)
 
-Todos los contenedores de la HD comparten el MISMO layout de cabecera:
+All HD containers share the SAME header layout:
 
 ```
 +0x00  magic (4 B)                "#AMB" | "#CSK" | "#ACM" | ...
-+0x04  0x00000020                 (header/tabla: tamaño fijo de cabecera)
-+0x08  0x00000000                 (reservado)
-+0x0C  0x00000002                 (n tipos / flag; en #CSK vale 4)
-+0x10  u32  n_sub                 NÚMERO DE SUB-ENTRADAS de la tabla
-+0x14  [off, size, 0, 0]          descriptor de la propia tabla (off=0x20, size=n_sub*0x10)
-+0x20  tabla: n_sub × [u32 off, u32 size, u32 type, u32 pad]
++0x04  0x00000020                 (header/table: fixed header size)
++0x08  0x00000000                 (reserved)
++0x0C  0x00000002                 (n types / flag; in #CSK it is 4)
++0x10  u32  n_sub                 NUMBER OF SUB-ENTRIES in the table
++0x14  [off, size, 0, 0]          descriptor of the table itself (off=0x20, size=n_sub*0x10)
++0x20  table: n_sub × [u32 off, u32 size, u32 type, u32 pad]
 ```
 
-- Los offsets de los sub-bloques son **relativos al inicio del contenedor**.
-- `type`: en el moveset, `0xFFFFFFFF` = bloque #CSK; `3` = bloque #ACM.
-- No hay compresión interna; los bloques van pegados.
-- Ejemplo bin 333 (Krillin): `+0x10=4` → 4 sub-bloques:
+- The sub-blocks' offsets are **relative to the start of the container**.
+- `type`: in the moveset, `0xFFFFFFFF` = #CSK block; `3` = #ACM block.
+- There is no internal compression; the blocks are packed together.
+- Example bin 333 (Krillin): `+0x10=4` → 4 sub-blocks:
   `[0x60, 0x2577C, 0xFFFFFFFF]` = #CSK · `[0x257E0, 0x140280, 3]` = #ACM1 ·
   `[0x165A60, 0x42560, 3]` = #ACM2 · `[0x1A7FC0, 0x2D60, 3]` = #ACM3.
 
-## 2. BIN DE MOVESET / ANM (estructura completa)
+## 2. MOVESET / ANM BIN (complete structure)
 
 ```
-data_cmn.afs entry (p.ej. 333 Krillin, 1.75 MB descomp.) =
-  #AMB contenedor {
-    #CSK   (153 KB)  = BSK PS2 renombrado  -> propiedades de animación + hit reactions
-    #ACM1  (1.25 MB) = pool de animaciones (AMM PS2) -> pose/basic/ataques
-    #ACM2  (271 KB)  = segundo pool de animaciones
-    #ACM3  (11 KB)   = tercer pool (pequeño: cara/auxiliar)
+data_cmn.afs entry (e.g. 333 Krillin, 1.75 MB decompressed) =
+  #AMB container {
+    #CSK   (153 KB)  = renamed PS2 BSK  -> animation properties + hit reactions
+    #ACM1  (1.25 MB) = animation pool (PS2 AMM) -> pose/basic/attacks
+    #ACM2  (271 KB)  = second animation pool
+    #ACM3  (11 KB)   = third pool (small: face/auxiliary)
   }
 ```
 
-- **120 bins** `cluster=moveset` con firma `{#AMB:1, #CSK:1, #ACM:2..3}`.
-  Personajes con 2 #ACM: Buu Gohan/Gotenks/Ghost/Piccolo (pool 137-140),
+- **120 bins** `cluster=moveset` with the signature `{#AMB:1, #CSK:1, #ACM:2..3}`.
+  Characters with 2 #ACM: Buu Gohan/Gotenks/Ghost/Piccolo (pool 137-140),
   Cell Jr. (165), etc.
-- El bin **LIPS** (animación de boca, ~5 KB) es `#AMB → #AWO#AWG#ACM` (1 #ACM).
-- El bin **CAM** es solo `#AMB` (cámara).
-- Los **stages** (44-69) y **efectos** (504-555) son #AMB con sub-bloques
-  `#AWO/#AWG/#AZT/#ACM/#SPX/#ACC` (ver corpus).
+- The **LIPS** bin (mouth animation, ~5 KB) is `#AMB → #AWO#AWG#ACM` (1 #ACM).
+- The **CAM** bin is `#AMB` (camera: `#ACC` + `#ACL` + `#CCM` + `#SPX`; see
+  `CAMARA_ACC.md`).
+- The **stages** (44-69) and **effects** (504-555) are #AMB with sub-blocks
+  `#AWO/#AWG/#AZT/#ACM/#SPX/#ACC` (see the corpus).
 
-## 3. BLOQUE #ACM — POOL DE ANIMACIONES (AMM PS2)
+## 3. #ACM BLOCK — ANIMATION POOL (PS2 AMM)
 
 ```
 +0x00  "#ACM" ; +0x04 0x20 ; +0x08 0 ; +0x0C 2 ; +0x10 n_anim ; +0x14 0x20 ; +0x18 ? ; +0x1C ?
-+0x20  tabla de animaciones: n_anim × 0x10
-       cada entrada: [0x09, variante, ?, offset]  (0x19 si hay scale)
-       -> offset relativo al inicio del #ACM; stride tipicamente constante
++0x20  animation table: n_anim × 0x10
+       each entry: [0x09, variant, ?, offset]  (0x19 if there is scale)
+       -> offset relative to the start of the #ACM; typically a constant stride
 +0x20 + n_anim*0x10
-       bloques de animación: cada uno = tabla por hueso (0x190 B = 50 huesos × 8 B)
-       por hueso: [ptr_datos_angulares u32, ptr_datos_posicionales u32]
+       animation blocks: each = a per-bone table (0x190 B = 50 bones × 8 B)
+       per bone: [angular_data_ptr u32, positional_data_ptr u32]
 ```
 
-- Datos angulares (PS2 AMM, misma estructura BE): por frame
+- Angular data (PS2 AMM, same BE structure): per frame
   `frame_no u16 + roll u16 + pitch u16 + yaw u16` (0x0000=0°, 0xFFFF=360°),
-  rotación aplicada yaw→pitch→roll.
-- Datos posicionales: por frame `frame_no u32 + 3×f32` (roll/pitch/yaw).
-- Krillin #ACM1: `n_anim=99` (0x63), entradas con offsets `0x650, 0x7E0, 0x970,
-  0xB00, 0xC90, ...` (stride 0x190 = tabla de 50 huesos).
+  rotation applied yaw→pitch→roll.
+- Positional data: per frame `frame_no u32 + 3×f32` (roll/pitch/yaw).
+- Krillin #ACM1: `n_anim=99` (0x63), entries with offsets `0x650, 0x7E0, 0x970,
+  0xB00, 0xC90, ...` (stride 0x190 = a 50-bone table).
 
-## 4. BLOQUE #CSK — PROPIEDADES DE ANIMACIÓN + HIT REACTIONS (BSK PS2)
+## 4. #CSK BLOCK — ANIMATION PROPERTIES + HIT REACTIONS (PS2 BSK)
 
-> 🔴 **Formato CORREGIDO 2026-09-08** (tras crash de `krillin_dmg_test`):
-> la interpretación previa (entradas 0x10 B y "dato HR [damage<<16|code]") era
-> INCORRECTA: la "lista HR" es el bloque de **AP addresses** (types 0-7) y los
-> "datos HR" son **bloques AP** (frames). El DAÑO real vive en los bloques HR
-> del final (sección +0x1C), indexados por el **HR code** de las AP type 1.
+> 🔴 **Format CORRECTED 2026-09-08** (after the `krillin_dmg_test` crash): the
+> earlier interpretation (0x10-byte entries and "HR data [damage<<16|code]")
+> was WRONG: the "HR list" is the block of **AP addresses** (types 0-7) and the
+> "HR data" are **AP blocks** (frames). The REAL damage lives in the HR blocks
+> at the end (section +0x1C), indexed by the **HR code** of the type-1 APs.
 
 ```
 +0x00  "#CSK" ; +0x04 0x20 ; +0x08 0 ; +0x0C 4 ; +0x10 n_attack_codes (0x7C7=1991)
-+0x14  offset lista direcciones de animacion (0x20) ; +0x18 n_hr_blocks (0xF1=241)
-+0x1C  offset seccion HR (p.ej. 0x1DEFC)
-+0x20  lista de direcciones (4 B/entry): POSICION = attack code (0x20 + code*4)
-+0x20 + n*4  bloques de animacion
++0x14  offset of the animation address list (0x20) ; +0x18 n_hr_blocks (0xF1=241)
++0x1C  offset of the HR section (e.g. 0x1DEFC)
++0x20  address list (4 B/entry): POSITION = attack code (0x20 + code*4)
++0x20 + n*4  animation blocks
 ```
 
-### 4.1 Cadena CORRECTA de edición de una habilidad (verificada bin 333 Krillin)
+### 4.1 CORRECT chain for editing an ability (verified bin 333 Krillin)
 
-1. **Attack code → dirección del bloque de animación**: `list[code]` (u32 en
-   `0x20 + code*4`). Attack code = posición en la lista (igual que el BCM).
-   Krillin usa códigos 0, 2, 0x38-0x3C, 0xEA-0xFF, 0x200+... (206 con hitbox).
-2. **Bloque de animación** (p.ej. attack 0x21b → @0x28CC): uno o varios
-   sub-bloques `[anim u16][amm u16] + params + 0xFFFFFFFF×3 (sentinel) +
-   [0000][n_ap u32][ap_addrs_off u32]`. AMM 3 = tercer #ACM del bin.
-3. **AP addresses block** (@ap_addrs_off, n_ap entradas × 8 B):
-   `[AP_type u16][n_lineas u16][data_off u32]`. AP types 0-7 (0=head tracking,
+1. **Attack code → address of the animation block**: `list[code]` (u32 at
+   `0x20 + code*4`). Attack code = position in the list (same as the BCM).
+   Krillin uses codes 0, 2, 0x38-0x3C, 0xEA-0xFF, 0x200+... (206 with a hitbox).
+2. **Animation block** (e.g. attack 0x21b → @0x28CC): one or several
+   sub-blocks `[anim u16][amm u16] + params + 0xFFFFFFFF×3 (sentinel) +
+   [0000][n_ap u32][ap_addrs_off u32]`. AMM 3 = the bin's third #ACM.
+3. **AP addresses block** (@ap_addrs_off, n_ap entries × 8 B):
+   `[AP_type u16][n_lines u16][data_off u32]`. AP types 0-7 (0=head tracking,
    1=**HIT properties**, 2=airborne, 3=turnaround, 4=speed, 5=limb, 6=hands,
-   7=misc). Varios sub-bloques por ataque (multi-hit, ground/air).
-4. **AP type 1 (Hit properties)** — línea de 16 B:
+   7=misc). Several sub-blocks per attack (multi-hit, ground/air).
+4. **AP type 1 (Hit properties)** — a 16-byte line:
    `[frame u16][ID u16][act u8][pad u8][HR_code u16][props u16][body u8][radius u8][pos x i8][pos y i8][pos z i8][pad u8]`
-   - Las líneas de cierre de ventana tienen `HR=0xFFFF`.
-   - `HR_code` (u16 en bytes 6-7) = índice del bloque HR.
-   - `props`: 0x10=normal, 0x01=ya usado, 0x04=armor, 0x20=cargado, 0x40=inesquivable...
+   - The window-closing lines have `HR=0xFFFF`.
+   - `HR_code` (u16 at bytes 6-7) = index of the HR block.
+   - `props`: 0x10=normal, 0x01=already used, 0x04=armor, 0x20=charged,
+     0x40=unavoidable...
    - `body`: 0=WAIST, 1=STMC, 2=NECK, 3=HEAD, 16=LARM1, 17=RARM1, 18=CHEST...
-5. **Bloque HR** (8 líneas × 16 B, en `hr_off + HR_code*128`), una línea por
-   situación de hit:
+5. **HR block** (8 lines × 16 B, at `hr_off + HR_code*128`), one line per hit
+   situation:
    `[damage u16][grunt u8][visual u8][stun_type u16][stun_code u16][pushback f32][specific f32]`
-   - Líneas: 1=normal, 2=counter, 3=juggle, 4=back, 5=grounded, 6=blocking,
+   - Lines: 1=normal, 2=counter, 3=juggle, 4=back, 5=grounded, 6=blocking,
      7=??, 8=stunned.
    - `stun_type`: 00=normal, 01=juggle, 02=knockaway, 03=scripted (SPX), 04/05=block.
-   - `specific`: altura de juggle (type 01) / duración blockstun (04/05) /
-     dirección knockaway (02: 2×s16).
+   - `specific`: juggle height (type 01) / blockstun duration (04/05) /
+     knockaway direction (02: 2×s16).
 
-Ejemplo real (Krillin attack 0x21b, >P): HR blocks 28/29/30/31 con daño
-59/78/68/98 (cada golpe del combo), type 01 (juggle), juggle height 1.4/1.2/1.0.
-Blocking (linea 6) siempre dmg=0. HR 0x5C = knockaway: dmg 120, pushback 70.
+Real example (Krillin attack 0x21b, >P): HR blocks 28/29/30/31 with damage
+59/78/68/98 (each hit of the combo), type 01 (juggle), juggle height
+1.4/1.2/1.0. Blocking (line 6) always dmg=0. HR 0x5C = knockaway: dmg 120,
+pushback 70.
 
-> ⚠️ **NO usar la "cadena de 5 niveles" previa** (era la cadena AP, que termina
-> en FRAMES, no en daño). Editar frames → crash en combate (llamada a NULL en
+> ⚠️ **Do NOT use the earlier "5-level chain"** (it was the AP chain, which ends
+> in FRAMES, not damage). Editing frames → crash in a fight (call to NULL in
 > `sub_820800A8`).
 
-### 4.2 Herramientas
+### 4.2 Tools
 
-- `awo_tools/csk_chain.py` — analiza la cadena CORRECTA: `--scan` lista los
-  attack codes con hitbox, `--code <hex>` muestra la cadena completa (AP y HR
-  codes), `--hr <hex>` muestra el bloque HR (8 líneas con daño/stun/pushback).
-- `awo_tools/csk_edit.py` — edita el DAÑO: `--attack <hex> --damage N [--line]`
-  o `--hr <hex> --damage N`; `--install` empaqueta el override (LZX /N:2048).
-  Verificado: attack 0x21b → daño 100 en bloques HR 28/29/... con estructura
-  intacta (la cadena sigue parseando tras el patch).
+- `awo_tools/csk_chain.py` — analyses the CORRECT chain: `--scan` lists the
+  attack codes with a hitbox, `--code <hex>` shows the complete chain (AP and
+  HR codes), `--hr <hex>` shows the HR block (8 lines with damage/stun/pushback).
+- `awo_tools/csk_edit.py` — edits the DAMAGE: `--attack <hex> --damage N [--line]`
+  or `--hr <hex> --damage N`; `--install` packs the override (LZX /N:2048).
+  Verified: attack 0x21b → damage 100 in HR blocks 28/29/... with the
+  structure intact (the chain still parses after the patch).
 
-## 5. 🔴 CORRESPONDENCIA PS2 → HD (IDENTIDAD CONFIRMADA 2026-09-08)
+## 5. 🔴 PS2 → HD CORRESPONDENCE (IDENTITY CONFIRMED 2026-09-08)
 
-**El bin de moveset PS2 (GH, LE) y el HD (BE) son el MISMO archivo.**
-Verificado con Krillin e333: tamaños idénticos (BSK 153468 = #CSK 153468;
-AMM1 1311344 ≈ #ACM1 1311360; AMM2 271712 = #ACM2 271712) y offsets
-internos iguales. La numeración PS2 GH = numeración HD (3990 entradas en
-ambos `data_cmn.afs`). El diff LE/BE ES el parser (A4):
+**The PS2 moveset bin (GH, LE) and the HD one (BE) are the SAME file.**
+Verified with Krillin e333: identical sizes (BSK 153468 = #CSK 153468; AMM1
+1311344 ≈ #ACM1 1311360; AMM2 271712 = #ACM2 271712) and equal internal
+offsets. PS2 GH numbering = HD numbering (3990 entries in both
+`data_cmn.afs`). The LE/BE diff IS the parser (A4):
 
-| PS2 (LE) | HD 360 (BE) | Contenido |
+| PS2 (LE) | HD 360 (BE) | Contents |
 |---|---|---|
-| AMB | #AMB | contenedor genérico (misma cabecera) |
-| BSK | #CSK | animation properties + hit reactions (daño/stun/pushback) |
-| AMM | #ACM | animaciones crudas (roll/pitch/yaw por hueso) |
-| BCM/SPX/AMC | (a RE) | movelist/scripts/cámara — pendiente de localizar (¿en #CSK?) |
+| AMB | #AMB | generic container (same header) |
+| BSK | #CSK | animation properties + hit reactions (damage/stun/pushback) |
+| AMM | #ACM | raw animations (roll/pitch/yaw per bone) |
+| BCM/SPX/AMC | (#CCM/#SPX/#ACC in the CAM bin) | movelist/scripts/camera — see `CAMARA_ACC.md` and `CAPSULAS_B3.md` |
 
-> El #ACM1 HD difiere del AMM1 PS2 en 16 B (1311360 vs 1311344): un campo de
-> cabecera distinto (versión o pad). Verificar antes de un port byte-exacto.
-> Extraer el BSK/AMM PS2 de cualquier personaje GH da la referencia LE para
-> decodificar el #CSK/#ACM HD del mismo personaje (mismos indices).
+> The HD #ACM1 differs from the PS2 AMM1 by 16 B (1311360 vs 1311344): a
+> different header field (version or pad). Check before a byte-exact port.
+> Extracting any GH character's PS2 BSK/AMM gives the LE reference to decode
+> the same character's HD #CSK/#ACM (same indices).
 
-## 6. LO QUE ESTO HABILITA
+## 6. WHAT THIS ENABLES
 
-1. **Swap de moveset por blob** (ya en `swap_matrix.py --type moveset`): mover el
-   bin #AMB completo entre slots — funciona sin crash, PERO los combos/ataques
-   quedan mapeados a los attack codes del destino (si el moveset y el BCM no
-   comparten la numeración, los ataques no corresponden: validado 2026-09-08,
-   Krillin→Tenshinhan sin crash pero con combos "corruptos"). Para un swap
-   correcto haría falta mapear los attack codes (BCM) o editar el #CSK del
-   destino.
-2. **Editar una habilidad** (S3, CORREGIDO 2026-09-08): `awo_tools/csk_edit.py`
-   parchea el **daño** de un attack code siguiendo la cadena correcta
-   (attack → AP type 1 → HR code → bloque HR → `damage u16` de las líneas 1-8).
-   Verificado: attack 0x21b (combo >P) → bloques HR 28/29/... con daño 100 y
-   estructura intacta (la cadena sigue parseando).
+1. **Moveset swap by blob** (already in `swap_matrix.py --type moveset`):
+   move the complete #AMB bin between slots — it works without a crash, BUT
+   the combos/attacks stay mapped to the target's attack codes (if the
+   moveset and the BCM do not share the numbering, the attacks do not
+   correspond: validated 2026-09-08, Krillin→Tenshinhan without a crash but
+   with "corrupt" combos). A correct swap would need mapping the attack codes
+   (BCM) or editing the target's #CSK.
+2. **Edit an ability** (S3, CORRECTED 2026-09-08): `awo_tools/csk_edit.py`
+   patches an attack code's **damage** following the correct chain
+   (attack → AP type 1 → HR code → HR block → `damage u16` of lines 1-8).
+   Verified: attack 0x21b (combo >P) → HR blocks 28/29/... with damage 100 and
+   the structure intact (the chain still parses).
    ```powershell
    python awo_tools/csk_edit.py --entry 333 --attack 21b --damage 100 --mod krillin_dmg_test --install
-   python awo_tools/csk_edit.py --entry 333 --hr 5c --damage 80   # bloque HR directo
+   python awo_tools/csk_edit.py --entry 333 --hr 5c --damage 80   # direct HR block
    ```
-   Previsualizar antes: `python awo_tools/csk_chain.py --entry 333 --scan`
-   (lista los attack codes con hitbox) y `--code <hex>` (cadena) / `--hr <hex>`.
-   ⚠️ La versión previa de csk_edit (parcheaba FRAMES de AP) crasheó combate
-   (NULL en sub_820800A8) — ya corregida, no reutilizar el bin viejo.
-   ⚠️ Si el bin recompreso CREA la entrada (mayor que `to_read`), el runtime
-   reconstruye físicamente el AFS (fix 2026-09-09, `AfsRebuildPath`); sin ese
-   fix el crash aparecía en el select (lectura con offset viejo → magic basura
-   #ACP sin handler).
-3. **Añadir animaciones**: crear bloques #ACM nuevos en el contenedor (n_sub y
-   tabla), siempre que el bin quepa en `to_read` o use mid-insert virtual.
-4. **Corpus**: los bins con #CSK ahora se clasifican como moveset real
-   (120 en data_cmn); #CSK es la firma que distingue moveset de escenario.
+   Preview first: `python awo_tools/csk_chain.py --entry 333 --scan` (lists
+   the attack codes with a hitbox) and `--code <hex>` (chain) / `--hr <hex>`.
+   ⚠️ The earlier version of csk_edit (it patched AP FRAMES) crashed fights
+   (NULL in sub_820800A8) — already fixed, do not reuse the old bin.
+   ⚠️ If the recompressed bin GROWS the entry (bigger than `to_read`), the
+   runtime used to rebuild the AFS physically (fix 2026-09-09,
+   `AfsRebuildPath`; later replaced by the purely virtual mid-insert); without
+   that fix the crash appeared in the select (a read with an old offset →
+   garbage magic #ACP without a handler).
+3. **Add animations**: create new #ACM blocks in the container (n_sub and
+   table), as long as the bin fits in `to_read` or uses the virtual mid-insert.
+4. **Corpus**: bins with #CSK are now classified as a real moveset (120 in
+   data_cmn); #CSK is the signature that distinguishes a moveset from scenery.
 
-## 7. HERRAMIENTAS
+## 7. TOOLS
 
-- `awo_tools/acm_parse.py` — extrae el bin, descomprime LZX, lista el
-  contenedor #AMB y vuelca sub-bloques (#CSK/#ACM).
-- `awo_tools/acm_analyze.py` — analiza un bloque #ACM (tabla de animaciones,
-  bloques de huesos).
-- `awo_tools/csk_chain.py` — RE del #CSK (formato CORRECTO): `--scan` attack
-  codes con hitbox, `--code <hex>` cadena completa (AP + HR codes), `--hr <hex>`
-  bloque HR con daño/stun/pushback por situación.
-- `awo_tools/csk_edit.py` — EDITA el daño (attack → HR block → damage u16) y
-  empaqueta el override (`--install`). Ver §6.
-- `awo_tools/csk_analyze.py` — ⚠️ DESACTUALIZADO (cadena AP/Frames, NO daño).
-  Usar `csk_chain.py`.
-- `awo_tools/corpus_scan.py` — clasifica bins por magics (#CSK/#ACM/#SPX/...).
+- `awo_tools/acm_parse.py` — extracts the bin, decompresses LZX, lists the
+  #AMB container and dumps sub-blocks (#CSK/#ACM).
+- `awo_tools/acm_analyze.py` — analyses an #ACM block (animation table, bone blocks).
+- `awo_tools/csk_chain.py` — RE of the #CSK (CORRECT format): `--scan` attack
+  codes with a hitbox, `--code <hex>` complete chain (AP + HR codes),
+  `--hr <hex>` HR block with damage/stun/pushback per situation.
+- `awo_tools/csk_edit.py` — EDITS the damage (attack → HR block → damage u16)
+  and packs the override (`--install`). See §6.
+- `awo_tools/csk_analyze.py` — ⚠️ OUTDATED (AP/Frames chain, NOT damage).
+  Use `csk_chain.py`.
+- `awo_tools/corpus_scan.py` — classifies bins by magics (#CSK/#ACM/#SPX/...).
 
-## 8. PENDIENTE
+## 8. PENDING
 
-- ✅ Cadena de edición CORRECTA decodificada (attack → AP1 → HR code → bloque
-  HR → daño) + herramienta `csk_edit.py` (§4.1/§4.2).
-- ✅ Identidad PS2 BSK/AMM = HD #CSK/#ACM confirmada por dif de tamaños (§5).
-- Semántica fina de stun_code (animaciones de stun/juggle) y del `specific` de
-  cada tipo (knockaway = dirección 2×s16): cruzar con BSK_breakdown.pdf.
-- Localizar el **BCM** (movelist) para mapear combos → attack codes (necesario
-  para moveset swaps correctos entre personajes).
-- Verificar los 2 bloques #ACM adicionales y el #CSK de los pools (137-140).
-- Documentar el #SPX (scripts) y #ACC (audio?) cuando se confirme su rol en stages.
+- ✅ CORRECT edit chain decoded (attack → AP1 → HR code → HR block → damage) +
+  the `csk_edit.py` tool (§4.1/§4.2).
+- ✅ PS2 BSK/AMM = HD #CSK/#ACM identity confirmed by size diff (§5).
+- Fine semantics of stun_code (stun/juggle animations) and of each type's
+  `specific` (knockaway = 2×s16 direction): cross-check with BSK_breakdown.pdf.
+- Locate the **BCM** (movelist) to map combos → attack codes (needed for
+  correct moveset swaps between characters). *(Done 2026-10: it is the
+  `#CCM` in the CAM bin — see `CAPSULAS_B3.md`.)*
+- Check the 2 additional #ACM blocks and the #CSK of the pools (137-140).
+- Document the #SPX (scripts) and #ACC (camera) when their role in stages is
+  confirmed.
