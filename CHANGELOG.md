@@ -1,10 +1,24 @@
 # Changelog
 
 All notable changes to **DBZ Budokai 3 HD Collection** (PC port). Older versions
-are summarized at the end; the full history (in Spanish) is in
+are summarized at the end; the full history is in
 `docs/01_estructura/HISTORICO_RELEASES.md`.
 
 Downloads: [latest release](../../releases/latest).
+
+## Unreleased
+- **PS5 build (experimental, jailbroken consoles)**: `ps5/make_ps5.sh` builds the
+  game for the PS5 from the user's own copy (US or EU, from an ISO or a folder)
+  and uploads it as a homebrew title over FTP. Adapted from
+  [holdmysocks/mcla-recomp](https://github.com/holdmysocks/mcla-recomp): the PS5
+  SDK patch is rebased onto DBZ3's runtime overlay (60 Hz vblank clamp and
+  `frame_cap` kept), `GetExecutablePath()` honours `REX_EXECUTABLE_PATH` so
+  settings, mods and saves live in `/data/dbz3`, and a launcher-less host
+  (`ps5/main_ps5.cpp`) reads `dbz3_user.toml`. DualSense via scePad, stereo
+  audio via sceAudioOut. The runtime and host compile for the PS5 target; the
+  game has not yet been run on a console. Guide: `docs/PS5.md`. The `ps5/`
+  folder is GPL-3.0-or-later.
+- Documentation translated to English.
 
 ## v1.4.2.2 (2026-10-07)
 - New characters now work with the European (EU/PAL) executable too (region-aware guest addresses and hooks; roster_build reads eu/ and data_eng).
@@ -183,34 +197,6 @@ branch of [iExplosiveRage/rexglue-sdk](https://github.com/iExplosiveRage/rexglue
 (the SDK of **DBZ Burst Limit Recompiled**), restyled for this port. Thanks to
 the Budokai modding community for the models and Infinite World ports used in
 the character pack.
-
-### Resumen en español
-
-- **Menú rápido en partida** (F1 o Back + Start; también L3 + R3 o solo
-  teclado): imagen, sonido y mando, pantalla y «Todos los ajustes». Se aplica al
-  momento y se guarda solo.
-- **«Más FPS con FSR»**: dibuja por debajo de la resolución y FSR reescala; FPS
-  reales en equipos modestos.
-- **Panel de FPS nuevo (F3)** con FPS del juego, FPS de pantalla y gráfica.
-- **Ajustes de vídeo en vivo**: resolución interna, escalado, nitidez y FXAA sin
-  reiniciar.
-- **Launcher rediseñado**, abre en **menos de 1 s** (antes ~31 s) y se maneja
-  **con el mando** (LB/RB o Ctrl+Tab cambian de pestaña, START = Jugar; ayudas
-  con botones de Xbox, PlayStation o Switch).
-- **Personajes nuevos** en casillas propias del select, sin sustituir a nadie.
-  **Pack de personajes** (descarga opcional): Janemba, Androide 19, Zarbon, Dodoria,
-  Guldo, Jeice y Burter; Zarbon y Dodoria con golpes y gritos de Budokai 1.
-- **Importador de personajes** desde Budokai 1, Budokai 2, Infinite World y
-  modelos de la comunidad, con vista previa del nombre en directo. **Kit de
-  modding** (descarga opcional) con las herramientas y un instalador de
-  requisitos en un clic.
-- Gritos y voces propios, cápsulas propias, Edit Skills para los nuevos y trajes
-  extra para personajes existentes.
-- **Arreglos**: cierre al usar el menú rápido, launcher colgado en «trabajando…»,
-  pantalla negra con FSR2/FSR3, personajes portados que flotaban.
-- **Avisos**: los personajes nuevos son experimentales, requieren la versión USA
-  y los datos en carpeta (no ISO); los textos nuevos están en español e inglés.
-- Mejoras del SDK adaptadas de **DBZ Burst Limit Recompiled** (iExplosiveRage).
 
 ---
 
