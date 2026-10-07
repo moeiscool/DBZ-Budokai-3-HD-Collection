@@ -1,259 +1,265 @@
-# SESIÓN 2026-08-26 — VÍA DE LA INYECCIÓN: TEMPLATE HD + POSICIONES PS2 CONVERTIDAS
+# SESSION 2026-08-26 — THE INJECTION PATH: HD TEMPLATE + CONVERTED PS2 POSITIONS
 
-> **RESUMEN EJECUTIVO**: el port PS2→B3 HD que reconstruye el pool/IB/descriptores
-> (pipeline `port_ps2_b3_*`) **rompe la consistencia de los arms** de la plantilla →
-> siempre amorfo. La vía que FUNCIONA es la **inyección**: plantilla HD COMPLETA
-> intacta (pool, IB, descriptores, arms, ejes) y SOLO reescribir las posiciones
-> (+12/+16/+20) de los slots sec34 con la geometría PS2 convertida al espacio
-> bone-local. **VALIDADO EN JUEGO**: Cell F2 PS2 se ve reconocible (manos, torso,
-> cabeza, pierna, silueta). Limitación actual: el PS2 tiene 1880 vértices únicos vs
-> 2661 slots HD → el llenado colapsa zonas (aspecto "decimado"). La vía para
-> conservar la calidad original = resamplear la superficie PS2 (nearest-point-on-
-> surface) o reconstruir los arms.
+> **EXECUTIVE SUMMARY**: the PS2→B3 HD port that rebuilds the pool/IB/
+> descriptors (pipeline `port_ps2_b3_*`) **breaks the consistency of the
+> template's arms** → always amorphous. The path that WORKS is **injection**:
+> the COMPLETE HD template intact (pool, IB, descriptors, arms, axes) and ONLY
+> rewriting the positions (+12/+16/+20) of the sec34 slots with the PS2
+> geometry converted to bone-local space. **VALIDATED IN GAME**: Cell F2 PS2
+> looks recognisable (hands, torso, head, leg, silhouette). Current limitation:
+> the PS2 has 1880 unique vertices vs 2661 HD slots → filling collapses zones
+> ("decimated" look). The way to keep the original quality = resample the PS2
+> surface (nearest-point-on-surface) or rebuild the arms.
 
 ---
 
-## 1. LAS DOS VÍAS Y POR QUÉ SOLO UNA FUNCIONA
+## 1. THE TWO PATHS AND WHY ONLY ONE WORKS
 
-### 1.1 Port completo (pool/IB/descriptores reconstruidos) = AMORFO SIEMPRE
+### 1.1 Full port (pool/IB/descriptors rebuilt) = ALWAYS AMORPHOUS
 
-El pipeline `port_ps2_b3_{extract,geometry,decimate,draw,pack}` reconstruye:
-- pool sec34 (nuestro orden, 1880 verts)
-- IB (strips consecutivos nuestros)
-- descriptores A/B (nuestros rangos)
-- vb2, AWG/AZT desplazados (mid-insert interno)
+The pipeline `port_ps2_b3_{extract,geometry,decimate,draw,pack}` rebuilds:
+- sec34 pool (our order, 1880 verts)
+- IB (our consecutive strips)
+- A/B descriptors (our ranges)
+- vb2, shifted AWG/AZT (internal mid-insert)
 
-El resultado en juego es **amorfo/no distinguible**. Causa raíz (con evidencia):
-- El draw log instrumentado (`DBZ3_DRAW`, rexgpu-xenos.dll) **PROBÓ** que el guest
-  DIBUJA nuestros strips correctamente: 23 strips en los offsets exactos de
-  nuestros `B_start×2` y con conteo `B_count+2` (el +2 = padding degenerado).
-  → El IB/descriptores/posicionamiento del pool **NO eran el bug**.
-- El problema está en la **estructura de dibujo de la plantilla** (arms + mesh-ref
-  + descriptores + pool intercalado por parts) que el guest usa para SKINNEAR y
-  dibujar. Al reconstruir el pool en orden distinto, los arms de la plantilla
-  referencian índices que ya no corresponden → skinning/parseo roto → amorfo.
-- Test negativo adicional: clampear bones (35 y 33), +0x10=9 (body format) en
-  todos, 0xFFFF→0 en el IB, flip de winding → **NINGUNO cambió el render**.
-  El bin SÍ se sirve correctamente (el pool nuestro está en sec_rel).
+The in-game result is **amorphous/indistinguishable**. Root cause (with
+evidence):
+- The instrumented draw log (`DBZ3_DRAW`, rexgpu-xenos.dll) **PROVED** that
+  the guest DRAWS our strips correctly: 23 strips at the exact offsets of our
+  `B_start×2` and with count `B_count+2` (the +2 = degenerate padding).
+  → The IB/descriptors/pool positioning were **NOT the bug**.
+- The problem is in the **template's draw structure** (arms + mesh-ref +
+  descriptors + pool interleaved by parts) that the guest uses to SKIN and
+  draw. When the pool is rebuilt in a different order, the template's arms
+  reference indices that no longer correspond → broken skinning/parsing →
+  amorphous.
+- Additional negative test: clamping bones (35 and 33), +0x10=9 (body format)
+  in all, 0xFFFF→0 in the IB, winding flip → **NONE changed the render**. The
+  bin IS served correctly (our pool is at sec_rel).
 
-### 1.2 Inyección (plantilla completa + posiciones) = RECONOCIBLE ✅
+### 1.2 Injection (full template + positions) = RECOGNISABLE ✅
 
-`test_injection.py` (mod center hd/ports/): toma la plantilla HD (cell147_hd.bin)
-COMPLETA y solo reescribe +12/+16/+20 de los slots sec34. Mantiene IB,
-descriptores, vb2, otros AWGs, ejes y arms → el guest lo dibuja con su estructura
-intacta.
+`test_injection.py` (mod center hd/ports/): takes the COMPLETE HD template
+(cell147_hd.bin) and only rewrites +12/+16/+20 of the sec34 slots. It keeps the
+IB, descriptors, vb2, other AWGs, axes and arms → the guest draws it with its
+structure intact.
 
-- **Inyección v1 (model-space)**: inyectó las posiciones PS2 EN MODEL-SPACE contra
-  slots bone-local → emparejamiento en espacios DISTINTOS → partes reconocibles
-  (mano, brazo der, rostro superior) pero mezcla/amorfo. Fue el test que el
-  usuario recordaba como "lo que hicimos bien".
-- **Inyección v2 (bone-local, mismo espacio)**: posiciones convertidas a bone-local
-  → Cell mucho más reconocible (manos, torso, parte de cabeza, una pierna,
-  silueta).
-- **Inyección v3/v4 (world-matching + umbral)**: emparejamiento por VECINDAD EN
-  WORLD (el slot's world = world[B]·local, contra los verts PS2 model-space) con
-  conversión al bone-local del slot + umbral 2.0 (el 10% peor conserva la
-  posición HD original). → **MUCHO MÁS Cell** pero con aspecto "decimado/reducido"
-  y polígonos deformes. **ESTADO ACTUAL DE LA VÍA.**
+- **Injection v1 (model space)**: injected the PS2 positions IN MODEL SPACE
+  against bone-local slots → matching in DIFFERENT spaces → recognisable parts
+  (hand, right arm, upper face) but mixed/amorphous. It was the test the user
+  remembered as "what we did right".
+- **Injection v2 (bone-local, same space)**: positions converted to bone-local
+  → Cell much more recognisable (hands, torso, part of the head, one leg,
+  silhouette).
+- **Injection v3/v4 (world matching + threshold)**: matching by NEIGHBOURHOOD
+  IN WORLD (the slot's world = world[B]·local, against the PS2 model-space
+  verts) with conversion to the slot's bone-local + threshold 2.0 (the worst
+  10% keeps the original HD position). → **MUCH MORE Cell** but with a
+  "decimated/reduced" look and deformed polygons. **CURRENT STATE OF THE
+  PATH.**
 
-## 2. 🔴 HALLAZGOS CLAVE DE LA SESIÓN
+## 2. 🔴 KEY FINDINGS OF THE SESSION
 
-### 2.1 EL PARENT DEL EJE ES UN OFFSET, NO UN ÍNDICE (corrige todo lo anterior)
+### 2.1 THE AXIS PARENT IS AN OFFSET, NOT AN INDEX (corrects everything before)
 
-Los ejes (80B) en `mg+0x6E0` (48×80 para Cell F2). El campo `+0x40` es el **puntero
-al eje padre expresado como OFFSET relativo al AWG0**, NO un índice de hueso:
+The axes (80B) at `mg+0x6E0` (48×80 for Cell F2). The `+0x40` field is the
+**pointer to the parent axis expressed as an OFFSET relative to AWG0**, NOT a
+bone index:
 
 ```
-parent_idx = (AWG0 + poff - axes_base) // 80    # poff = be32(eje+0x40)
+parent_idx = (AWG0 + poff - axes_base) // 80    # poff = be32(axis+0x40)
 ```
 
-Verificado: bone 1 parent=3360 (0xD20) → AWG0+0xD20 = 0x19E0 = el eje de bone 0.
-bone 2 parent=3440 → 0x1A30 = bone 1. etc. (incrementos de 80).
+Verified: bone 1 parent=3360 (0xD20) → AWG0+0xD20 = 0x19E0 = bone 0's axis.
+bone 2 parent=3440 → 0x1A30 = bone 1. etc. (increments of 80).
 
-**Consecuencia**: TODAS las matrices world calculadas antes de este hallazgo eran
-basura (se usaba el offset como índice → no se acumulaba el parent). La conversión
-`cell_conv` (model→bone-local) de la sesión anterior era inválida. Con el parent
-corregido, el world del template traza un cuerpo coherente:
-- pies y≈-12.6, rodillas ≈-5, cadera ≈0-1, pecho 2.8-4.6, hombros ≈6.6,
-  cabeza y≈8.7 (bone 32), cráneo 8.72 (bone 33).
-- **Coincide con el model-space del PS2** (pies -11.5, rodillas -7.2, pecho
-  3.4-5.5, cabeza 9.6) → ambos cuerpos están en el MISMO world space.
+**Consequence**: ALL the world matrices computed before this finding were
+garbage (the offset was used as an index → the parent was not accumulated).
+The previous session's `cell_conv` conversion (model→bone-local) was invalid.
+With the parent fixed, the template's world traces a coherent body:
+- feet y≈-12.6, knees ≈-5, hip ≈0-1, chest 2.8-4.6, shoulders ≈6.6, head
+  y≈8.7 (bone 32), skull 8.72 (bone 33).
+- **It matches the PS2 model space** (feet -11.5, knees -7.2, chest 3.4-5.5,
+  head 9.6) → both bodies are in the SAME world space.
 
-### 2.2 EL SEC34 DEL HD ALMACENA POSICIONES BONE-LOCAL (no model-space)
+### 2.2 THE HD SEC34 STORES BONE-LOCAL POSITIONS (not model space)
 
-- El template (Cell F2, formato A): sec34 = posiciones en espacio local del hueso
-  (mag_med 1.70, max 6.37). El shader transforma `world[bone]·local`.
-- El PS2: el rig asigna coords **model-space** (centroides por hueso trazan el
-  cuerpo: pies -11.5, cabeza 9.6). Al alimentar model-space como bone-local el
-  render se estira (amorfo).
-- **La conversión correcta**: `local = inv(world[bone]) · model`. Verificado: local
-  convertido mediana 2.15 (≈ template 1.7). Con esta conversión la inyección
-  empareja en el MISMO espacio y funciona.
+- The template (Cell F2, format A): sec34 = positions in the bone's local
+  space (mag_med 1.70, max 6.37). The shader transforms `world[bone]·local`.
+- The PS2: the rig assigns **model-space** coords (per-bone centroids trace the
+  body: feet -11.5, head 9.6). Feeding model space as bone-local stretches the
+  render (amorphous).
+- **The correct conversion**: `local = inv(world[bone]) · model`. Verified:
+  converted local median 2.15 (≈ template 1.7). With this conversion the
+  injection matches in the SAME space and works.
 
-### 2.3 EL PS2 TIENE 1880 VÉRTICES ÚNICOS (4938 expandidos)
+### 2.3 THE PS2 HAS 1880 UNIQUE VERTICES (4938 expanded)
 
-- El geometry del PS2 (cell_geometry.json) tiene **4938 verts** = vértices
-  EXPANDIDOS del strip (cada triángulo guarda sus 3 verts, con duplicados).
-- El dedup voxel (0.05) → **1880 únicos** = la densidad real de la superficie PS2.
-- La plantilla HD tiene **2661 slots** sec34. → 1880 < 2661 → el llenado completo
-  REUSA ~781 vértices → triángulos colapsados/planos → aspecto "decimado".
-  **Esta es la causa del look "versión decimada y reducida" que ve el usuario.**
+- The PS2 geometry (cell_geometry.json) has **4938 verts** = strip-EXPANDED
+  vertices (each triangle stores its 3 verts, with duplicates).
+- Voxel dedup (0.05) → **1880 unique** = the real density of the PS2 surface.
+- The HD template has **2661 sec34 slots**. → 1880 < 2661 → full filling
+  REUSES ~781 vertices → collapsed/flat triangles → "decimated" look.
+  **This is the cause of the "decimated and reduced version" look the user
+  sees.**
 
-## 3. HERRAMIENTAS DE LA SESIÓN
+## 3. SESSION TOOLS
 
-| Archivo | Función |
+| File | Function |
 |---|---|
-| `mod center hd/ports/test_injection.py` | Inyección per-bone greedy (v1/v2). Reescribe +12/+16/+20 de los slots. |
-| `mod center hd/ports/port_ps2_b3_inject.py` | **NUEVO** — inyección world-matching + conversión por slot + umbral (v3/v4). Uso: `python port_ps2_b3_inject.py <plantilla> <geometry.json> <umbral> <salida>` |
-| `%TEMP%\opencode\cell_conv_geom.json` | geometry.json del PS2 con sec34 convertido a bone-local. |
-| `%TEMP%\opencode\cell147_hd.bin` | Plantilla Cell F2 HD (bin 147). |
-| `%TEMP%\opencode\cell_geometry.json` | Geometry PS2 sin decimar (4938 verts). |
-| `%TEMP%\opencode\cell_delta0_geometry.json` | Geometry decimado (1880 verts) usado en el port/inyección. |
+| `mod center hd/ports/test_injection.py` | Per-bone greedy injection (v1/v2). Rewrites +12/+16/+20 of the slots. |
+| `mod center hd/ports/port_ps2_b3_inject.py` | **NEW** — world-matching injection + per-slot conversion + threshold (v3/v4). Usage: `python port_ps2_b3_inject.py <template> <geometry.json> <threshold> <output>` |
+| `%TEMP%\opencode\cell_conv_geom.json` | PS2 geometry.json with sec34 converted to bone-local. |
+| `%TEMP%\opencode\cell147_hd.bin` | Cell F2 HD template (bin 147). |
+| `%TEMP%\opencode\cell_geometry.json` | Undecimated PS2 geometry (4938 verts). |
+| `%TEMP%\opencode\cell_delta0_geometry.json` | Decimated geometry (1880 verts) used in the port/injection. |
 
-**Mods de prueba (out/build/win-amd64-release/mods/)**: cell_inject2_test (1001
-slots, bone-local), cell_inject4_test (2385+276, world-matching+umbral 2.0 —
-**ACTUAL**). Tests negativos documentados: cell_desc_test, cell_bodyfmt_test,
-cell_nopad_test, cell_clamp33_test, cell_boneclamp_test, cell_conv_test (matrices
-rotas).
+**Test mods (out/build/win-amd64-release/mods/)**: cell_inject2_test (1001
+slots, bone-local), cell_inject4_test (2385+276, world matching + threshold 2.0
+— **CURRENT**). Documented negative tests: cell_desc_test, cell_bodyfmt_test,
+cell_nopad_test, cell_clamp33_test, cell_boneclamp_test, cell_conv_test (broken
+matrices).
 
-## 4. CÓMO CONSERVAR LA CALIDAD ORIGINAL (próximos pasos)
+## 4. HOW TO KEEP THE ORIGINAL QUALITY (next steps)
 
-El "look decimado" viene de rellenar 2661 slots con 1880 posiciones únicas.
-Opciones, en orden de esfuerzo:
+The "decimated look" comes from filling 2661 slots with 1880 unique positions.
+Options, in order of effort:
 
-1. **Nearest-point-on-surface (NPM)**: para cada slot HD (world), proyectar al
-   punto MÁS CERCANO de la superficie PS2 (sobre los triángulos del mesh, no al
-   vértice más cercano). Produce 2661 posiciones distintas sobre la superficie PS2
-   → sin colapso, sin "decimado". Requiere construir la lista de triángulos PS2
-   (del extract: strips por part con FaceType) y un point-triangle distance.
-   **Esta es la vía recomendada para conservar la calidad.**
-2. **Subdivisión/refinamiento del PS2**: generar vértices intermedios sobre los
-   triángulos PS2 hasta alcanzar ~2661. Equivalente al NPM pero generando malla.
-3. **Reconstruir los arms** (port completo de verdad): RE del formato de los arms
-   de la plantilla y regenerarlos para nuestro pool → el guest skinnea con la
-   estructura correcta y acepta nuestro pool/IB. Es el "port real" pero requiere
-   descifrar el formato de arms (estructura de skinning por hueso, aún sin mapear
-   100%).
-4. **Reducir el umbral / afinar el matching**: mejora incremental (menos estirado)
-   pero NO elimina el colapso por falta de vértices.
+1. **Nearest-point-on-surface (NPM)**: for each HD slot (world), project to
+   the NEAREST point of the PS2 surface (on the mesh triangles, not the nearest
+   vertex). It produces 2661 distinct positions on the PS2 surface → no
+   collapse, no "decimation". Requires building the PS2 triangle list (from the
+   extract: strips per part with FaceType) and a point-triangle distance.
+   **This is the recommended path to keep the quality.**
+2. **Subdivision/refinement of the PS2**: generate intermediate vertices on the
+   PS2 triangles until reaching ~2661. Equivalent to NPM but generating a mesh.
+3. **Rebuild the arms** (a real full port): RE of the template's arms format
+   and regenerate them for our pool → the guest skins with the correct
+   structure and accepts our pool/IB. It is the "real port" but requires
+   decoding the arms format (per-bone skinning structure, not yet 100% mapped).
+4. **Lower the threshold / refine the matching**: incremental improvement
+   (less stretching) but does NOT remove the collapse caused by too few
+   vertices.
 
-**Dato para NPM**: la superficie PS2 completa (4938 expandidos) tiene TODAS las
-posiciones; los triángulos se reconstruyen desde los parts del extract (strip
-consecutivo, winding alternado, degenerados). El vértice expandido i del part → la
-superficie. Proyectar cada slot HD (world) al triángulo PS2 más cercano da la
-posición de la superficie PS2 en el punto más próximo → densidad 1:1 con el HD.
+**Fact for NPM**: the full PS2 surface (4938 expanded) has ALL the positions;
+the triangles are rebuilt from the extract's parts (consecutive strip,
+alternating winding, degenerates). Expanded vertex i of the part → the surface.
+Projecting each HD slot (world) to the nearest PS2 triangle gives the position
+of the PS2 surface at the closest point → 1:1 density with the HD.
 
-## 5. ✅ RESULTADOS EN JUEGO (2026-08-26 tarde) — UMBRAL ESTRICTO = LA CLAVE
+## 5. ✅ IN-GAME RESULTS (2026-08-26 afternoon) — A STRICT THRESHOLD = THE KEY
 
-**Progresión de tests y resultados (usuario)**: ver §5.1.
+**Progression of tests and results (user)**: see §5.1.
 
-### 5.1 PROGRESIÓN COMPLETA DE LA INYECCIÓN
+### 5.1 FULL PROGRESSION OF THE INJECTION
 
-| Mod | Método | Resultado en juego |
+| Mod | Method | In-game result |
 |---|---|---|
-| inject2 (1001 slots) | per-bone greedy, bone-local | Cell reconocible: manos, torso, parte cabeza, una pierna. |
-| inject4 (2385+276) | world-matching + umbral 2.0 | Más Cell pero "decimado/reducido" + polígonos deformes. |
-| npm (2443+218) | NPM (density fix) | Prácticamente igual a inject4. |
-| npm2 (normales geométricos) | NPM + normal del triángulo | Más brillante (specular B3HD), Cell silueta, pero amorfo en boca/cola/manos/brazos. |
-| npm3 (normales suavizados) | NPM + normal de vértice interpolado | Prácticamente igual; la mano mala mejoró "ligeramente". |
-| **npm4 (1821+840)** | **NPM + normales + umbral ESTRICTO 0.8** | ✅ **MEJORA SIGNIFICATIVA**: torso, cabeza sup., cintura inf., piernas, pies, brazos, manos. Boca mejoró ligeramente. Sigue sin ser perfecto. |
-| npm6 (2443+218) | NPM + normales + **soft[0.5,2.0]** | ❌ **DEFORMIDAD IMPORTANTE**: solo pies/cintura/piernas parcial. El soft reinyectaba las extremidades (0.5-2.0) con pesos parciales → posiciones a medias → estiradas. |
-| npm7 (1821+840) | NPM + normales + **soft[0.3,0.8]** | ❌ PEOR que npm4: solo cabeza sup. normal. Los pesos parciales dentro del core (0.3-0.8) rompen las posiciones completas. |
+| inject2 (1001 slots) | per-bone greedy, bone-local | Recognisable Cell: hands, torso, part of the head, one leg. |
+| inject4 (2385+276) | world matching + threshold 2.0 | More Cell but "decimated/reduced" + deformed polygons. |
+| npm (2443+218) | NPM (density fix) | Practically the same as inject4. |
+| npm2 (geometric normals) | NPM + triangle normal | Brighter (B3HD specular), Cell silhouette, but amorphous in mouth/tail/hands/arms. |
+| npm3 (smoothed normals) | NPM + interpolated vertex normal | Practically the same; the bad hand improved "slightly". |
+| **npm4 (1821+840)** | **NPM + normals + STRICT threshold 0.8** | ✅ **SIGNIFICANT IMPROVEMENT**: torso, upper head, lower waist, legs, feet, arms, hands. Mouth improved slightly. Still not perfect. |
+| npm6 (2443+218) | NPM + normals + **soft[0.5,2.0]** | ❌ **MAJOR DEFORMITY**: only feet/waist/partial legs. The soft blend re-injected the limbs (0.5-2.0) with partial weights → half-way positions → stretched. |
+| npm7 (1821+840) | NPM + normals + **soft[0.3,0.8]** | ❌ WORSE than npm4: only the upper head normal. Partial weights inside the core (0.3-0.8) break the full positions. |
 
-### 5.2 🔴🔴 LECCIÓN: BINARIO SÍ, BLEND NO
+### 5.2 🔴🔴 LESSON: BINARY YES, BLEND NO
 
-Los dos tests de blend (npm6 y npm7) fueron PEORES que el binario npm4. **La
-inyección completa de los slots bien alineados funciona; cualquier peso parcial
-(blend) produce posiciones a medias (ni PS2 ni HD) → amorfo.** El umbral binario
-es el mecanismo correcto. El único parámetro a afinar es el VALOR del umbral.
+Both blend tests (npm6 and npm7) were WORSE than the binary npm4. **Full
+injection of the well-aligned slots works; any partial weight (blend) produces
+half-way positions (neither PS2 nor HD) → amorphous.** The binary threshold is
+the correct mechanism. The only parameter to tune is the threshold VALUE.
 
-### 5.2 🔴 HALLAZGOS DEL ANÁLISIS (match distances por hueso)
+### 5.3 🔴 ANALYSIS FINDINGS (match distances per bone)
 
-El mismatch de forma entre el PS2 y el HD NO está distribuido uniformemente:
+The shape mismatch between the PS2 and the HD is NOT uniformly distributed:
 
-| Zona | bones | dist med | p90 | máx | ¿Alinea? |
+| Zone | bones | med dist | p90 | max | Aligns? |
 |---|---|---|---|---|---|
-| Cuerpo core (BODY/WAIST/CHEST/RCHN) | 0,1,15,19 | 0.33-0.75 | 1.0-1.2 | 1.7 | ✅ SÍ |
-| Piernas (LLEG1/RLEG1/RFOOT) | 5,9,10,11 | 0.4-0.65 | ~1.0 | 2.4 | ✅ SÍ |
-| OBI / rotación pierna | 3,4 | 0.9-1.17 | 3.3-4.3 | 4.9 | ❌ mal |
-| bone 13/14 | 13,14 | 1.5-1.95 | 2.0-2.4 | 2.8 | ❌ mal |
-| Manos/brazos (LHAND/RARM/RHAND) | 18,20,21 | 0.67-1.63 | 2.5-8.7 | **8.9** | ❌ MUY mal |
-| Cabeza | 32,33 | 1.0-1.25 | 2.4-2.6 | 2.7 | ◑ medio |
+| Core body (BODY/WAIST/CHEST/RCHN) | 0,1,15,19 | 0.33-0.75 | 1.0-1.2 | 1.7 | ✅ YES |
+| Legs (LLEG1/RLEG1/RFOOT) | 5,9,10,11 | 0.4-0.65 | ~1.0 | 2.4 | ✅ YES |
+| OBI / leg rotation | 3,4 | 0.9-1.17 | 3.3-4.3 | 4.9 | ❌ bad |
+| bone 13/14 | 13,14 | 1.5-1.95 | 2.0-2.4 | 2.8 | ❌ bad |
+| Hands/arms (LHAND/RARM/RHAND) | 18,20,21 | 0.67-1.63 | 2.5-8.7 | **8.9** | ❌ VERY bad |
+| Head | 32,33 | 1.0-1.25 | 2.4-2.6 | 2.7 | ◑ medium |
 
-**Conclusión**: el umbral 2.0 inyectaba las extremidades (distancia 2-8.9) con
-posiciones mal emparejadas → estiradas → amorfo (boca/cola/manos/brazos). El
-**umbral 0.8** solo toca el cuerpo bien alineado (core + piernas), dejando las
-extremidades con la forma HD correcta → mejora significativa. **El umbral es el
-parámetro crítico de la inyección.**
+**Conclusion**: threshold 2.0 injected the limbs (distance 2-8.9) with badly
+matched positions → stretched → amorphous (mouth/tail/hands/arms). **Threshold
+0.8** only touches the well-aligned body (core + legs), leaving the limbs with
+the correct HD shape → significant improvement. **The threshold is the
+critical parameter of the injection.**
 
-### 5.3 🔴 NORMALES — SEGUNDO HALLAZGO
+### 5.4 🔴 NORMALS — SECOND FINDING
 
-La inyección v4/NPM solo escribía +12/+16/+20 (posiciones). Los normales
-(+32/+36/+40) quedaban del HD → el sombreado seguía calculado para la forma HD
-→ "polígonos deformes" con el specular roto. Al escribir los normales de la
-superficie PS2:
-- **Normal GEOMÉTRICO del triángulo** (cruz de aristas): el specular B3HD
-  funciona (más brillante, silueta Cell clara) pero facetado → amorfo localizado
-  (boca/cola/manos/brazos).
-- **Normal de VÉRTICE interpolado** (baricéntrico, suavizado): mejora la mano
-  mala "ligeramente"; el resto igual. El facetado no era la causa principal.
+The v4/NPM injection only wrote +12/+16/+20 (positions). The normals
+(+32/+36/+40) stayed from the HD → shading was still computed for the HD shape
+→ "deformed polygons" with broken specular. When writing the PS2 surface
+normals:
+- **GEOMETRIC triangle normal** (edge cross product): the B3HD specular works
+  (brighter, clear Cell silhouette) but faceted → localised amorphousness
+  (mouth/tail/hands/arms).
+- **Interpolated VERTEX normal** (barycentric, smoothed): improves the bad hand
+  "slightly"; the rest the same. Faceting was not the main cause.
 
-Formato normal HD: `[nz, -ny, nx]` (y negada) en +32/+36/+40. Verificado: 100%
-unitarios (med 1.000, 0 fuera de [0.8,1.2]).
+HD normal format: `[nz, -ny, nx]` (y negated) at +32/+36/+40. Verified: 100%
+unit length (med 1.000, 0 outside [0.8,1.2]).
 
-### 5.4 LO QUE QUEDA (perfecting)
+### 5.5 WHAT REMAINS (perfecting)
 
-- **Costuras**: las transiciones entre las zonas inyectadas (PS2) y las HD
-  (extremidades) crean seam blends. Un umbral SUAVE (blend lineal por distancia)
-  podría suavizarlas.
-- **Cabeza/boca**: mismatch medio (1.0-1.25) → la boca mejoró solo ligeramente.
-  Requiere alinear la cabeza o inyectarla con un umbral dedicado.
-- El port completo (topología PS2 + arms reconstruidos) sigue siendo el objetivo
-  final para reproducir el Cell PS2 exacto.
+- **Seams**: the transitions between the injected (PS2) zones and the HD
+  (limb) ones create seam blends. A SOFT threshold (linear blend by distance)
+  could smooth them.
+- **Head/mouth**: medium mismatch (1.0-1.25) → the mouth improved only
+  slightly. Requires aligning the head or injecting it with a dedicated
+  threshold.
+- The full port (PS2 topology + rebuilt arms) remains the final goal to
+  reproduce the exact PS2 Cell.
 
-## 6. VERIFICACIÓN NUMÉRICA (para reproducción)
+## 6. NUMERIC VERIFICATION (for reproduction)
 
 ```
-Template Cell F2 HD (bin 147): sec34=2661 slots (align +2), bones 0-33,
-  world coherente con parent corregido.
-Geometry PS2: 4938 expandidos → 1880 únicos (voxel 0.05) → 2661 slots con
-  reuso de ~781.
-Match distances (slot world ↔ superficie PS2): med 0.62, p90 2.02, max 8.91.
-Umbral 2.0 → 276 slots HD | 0.8 → 840 slots HD | 1.2 → 560 slots HD.
-NPM: 2908 triángulos PS2 (36 parts).
-Inyección npm4 (umbral 0.8): 1821 inyectados + 840 HD.
+Cell F2 HD template (bin 147): sec34=2661 slots (align +2), bones 0-33,
+  coherent world with the parent fixed.
+PS2 geometry: 4938 expanded → 1880 unique (voxel 0.05) → 2661 slots with
+  ~781 reused.
+Match distances (slot world ↔ PS2 surface): med 0.62, p90 2.02, max 8.91.
+Threshold 2.0 → 276 HD slots | 0.8 → 840 HD slots | 1.2 → 560 HD slots.
+NPM: 2908 PS2 triangles (36 parts).
+npm4 injection (threshold 0.8): 1821 injected + 840 HD.
 ```
 
 ---
 
-**Enlaces**: `docs/07_ports/ESTRUCTURA_DIBUJO_HD.md` (descriptores/mesh-ref/ejes/
-arms), `docs/07_ports/HOJA_DE_RUTA_PORT_PS2_B3.md`, AGENTS §15.
+**Links**: `docs/07_ports/ESTRUCTURA_DIBUJO_HD.md` (descriptors/mesh-ref/axes/
+arms), `docs/07_ports/HOJA_DE_RUTA_PORT_PS2_B3.md`, AGENTS §3.4.
 
 ---
 
-## 7. 🔴 ADDENDUM 2026-09-10 — BUG DEL EXTRACTOR PS2 (espacio local de las partes "L00")
+## 7. 🔴 ADDENDUM 2026-09-10 — PS2 EXTRACTOR BUG (local space of the "L00" parts)
 
-**Causa de las deformidades de la inyección** (manos/cara/dientes): el extractor
-PS2 trataba TODOS los vértices como model-space, pero las partes "L00" (manos
-bones 23/30, cara 40, dientes 36/38, cola 43-47) van en **espacio LOCAL del
-hueso** y hay que transformarlas por el world del hueso.
+**Cause of the injection deformities** (hands/face/teeth): the PS2 extractor
+treated ALL vertices as model space, but the "L00" parts (hands bones 23/30,
+face 40, teeth 36/38, tail 43-47) are in the bone's **LOCAL space** and must
+be transformed by the bone's world.
 
-- **Estructura del eje PS2 (80B LE)**: `+0x14` de AMG0 = base de ejes (=**0x20**);
-  `+0x40` = **PADRE** como offset rel AMG → `parent = (poff - 0x20)//80`. (Antes
-  no se leía el padre.)
-- **Comprobación**: mano izq (bone 23) verts locales centroide (1.15,0.09) →
-  transformados por `world[23]` (padre 21 LHANDROT) → **(10.64,6.23)** = mano
-  real. El cuerpo (bone 0, world identidad) ya estaba en model-space.
-- **Fix aplicado** a `port_ps2_b3_extract.py`: `compute_worlds()` (qmat/mmul/mvec)
-  + `parse_parts(..., worlds)` transforma pos y normal por `world[part_bone]`.
-  Añade `parents` + `worlds` al JSON.
-- **Efecto**: NPM umbral 0.8 pasa de **1821→1962 inyectados**; LHAND de 228→373;
-  mediana de distancia 0.43→0.38; alineación por hueso LHAND 12.41→**0.15**,
-  dientes al cráneo. `cell_align_check.py` lo verifica.
+- **PS2 axis structure (80B LE)**: `+0x14` of AMG0 = axes base (=**0x20**);
+  `+0x40` = **PARENT** as an offset rel AMG → `parent = (poff - 0x20)//80`.
+  (The parent was not read before.)
+- **Check**: left hand (bone 23) local verts centroid (1.15,0.09) → transformed
+  by `world[23]` (parent 21 LHANDROT) → **(10.64,6.23)** = the real hand. The
+  body (bone 0, identity world) was already in model space.
+- **Fix applied** to `port_ps2_b3_extract.py`: `compute_worlds()`
+  (qmat/mmul/mvec) + `parse_parts(..., worlds)` transforms pos and normal by
+  `world[part_bone]`. Adds `parents` + `worlds` to the JSON.
+- **Effect**: NPM threshold 0.8 goes from **1821→1962 injected**; LHAND from
+  228→373; median distance 0.43→0.38; per-bone alignment LHAND
+  12.41→**0.15**, teeth on the skull. `cell_align_check.py` verifies it.
 
-⚠️ Con el skin corregido, **el matching bone-aware (`--bone-aware`) vuelve a ser
-viable** (antes fallaba por el bug). Mod de prueba: `mods/cell_npm_fix`
+⚠️ With the skin fixed, **bone-aware matching (`--bone-aware`) becomes viable
+again** (it failed before because of the bug). Test mod: `mods/cell_npm_fix`
 (`cell_npm_fix08.bin`, extract `cell_extract2.json`).
 
-**Uso**: `port_ps2_b3_extract.py <186.amo> cell_extract2.json` y luego
+**Usage**: `port_ps2_b3_extract.py <186.amo> cell_extract2.json` and then
 `port_ps2_b3_inject.py e147.bin cell_extract2.json 0.8 out.bin --npm`.

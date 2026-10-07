@@ -1,83 +1,93 @@
-PRIMER ARRANQUE - DBZ Budokai 3 HD Collection
+FIRST START - DBZ Budokai 3 HD Collection
 ================================================
 
-Este paquete es de UN SOLO ARCHIVO: ejecutas dbz3.exe y listo. No hay variantes
-ni carpetas que elegir: el runtime funciona en cualquier CPU x64 (desde Core 2,
-2006, en adelante). Si tu maquina no lo arranca, no es por "falta de una
-variante" (no las hay).
+This package is ONE FILE: run dbz3.exe and that's it. There are no variants
+and no folders to choose: the runtime works on any x64 CPU (Core 2, 2006,
+onwards). If your machine does not start it, it is not because of "a missing
+variant" (there are none).
 
 -----------------------------------------------------------------------
-PASO 1 - Coloca los datos del juego
+STEP 1 - Place the game data
 -----------------------------------------------------------------------
-Tienes CUATRO formas validas (usa la que prefieras):
+There are FOUR valid ways (use whichever you prefer):
 
-  Opcion A (recomendada) - carpeta "assets":
-    <carpeta del juego>\
+  Option A (recommended) - an "assets" folder:
+    <game folder>\
       dbz3.exe
       assets\
         default.xex
         us\
         eu\
 
-  Opcion B - carpetas sueltas junto al ejecutable:
-    <carpeta del juego>\
+  Option B - loose folders next to the executable:
+    <game folder>\
       dbz3.exe
       default.xex
       us\
       eu\
 
-  Opcion C - el volcado del disco TAL CUAL (lo mas comodo):
-    <carpeta del juego>\
+  Option C - the disc dump AS IS (most convenient):
+    <game folder>\
       dbz3.exe
       DBZ3\
-        yae3_xenon.xex     <- se llame como se llame, sin renombrar
+        yae3_xenon.xex     <- whatever it is called, no renaming
         us\
         eu\
-    El launcher encuentra el ejecutable de Budokai 3 solo (por tamano y
-    checksum) y monta la carpeta DBZ3\ automaticamente.
+    The launcher finds the Budokai 3 executable by itself (by size and
+    checksum) and mounts the DBZ3\ folder automatically.
 
-  Opcion D - el ISO directamente (lo mas facil):
-    Deja tu .iso de Budokai 3 HD Collection junto a dbz3.exe. El launcher lo
-    detecta solo y juega directamente desde el disco: no hace falta extraer ni
-    copiar nada. Tambien puedes elegir el archivo con "ISO (.iso)" en el
-    launcher. Funciona con el ISO ORIGINAL completo (el que trae el menu de la
-    HD Collection en la raiz): el launcher coge de dentro el ejecutable de
-    Budokai 3. (Nota: los mods necesitan la carpeta extraida, opciones A o B.)
+  Option D - the ISO directly (easiest):
+    Put your Budokai 3 HD Collection .iso next to dbz3.exe. The launcher
+    detects it and plays straight from the disc image: nothing to extract or
+    copy. You can also pick the file with "ISO (.iso)" in the launcher. It
+    works with the full ORIGINAL ISO (the one with the HD Collection menu at
+    the root): the launcher takes the Budokai 3 executable from inside.
+    (Note: mods need the extracted folder, options A or B.)
 
-El launcher detecta cual usas. Tambien puedes elegir la fuente con los botones
-"Carpeta extraida" o "ISO (.iso)" en el launcher si los datos estan en otra
-ubicacion.
+The launcher detects which one you use. You can also choose the source with
+the "Extracted folder" or "ISO (.iso)" buttons in the launcher if the data is
+somewhere else.
 
-IMPORTANTE - el ejecutable:
-- NO hace falta renombrar nada a "default.xex": el launcher busca el ejecutable
-  de Budokai 3 por tamano y checksum (nombres tipicos: yae3_xenon.xex,
-  yae3_xenon_eu.xex) y lo prepara el solo en su carpeta user_data\xex_cache.
-  NUNCA escribe dentro de tu carpeta de juego.
-- Puedes usar el ejecutable US/NA (yae3_xenon.xex) o el EU/PAL
-  (yae3_xenon_eu.xex): el juego lleva la recompilacion de ambos dentro y elige
-  el correcto automaticamente.
-- La region EU/PAL (carpeta eu/) y el idioma se eligen en el launcher.
-- Si pones el MENU de la HD Collection (el default.xex de la raiz del disco) el
-  launcher te avisa y bloquea Play: ese ejecutable no esta en el nucleo.
-- Si pones un ejecutable de DBZ Budokai HD (DBZ1) por error, el launcher te lo
-  avisa y te pide que uses el launcher de DBZ1 (dbz1.exe).
-
------------------------------------------------------------------------
-PASO 2 - Instala mods (opcional)
------------------------------------------------------------------------
-Coloca los mods en la carpeta "mods" (cada mod en su carpeta, con manifest.txt).
-El launcher los lista y activa en la pestana "Mods". Ver MODDING_README.md.
+IMPORTANT - the executable:
+- You do NOT need to rename anything to "default.xex": the launcher looks for
+  the Budokai 3 executable by size and checksum (typical names:
+  yae3_xenon.xex, yae3_xenon_eu.xex) and prepares it itself in its
+  user_data\xex_cache folder. It NEVER writes inside your game folder.
+- You can use the US/NA executable (yae3_xenon.xex) or the EU/PAL one
+  (yae3_xenon_eu.xex): the game contains the recompilation of both and picks
+  the right one automatically.
+- The EU/PAL region (eu/ folder) and the language are chosen in the launcher.
+- If you place the HD Collection MENU (the default.xex at the root of the
+  disc), the launcher warns you and blocks Play: that executable is not in the
+  core.
+- If you place a DBZ Budokai HD (DBZ1) executable by mistake, the launcher
+  warns you and asks you to use the DBZ1 launcher (dbz1.exe).
 
 -----------------------------------------------------------------------
-PASO 3 - Solucion de problemas
+STEP 2 - Install mods (optional)
 -----------------------------------------------------------------------
-- Si el juego se cierra de golpe, te aparecera una ventana con la ruta del
-  registro (logs\, junto al juego). Comparte ese archivo para diagnosticar.
-- En logs\ se registra que ejecutable se ha detectado (ruta, tamano, checksum),
-  el estado y la carpeta de datos: es lo primero que hay que mirar si algo falla.
-- Si al pulsar PLAY no pasa nada: normalmente es un mensaje de "ejecutable no
-  reconocido" en el banner del launcher (pon el ejecutable de Budokai 3, no el
-  menu de la HD Collection).
-- Los mods y ajustes se guardan en la carpeta del juego (junto a dbz3.exe).
-- Necesitas las DLLs de runtime de C++ de Microsoft (msvcp140.dll,
-  vcruntime140.dll) que ya vienen incluidas junto al juego.
+Put mods in the "mods" folder (each mod in its own folder, with manifest.txt).
+The launcher lists them and enables them in the "Mods" tab. See
+MODDING_README.md.
+
+-----------------------------------------------------------------------
+STEP 3 - Troubleshooting
+-----------------------------------------------------------------------
+- If the game closes suddenly, a window shows the path of the log (logs\,
+  next to the game). Share that file for diagnosis.
+- logs\ records which executable was detected (path, size, checksum), the
+  status and the data folder: it is the first thing to check if something
+  fails.
+- If nothing happens when you press PLAY: usually there is an "unrecognised
+  executable" message in the launcher banner (place the Budokai 3 executable,
+  not the HD Collection menu).
+- Mods and settings are saved in the game folder (next to dbz3.exe).
+- You need Microsoft's C++ runtime DLLs (msvcp140.dll, vcruntime140.dll),
+  which are already included next to the game.
+
+-----------------------------------------------------------------------
+PS5 (jailbroken, experimental)
+-----------------------------------------------------------------------
+This Windows package does not run on a PS5. A PS5 build is made from your own
+copy of the game with ps5/make_ps5.sh in the source repository; see
+docs/PS5.md there.

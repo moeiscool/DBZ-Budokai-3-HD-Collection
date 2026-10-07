@@ -1,180 +1,185 @@
-# Sesión 2026-09-17 — Auto-detección del ejecutable (v1.2.2)
+# Session 2026-09-17 — Executable auto-detection (v1.2.2)
 
-> Objetivo: que el launcher arranque el juego **siempre**, con el ejecutable en
-> cualquier nombre/ubicación (volcado retail del disco, ISO original, carpetas
-> anidadas), sin que el usuario tenga que renombrar ni entender nada.
+> Goal: make the launcher **always** boot the game, with the executable under
+> any name/location (retail disc dump, original ISO, nested folders), without
+> the user having to rename or understand anything.
 
 ---
 
-## 1. Síntoma y causa raíz
+## 1. Symptom and root cause
 
-Un usuario (RTX 5090 / 9950X3D) reportó **"pulso Play y no pasa nada"**. En sus
-logs, TODOS los intentos morían igual:
+A user (RTX 5090 / 9950X3D) reported **"I press Play and nothing happens"**. In
+his logs, ALL attempts died the same way:
 
 ```
 XThread::Execute - No function registered at 820D54C8
 ```
 
-Diagnóstico (a partir de `docs/07_ports/PLAN_PS2_B3/01_WEB.md`, que documenta el
-contenido del disco):
+Diagnosis (from `docs/07_ports/PLAN_PS2_B3/01_WEB.md`, which documents the
+disc's contents):
 
-| Archivo del disco | Tamaño | Qué es |
+| Disc file | Size | What it is |
 |---|---|---|
-| `default.xex` (raíz) | 3 317 760 B | **MENÚ de la HD Collection** (elígelo: B1/B2/B3) |
-| `DBZ1/yae1_xenon.xex` | 4 464 640 B | Budokai 1 |
-| `DBZ3/yae3_xenon.xex` | 4 890 624 B | **Budokai 3 (el nuestro)** |
+| `default.xex` (root) | 3,317,760 B | **HD Collection MENU** (pick: B1/B2/B3) |
+| `DBZ1/yae1_xenon.xex` | 4,464,640 B | Budokai 1 |
+| `DBZ3/yae3_xenon.xex` | 4,890,624 B | **Budokai 3 (ours)** |
 
-El launcher arrancaba `game:\default.xex` (la raíz del disco → el **menú**) y el
-núcleo recompilado (sólo Budokai 3) no tiene la función de entrada de ese
-ejecutable → el invitado moría con un error críptico.
+The launcher booted `game:\default.xex` (the disc root → the **menu**) and the
+recompiled core (Budokai 3 only) does not have that executable's entry
+function → the guest died with a cryptic error.
 
-Hallazgos secundarios de la misma sesión:
+Secondary findings of the same session:
 
-1. **Modo ISO inservible con ISO retail**: `ExtractGameXexFromIso` sólo probaba
-   `default.xex` (el menú) y montaba la raíz, pero los datos viven en `DBZ3\`.
-2. **Un xex desconocido no bloqueaba** el botón Play.
-3. **Nada del xex se registraba en el log** (`OnConfigurePaths` corre antes de
-   que el logging esté inicializado → sus líneas se pierden).
-4. **`dbz3_user.toml` no parseaba**: `rex::cvar::SaveConfig` escribe los valores
-   crudos, así que una ruta `E:\Game Roms\…` producía
-   `unknown escape sequence '\G'` y **se perdían TODOS los ajustes** en cada
-   arranque.
+1. **ISO mode useless with a retail ISO**: `ExtractGameXexFromIso` only tried
+   `default.xex` (the menu) and mounted the root, but the data lives in `DBZ3\`.
+2. **An unknown xex did not block** the Play button.
+3. **Nothing about the xex was logged** (`OnConfigurePaths` runs before
+   logging is initialised → its lines are lost).
+4. **`dbz3_user.toml` did not parse**: `rex::cvar::SaveConfig` writes raw
+   values, so a path `E:\Game Roms\…` produced `unknown escape sequence '\G'`
+   and **ALL settings were lost** on every start.
 
 ---
 
-## 2. Diseño de la solución
+## 2. Design of the solution
 
-**Fuente única de verdad**: `ResolveBootSource()` devuelve un `BootSource`
-{ `xex` (lo que se sirve como `default.xex`), `data_root`, `status`, `redirect`,
-`note` } que usan el pre-flight, el VFS (shims de dispositivo) y la UI.
+**Single source of truth**: `ResolveBootSource()` returns a `BootSource`
+{ `xex` (what is served as `default.xex`), `data_root`, `status`, `redirect`,
+`note` } used by the pre-flight, the VFS (device shims) and the UI.
 
-Flujo dentro del launcher:
+Flow inside the launcher:
 
-1. `CheckDefaultXex(<root>)` sobre las rutas canónicas (`<root>\default.xex`,
-   `<root>\assets\…`). Si el status es válido → **no se copia nada**.
-2. Si no hay ejecutable válido → `FindGameExecutable(<root>)`:
-   - spots convencionales de los roots vecinos: `root`, `DBZ3`, `assets`,
-     `assets/DBZ3` (y `default.xex`);
-   - escaneo **acotado** del root elegido: profundidad ≤ 3, tope de 4000
-     directorios, saltando `user_data`/`logs`/`mods`/`$RECYCLE.BIN`/…;
-   - identificación por **tamaño + MD5** (US/EU), no por nombre.
-3. `EnsureXexCache()` copia el ejecutable encontrado a
-   `user_data/dbz3/xex_cache/default.xex` (**sólo si hace falta**; nunca se
-   escribe en la carpeta del usuario) y fija el data root (`DBZ3\` si el xex vino
-   de ahí).
-4. `RegionDiscDevice` (ISO) y `GameDataHostDevice` (carpeta) sirven
-   `game:\default.xex` desde la caché y resuelven `us\…`/`eu\…` bajo `DBZ3\`
-   cuando los datos viven ahí (con fallback a la ruta original).
-5. En modo ISO, `ExtractGameXexFromIso` prueba en orden:
+1. `CheckDefaultXex(<root>)` on the canonical paths (`<root>\default.xex`,
+   `<root>\assets\…`). If the status is valid → **nothing is copied**.
+2. If there is no valid executable → `FindGameExecutable(<root>)`:
+   - conventional spots of the neighbouring roots: `root`, `DBZ3`, `assets`,
+     `assets/DBZ3` (and `default.xex`);
+   - a **bounded** scan of the chosen root: depth ≤ 3, a cap of 4000
+     directories, skipping `user_data`/`logs`/`mods`/`$RECYCLE.BIN`/…;
+   - identification by **size + MD5** (US/EU), not by name.
+3. `EnsureXexCache()` copies the found executable to
+   `user_data/dbz3/xex_cache/default.xex` (**only if needed**; the user's
+   folder is never written to) and sets the data root (`DBZ3\` if the xex came
+   from there).
+4. `RegionDiscDevice` (ISO) and `GameDataHostDevice` (folder) serve
+   `game:\default.xex` from the cache and resolve `us\…`/`eu\…` under `DBZ3\`
+   when the data lives there (with a fallback to the original path).
+5. In ISO mode, `ExtractGameXexFromIso` tries in order:
    `default.xex`, `DBZ3/yae3_xenon.xex`, `DBZ3/yae3_xenon_eu.xex`,
-   `yae3_xenon.xex`, `yae3_xenon_eu.xex`… y anota cuál se usó en
-   `iso_cache/source.stamp` (junto a ruta+tamaño+fecha del ISO para invalidar).
+   `yae3_xenon.xex`, `yae3_xenon_eu.xex`… and records which one was used in
+   `iso_cache/source.stamp` (with the ISO's path+size+date to invalidate).
 
-**Estados del ejecutable** (`XexStatus`): `kUs`, `kEu`, `kDbz1`, **`kHdMenu`**
-(nuevo: menú de la HD Collection, 3 317 760 B), `kUnknown`, `kMissing`.
-`kHdMenu` y `kDbz1` **bloquean** Play con mensaje específico; `kUnknown` avisa en
-ámbar pero deja jugar (puede ser un dump modificado).
+**Executable states** (`XexStatus`): `kUs`, `kEu`, `kDbz1`, **`kHdMenu`**
+(new: the HD Collection menu, 3,317,760 B), `kUnknown`, `kMissing`.
+`kHdMenu` and `kDbz1` **block** Play with a specific message; `kUnknown` warns
+in amber but lets you play (it may be a modified dump).
 
-**UI**: banner basado en `CurrentBootSource()` con nota azul
-"Ejecutable detectado: `yae3_xenon.xex` → `default.xex` (no hay que renombrar
-nada)"; PLAY se habilita con un único gate (`assets_ready`, que también cubre la
-tecla Enter).
+**UI**: a banner based on `CurrentBootSource()` with a blue note
+"Executable detected: `yae3_xenon.xex` → `default.xex` (nothing needs
+renaming)"; PLAY is enabled by a single gate (`assets_ready`, which also
+covers the Enter key).
 
-**Config**: `SaveUserSettings` pasa el fichero de `SaveConfig` por
-`EscapeTomlStrings`, que escapa `\` y `"` dentro de valores entrecomillados y es
-**idempotente** (si `SaveConfig` no reescribe nada, la segunda pasada no dobla
-las barras).
+**Config**: `SaveUserSettings` passes `SaveConfig`'s file through
+`EscapeTomlStrings`, which escapes `\` and `"` inside quoted values and is
+**idempotent** (if `SaveConfig` rewrites nothing, the second pass does not
+double the backslashes).
+
+> The PS5 build (`docs/PS5.md`) solves the same problem at build time:
+> `ps5/stage_game.py` finds the Budokai 3 executable by checksum (SHA-256 or
+> MD5) in the ISO or folder and stages it as `default.xex`.
 
 ---
 
-## 3. Ficheros tocados
+## 3. Files touched
 
-| Fichero | Cambio |
+| File | Change |
 |---|---|
-| `src/launcher/settings.h/.cpp` | `XexStatus::kHdMenu`, `ClassifyXexFile` (+ pública), `XexStatusLabel`, `GameExecutable`, `FindGameExecutable`, `EnsureXexCache`, `XexCacheDir`, `BootSource`, `ResolveBootSource`/`CurrentBootSource`/`SetCurrentBootSource`, `ExtractGameXexFromIso` (lista de candidatos), `IsoXexSourcePath`, `EscapeTomlStrings`, `IsValidGameDataDir` ampliado |
-| `src/main.cpp` | `FindGameRoot` acepta `DBZ3`/`assets/DBZ3`; `OnConfigurePaths` resuelve+fija el boot source y loguea el diagnóstico; pre-flight sobre `boot.xex`; guard de `skip_launcher` usa el status resuelto |
-| `src/region.cpp` | `GameDataHostDevice` (modo carpeta: sirve el xex de la caché + remapea a `DBZ3\`), `RegionDiscDevice` extendido (redirect del xex + prefijo `DBZ3\` con fallbacks), `MountIsoDrive`/`RemountGameDrive`/`RelocateGameData` usan el boot source |
-| `src/launcher/launcher_state.cpp` | Banner con `CurrentBootSource`, mensaje del menú HD, aviso ámbar para desconocido, nota "Ejecutable detectado" |
+| `src/launcher/settings.h/.cpp` | `XexStatus::kHdMenu`, `ClassifyXexFile` (+ public), `XexStatusLabel`, `GameExecutable`, `FindGameExecutable`, `EnsureXexCache`, `XexCacheDir`, `BootSource`, `ResolveBootSource`/`CurrentBootSource`/`SetCurrentBootSource`, `ExtractGameXexFromIso` (candidate list), `IsoXexSourcePath`, `EscapeTomlStrings`, extended `IsValidGameDataDir` |
+| `src/main.cpp` | `FindGameRoot` accepts `DBZ3`/`assets/DBZ3`; `OnConfigurePaths` resolves+sets the boot source and logs the diagnosis; pre-flight on `boot.xex`; the `skip_launcher` guard uses the resolved status |
+| `src/region.cpp` | `GameDataHostDevice` (folder mode: serves the cached xex + remaps to `DBZ3\`), extended `RegionDiscDevice` (xex redirect + `DBZ3\` prefix with fallbacks), `MountIsoDrive`/`RemountGameDrive`/`RelocateGameData` use the boot source |
+| `src/launcher/launcher_state.cpp` | Banner with `CurrentBootSource`, HD menu message, amber warning for unknown, "Executable detected" note |
 | `src/version.rc` | 1.2.1 → **1.2.2** |
 | Docs | `AGENTS.md` (§3, §8, §9.2), `docs/README.md`, `docs/01_estructura/ESTADO.md`, `docs/HOJA_DE_RUTA_2026_09.md`, `RELEASE_README.md`, `README.md`/`README_EN.md`, `README_PRIMER_ARRANQUE.txt`, `portforge/.forge.json` |
 
 ---
 
-## 4. Verificación (local, 2026-09-17)
+## 4. Verification (local, 2026-09-17)
 
-Entornos montados en `%TEMP%\opencode\` con **junctions** a `us/` (borrados al
-terminar; los assets quedaron intactos: 15 ficheros en `us/`).
+Environments assembled in `%TEMP%\opencode\` with **junctions** to `us/`
+(deleted at the end; the assets stayed intact: 15 files in `us/`).
 
-| Escenario | Resultado |
+| Scenario | Result |
 |---|---|
-| **Dump retail**: raíz `default.xex` = menú 3 317 760 B (relleno) + `DBZ3\yae3_xenon.xex` (real) + `DBZ3\us\` | `FindGameExecutable: found yae3_xenon.xex (US/NA) … -> data root …\disc\DBZ3` → `staged at user_data\dbz3\xex_cache\default.xex` → `RemountGameDrive: MOUNTED …\disc\DBZ3` → **el juego arranca** (guest thread + lecturas AFS desde `DBZ3\us\`); proceso vivo a los 20 s, sin `No function registered` |
-| **Layout clásico**: `default.xex` + `us\` en la raíz | Ruta canónica; **no copia nada**; arranca igual que antes |
-| **Solo menú HD** (nada bootable) | No se cachea nada; sin crash. Con `skip_launcher` el SDK falla limpio ("Failed to load XEX"); con launcher, banner rojo + PLAY deshabilitado |
-| **Escapado del TOML** | Pasada 1 escapa `E:\Game Roms\…` → `E:\\Game Roms\\…`; pasada 2 **idéntica** (idempotente); comillas y enteros intactos |
-| `skip_launcher` (dev) | Guard nuevo: si el status no es US/EU, no arranca y avisa |
+| **Retail dump**: root `default.xex` = menu 3,317,760 B (filler) + `DBZ3\yae3_xenon.xex` (real) + `DBZ3\us\` | `FindGameExecutable: found yae3_xenon.xex (US/NA) … -> data root …\disc\DBZ3` → `staged at user_data\dbz3\xex_cache\default.xex` → `RemountGameDrive: MOUNTED …\disc\DBZ3` → **the game boots** (guest thread + AFS reads from `DBZ3\us\`); process alive at 20 s, without `No function registered` |
+| **Classic layout**: `default.xex` + `us\` at the root | Canonical path; **copies nothing**; boots as before |
+| **HD menu only** (nothing bootable) | Nothing is cached; no crash. With `skip_launcher` the SDK fails cleanly ("Failed to load XEX"); with the launcher, red banner + PLAY disabled |
+| **TOML escaping** | Pass 1 escapes `E:\Game Roms\…` → `E:\\Game Roms\\…`; pass 2 **identical** (idempotent); quotes and integers intact |
+| `skip_launcher` (dev) | New guard: if the status is not US/EU, it does not boot and warns |
 
-**Pendiente de verificar**: modo ISO con un **ISO retail real** (no había ninguno
-disponible; la lógica está implementada y es la misma que la del modo carpeta,
-gateada para no afectar a ISOs ya repackados).
+**Pending verification**: ISO mode with a **real retail ISO** (none was
+available; the logic is implemented and is the same as folder mode's, gated so
+as not to affect already-repacked ISOs).
 
 ---
 
-## 4.bis Modo ISO — VALIDADO (v1.2.2 EX, 2026-09-17)
+## 4.bis ISO mode — VALIDATED (v1.2.2 EX, 2026-09-17)
 
-Sin un ISO original a mano, se validó montando un **XDVDFS sintético** con
-`tools/make_test_iso.py` (generador nuevo: empaqueta una carpeta con el layout
-retail — `default.xex` = menú 3317760 B en la raíz, `DBZ3/yae3_xenon.xex` real y
-`DBZ3/us` con los 15 ficheros de datos, 2,3 GB).
+Without an original ISO at hand, it was validated by mounting a **synthetic
+XDVDFS** with `tools/make_test_iso.py` (a new generator: it packs a folder with
+the retail layout — `default.xex` = menu 3317760 B at the root, the real
+`DBZ3/yae3_xenon.xex` and `DBZ3/us` with the 15 data files, 2.3 GB).
 
-Pruebas (todas con el exe dual 1.2.2.1):
+Tests (all with the dual exe 1.2.2.1):
 
-| Escenario | Resultado |
+| Scenario | Result |
 |---|---|
-| **A** — sólo el `.iso` junto a `dbz3.exe` (sin carpeta) | El launcher auto-detecta el ISO, extrae `DBZ3/yae3_xenon.xex` (rechaza el menú), monta el disco con `prefix_dbz3=yes`, crea el hilo del invitado y **el juego arranca** (vivo a los 45 s, sin `No function registered`). |
-| **B** — carpeta "válida" pero con el **menú** como `default.xex` + ISO al lado (el caso del usuario) | Salta solo al ISO (`folder cannot boot (...) - using the disc image`), monta igual y **arranca**. |
+| **A** — only the `.iso` next to `dbz3.exe` (no folder) | The launcher auto-detects the ISO, extracts `DBZ3/yae3_xenon.xex` (rejects the menu), mounts the disc with `prefix_dbz3=yes`, creates the guest thread and **the game boots** (alive at 45 s, without `No function registered`). |
+| **B** — a "valid" folder but with the **menu** as `default.xex` + an ISO next to it (the user's case) | It jumps to the ISO by itself (`folder cannot boot (...) - using the disc image`), mounts it the same way and **boots**. |
 
-**2 bugs reales encontrados y corregidos por estas pruebas** (los habría sufrido
-cualquier usuario de ISO retail):
+**2 real bugs found and fixed by these tests** (any retail-ISO user would have
+hit them):
 
-1. **`RegionDiscDevice` no normalizaba la ruta**: el VFS entrega la ruta con el
-   prefijo desmontado pero **con el separador inicial** (`\us\data_cmn.afs`), y el
-   remapeo de región + el prefijo `DBZ3\` exigían que no empezara por `\` → nunca
-   se aplicaban → el invitado fallaba con
+1. **`RegionDiscDevice` did not normalise the path**: the VFS hands over the
+   path with the mount prefix removed but **with the leading separator**
+   (`\us\data_cmn.afs`), and the region remap + the `DBZ3\` prefix required it
+   not to start with `\` → they were never applied → the guest failed with
    `NtCreateFile FAILED: path='D:\us\data_cmn.afs' -> 0xc000000f`. Fix:
-   `NormalizeGuestPath()` al entrar en `ResolvePath` (el redirect de `default.xex`
-   ya lo hacía, por eso el módulo sí cargaba y sólo fallaban los datos).
-2. **Modo ISO con un disco sin ejecutable bootable**: si las candidatas no dan un
-   US/EU, ahora **no** se entra en modo ISO (`iso_boot.usable()`); se conserva la
-   carpeta y el banner explica el motivo (antes se arrancaba un fichero que el
-   runtime no podía cargar → `Unknown module magic: 00000000`).
+   `NormalizeGuestPath()` on entering `ResolvePath` (the `default.xex`
+   redirect already did it, which is why the module did load and only the
+   data failed).
+2. **ISO mode with a disc without a bootable executable**: if the candidates
+   do not give a US/EU one, ISO mode is now **not** entered
+   (`iso_boot.usable()`); the folder is kept and the banner explains why
+   (before, it booted a file the runtime could not load →
+   `Unknown module magic: 00000000`).
 
-Nota: en la captura queda un `NtCreateFile FAILED: path='D:\us\'` (petición de
-directorio que el VFS canonicaliza a la raíz de la unidad); es inocuo — el juego
-continúa y llega al menú.
-
+Note: the capture still shows an `NtCreateFile FAILED: path='D:\us\'` (a
+directory request the VFS canonicalises to the drive's root); it is harmless —
+the game continues and reaches the menu.
 
 ---
 
-## 5. Notas para el futuro
+## 5. Notes for the future
 
-- **`tools/make_test_iso.py <out.iso> <carpeta>`** genera un XDVDFS de prueba
-  desde una carpeta (para validar el modo disco sin un ISO real). El runtime lee
-  XDVDFS crudo: descriptor de volumen en el sector 32 con el magic
-  `MICROSOFT*XBOX*MEDIA`, entradas de directorio de 14 B + nombre enlazadas como
-  árbol cuyos punteros van en unidades de 4 B. Si se añaden más ficheros a una
-  carpeta, no olvidar que cada directorio debe caber en un sector.
-- **El fallback carpeta→ISO** (v1.2.2 EX) se activa cuando la carpeta no tiene
-  ejecutable bootable (`kHdMenu`, `kMissing`) y hay un `.iso` junto a la carpeta
-  de datos o al ejecutable. Si el usuario quiere mods, en el launcher puede
-   volver a "Carpeta extraida" (eso limpia `dbz3_iso_path`).
-- ⚠️ **El exe de release se compila desde `out\build\win-amd64-dual`**
-  (verificado: el SHA-256 del `dbz3.exe` del zip v1.2.1 coincide con el de ese
-  build dir). `tools/make_release.ps1` ya lo toma de ahí.
-- Los logs de `OnConfigurePaths` se pierden (el logging arranca después): el
-  diagnóstico del xex aparece al pulsar Play (`RelocateGameData`). Si algún día
-  hace falta el log completo, hay que bufferizar las líneas tempranas.
-- `FindGameExecutable` sólo hace escaneo recursivo en el **primer** root (la
-  carpeta elegida); en los roots vecinos sólo mira los spots convencionales
-  (coste acotado).
-- Un xex de otra tirada con MD5 distinto → `kUnknown` (aviso, no bloqueo). Si se
-  identifican más tiradas, añadir sus MD5 a `ClassifyXexFile`.
+- **`tools/make_test_iso.py <out.iso> <folder>`** generates a test XDVDFS from
+  a folder (to validate disc mode without a real ISO). The runtime reads raw
+  XDVDFS: volume descriptor at sector 32 with the `MICROSOFT*XBOX*MEDIA`
+  magic, 14-byte directory entries + name linked as a tree whose pointers are
+  in 4-byte units. If more files are added to a folder, remember each
+  directory must fit in one sector.
+- **The folder→ISO fallback** (v1.2.2 EX) kicks in when the folder has no
+  bootable executable (`kHdMenu`, `kMissing`) and there is an `.iso` next to
+  the data folder or the executable. If the user wants mods, in the launcher
+  they can switch back to "Extracted folder" (that clears `dbz3_iso_path`).
+- ⚠️ **The release exe is built from `out\build\win-amd64-dual`** (verified:
+  the SHA-256 of the v1.2.1 zip's `dbz3.exe` matches that build dir's).
+  `tools/make_release.ps1` already takes it from there.
+- `OnConfigurePaths`'s logs are lost (logging starts later): the xex
+  diagnosis appears when Play is pressed (`RelocateGameData`). If the full log
+  is ever needed, the early lines must be buffered.
+- `FindGameExecutable` only scans recursively in the **first** root (the
+  chosen folder); in the neighbouring roots it only looks at the conventional
+  spots (bounded cost).
+- An xex from another print run with a different MD5 → `kUnknown` (warning,
+  not a block). If more print runs are identified, add their MD5 to
+  `ClassifyXexFile` (and to `ps5/stage_game.py`).

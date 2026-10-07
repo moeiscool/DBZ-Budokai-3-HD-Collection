@@ -1,88 +1,88 @@
 # RE MASTER — DBZ Budokai 3 HD Collection
 
-> Documento rector para la ingeniería inversa de extremo a extremo.
-> Creado: 2026-09-08.
+> Governing document for end-to-end reverse engineering.
+> Created: 2026-09-08.
 
-## 1. Objetivo
+## 1. Goal
 
-Construir un modelo reproducible de todo el camino `XEX -> guest -> AFS ->
-contenido -> parser -> GPU -> menus/roster`. Un resultado offline no se
-considera validado en juego; un crash no se atribuye al bin si el log no
-demuestra que el bin fue servido y consumido.
+Build a reproducible model of the whole path `XEX -> guest -> AFS ->
+content -> parser -> GPU -> menus/roster`. An offline result is not considered
+validated in game; a crash is not attributed to the bin unless the log proves
+the bin was served and consumed.
 
-Preguntas que deben quedar respondidas con evidencia:
+Questions that must be answered with evidence:
 
-1. Qué función guest solicita cada recurso y cuándo.
-2. Cómo se transforma un índice AFS en un bin, modelo, mesh y draw.
-3. Qué datos identifican un personaje, forma, stage, habilidad y slot.
-4. Qué cambios funcionan por override y cuáles requieren datos guest o hooks.
-5. Por qué un cambio produce render válido, deformación, crash o ningún efecto.
+1. Which guest function requests each resource and when.
+2. How an AFS index turns into a bin, model, mesh and draw.
+3. Which data identify a character, form, stage, ability and slot.
+4. Which changes work by override and which need guest data or hooks.
+5. Why a change produces a valid render, deformation, a crash or no effect.
 
-## 2. Estado consolidado
+## 2. Consolidated state
 
-### Confirmado
+### Confirmed
 
-- US/EU arrancan y aceptan overrides por entrada AFS.
-- La tabla AFS efectiva se interpreta desde offset 8.
-- Los modelos son bins autocontenidos `#AMB/#AWO/#AWG/#AZT`.
-- El guest acepta swaps nativos HD→HD en slots existentes.
-- Hay varios layouts de vértices; el offset del bone depende del layout.
-- El roster de selección no vive en un SLXS HD: hay tablas en la imagen guest.
-- `0xFFFF` significa celda vacía en la ruta de selección observada.
-- La inyección que conserva el pool de la plantilla es la única vía PS2→HD con
-  resultado visual positivo hasta ahora.
-- Tien con capa es una fuente PS2 real; sus 42 huesos comunes coinciden con
-  Tenshinhan HD y hay 10 huesos adicionales de capa.
+- US/EU boot and accept per-AFS-entry overrides.
+- The effective AFS table is interpreted from offset 8.
+- Models are self-contained `#AMB/#AWO/#AWG/#AZT` bins.
+- The guest accepts native HD→HD swaps in existing slots.
+- There are several vertex layouts; the bone's offset depends on the layout.
+- The select roster does not live in an HD SLXS: there are tables in the guest image.
+- `0xFFFF` means an empty cell in the observed selection path.
+- Injection that keeps the template's pool is the only PS2→HD route with a
+  positive visual result so far.
+- Tien with cape is a real PS2 source; its 42 common bones match HD
+  Tenshinhan and there are 10 additional cape bones.
 
-### No confirmado
+### Not confirmed
 
-- Regeneración general de mesh-ref, zonas, bboxes y descriptores con pool nuevo.
-- Formato completo de stages y sus enlaces con selección.
-- Tabla completa de movimientos, habilidades y parámetros.
-- Identidad completa de un personaje nuevo: slot, recursos, voz y persistencia.
-- Causa de los crashes `0x85CBD643` de `dbz3_060.log` y `dbz3_062.log`.
-  Esos logs no contienen `AFS OVERRIDE HIT` de entry 327 y no son evidencia
-  contra el bin Tien.
+- General regeneration of mesh-refs, zones, bboxes and descriptors with a new pool.
+- Complete stage format and its links with selection.
+- Complete table of moves, abilities and parameters.
+- Complete identity of a new character: slot, resources, voice and persistence.
+- Cause of the `0x85CBD643` crashes in `dbz3_060.log` and `dbz3_062.log`.
+  Those logs contain no `AFS OVERRIDE HIT` of entry 327 and are not evidence
+  against the Tien bin.
 
-## 3. Arquitectura a investigar
+## 3. Architecture to investigate
 
 ```text
-XEX/imagen descifrada
-  -> tablas guest y enumeración de slots
-  -> identidad/personaje
-  -> resolución de recursos AFS
-  -> tabla física/virtual y LZX
+XEX/decrypted image
+  -> guest tables and slot enumeration
+  -> identity/character
+  -> AFS resource resolution
+  -> physical/virtual table and LZX
   -> #AMB -> #AWO/#AWG/#AZT/#ACM
-  -> axes, arms, mesh-ref, zonas, bboxes, descriptores
-  -> vertex/index buffers y transformaciones
+  -> axes, arms, mesh-ref, zones, bboxes, descriptors
+  -> vertex/index buffers and transforms
   -> GPU
-  -> menú, combate, animación, voz y guardado
+  -> menu, fight, animation, voice and saving
 ```
 
-Cada enlace debe registrar dirección guest, función consumidora, entrada AFS,
-offset, tamaño, endian, estructura, precondiciones y resultado.
+Each link must record guest address, consuming function, AFS entry, offset,
+size, endian, structure, preconditions and result.
 
-## 4. Protocolo de laboratorio
+## 4. Lab protocol
 
-### Baseline congelado
+### Frozen baseline
 
-Antes de cada experimento guardar región, idioma, backend, cvars, hashes de
-`dbz3.exe`, DLLs, `default.xex`, AFS y mods, además de un log nuevo. No se
-mezclan US/EU. Un experimento tiene como máximo un cambio causal.
+Before each experiment save region, language, backend, cvars, hashes of
+`dbz3.exe`, DLLs, `default.xex`, AFS and mods, plus a fresh log. US/EU are not
+mixed. An experiment has at most one causal change.
 
-### Clasificación
+### Classification
 
-- `NO_EFFECT`: no hubo solicitud o hit del override.
-- `INFRA_CRASH`: crash sin evidencia de lectura del recurso probado.
-- `PARSE_CRASH`: hit confirmado y crash durante deserialización.
-- `DRAW_CRASH`: recurso parseado y crash preparando/dibujando.
-- `RENDER_BAD`: carga completa con geometría/material/rig incorrectos.
-- `RENDER_OK`: visible y estable en la escena mínima.
-- `FLOW_OK`: selección, combate, victoria/revancha y salida estables.
+- `NO_EFFECT`: there was no request or hit of the override.
+- `INFRA_CRASH`: a crash with no evidence the tested resource was read.
+- `PARSE_CRASH`: confirmed hit and a crash during deserialisation.
+- `DRAW_CRASH`: resource parsed and a crash preparing/drawing.
+- `RENDER_BAD`: complete load with wrong geometry/material/rig.
+- `RENDER_OK`: visible and stable in the minimal scene.
+- `FLOW_OK`: select, fight, victory/rematch and exit stable.
 
-### Manifest obligatorio
+### Mandatory manifest
 
-Cada experimento conservará un JSON con:
+Each experiment will keep a JSON with:
 
 ```text
 experiment_id, region, xex_hash, dll_hashes, mod_hashes,
@@ -90,111 +90,113 @@ afs_entry, physical_size, virtual_size, compressed_size,
 expected_hits, observed_hits, last_guest_pc, result, notes
 ```
 
-También se conservarán bin descomprimido, comprimido, JSON intermedio, OBJ,
-log y capturas.
+The decompressed bin, compressed bin, intermediate JSON, OBJ, log and captures
+will also be kept.
 
-## 5. Fases
+## 5. Phases
 
-### F0 — Infraestructura y trazabilidad
+### F0 — Infrastructure and traceability
 
-- Registrar región y hashes al inicio.
-- Correlacionar `AFS LOOKUP`, `OVERRIDE HIT`, `MOD READ`, tamaño pedido y servido.
-- Capturar PC guest y contexto de fallo.
-- Probar flujo sin mods y un swap HD→HD de control en entry 327.
+- Record the region and hashes at startup.
+- Correlate `AFS LOOKUP`, `OVERRIDE HIT`, `MOD READ`, size requested and served.
+- Capture the guest PC and the failure context.
+- Test the flow without mods and a control HD→HD swap in entry 327.
 
-Aceptación: distinguir `NO_EFFECT`, `INFRA_CRASH` y `PARSE_CRASH` sin depender
-de la imagen del juego.
+Acceptance: distinguish `NO_EFFECT`, `INFRA_CRASH` and `PARSE_CRASH` without
+relying on the game's picture.
 
-### F1 — Imagen guest y tablas
+### F1 — Guest image and tables
 
-- Volcar US/EU con hashes y rangos.
-- Etiquetar tablas de slots, retratos, records de 184 bytes, disponibilidad,
-  formas y runs AFS.
-- Seguir lectores y escritores en `generated/`.
-- Encontrar conteos, límites y validaciones.
+- Dump US/EU with hashes and ranges.
+- Label the tables of slots, portraits, 184-byte records, availability,
+  forms and AFS runs.
+- Follow readers and writers in `generated/`.
+- Find counts, limits and validations.
 
-Aceptación: describir `cursor -> slot -> record -> modelo -> retrato` con
-funciones y offsets concretos en ambas regiones.
+Acceptance: describe `cursor -> slot -> record -> model -> portrait` with
+concrete functions and offsets in both regions.
 
-### F2 — AFS y recursos
+### F2 — AFS and resources
 
-- Mapear solicitud guest a AFS, entry, offset y tamaño.
-- Comparar lectura física, tabla virtual y mid-insert.
-- Confirmar bins mayores que `to_read`, incluidos mappings.
-- Determinar si la resolución usa entry, offset, AFL, grupo o descriptor.
+- Map guest request to AFS, entry, offset and size.
+- Compare physical read, virtual table and mid-insert.
+- Confirm bins larger than `to_read`, including mappings.
+- Determine whether resolution uses entry, offset, AFL, group or descriptor.
 
-Aceptación: seguir un override de control desde la llamada guest hasta los
-bytes descomprimidos consumidos.
+Acceptance: follow a control override from the guest call to the
+decompressed bytes consumed.
 
-### F3 — Parser y render
+### F3 — Parser and render
 
-- Separar layouts A, B, C, cara, vb2 y stages.
-- Modelar contenedores, punteros relativos y endianness.
-- Decodificar pool → mesh-ref → zonas → bboxes → descriptores.
-- Hacer round-trip de bins originales sin cambios semánticos.
-- Ejecutar permutaciones unitarias, una estructura por experimento.
-- Capturar la primera lectura guest divergente.
+- Separate layouts A, B, C, face, vb2 and stages.
+- Model containers, relative pointers and endianness.
+- Decode pool → mesh-ref → zones → bboxes → descriptors.
+- Round-trip original bins without semantic changes.
+- Run unit permutations, one structure per experiment.
+- Capture the first divergent guest read.
 
-Aceptación: round-trip estable y una permutación mínima que explique la primera
-deformación o crash.
+Acceptance: a stable round-trip and a minimal permutation that explains the
+first deformation or crash.
 
 ### F4 — PS2 → HD
 
-- Vía A: inyección por zona/material sobre pool HD conservado, con fallback al
-  vértice HD si el matching no es seguro.
-- Vía B: port completo con pool nuevo solo después de cerrar F3.
-- Validar primero rig común sin capa; Tien con capa será otro experimento.
-- Usar recursos y texturas de plantilla hasta validar el draw.
+- Route A: injection per zone/material over a kept HD pool, falling back to
+  the HD vertex if the matching is not safe.
+- Route B: a full port with a new pool only after closing F3.
+- First validate the common rig without the cape; Tien with cape will be
+  another experiment.
+- Use the template's resources and textures until the draw is validated.
 
-Aceptación: `RENDER_OK` offline, `RENDER_OK` en escena mínima y después
+Acceptance: `RENDER_OK` offline, `RENDER_OK` in the minimal scene and then
 `FLOW_OK`.
 
-> **Actualización F4 (2026-09-30) — oráculo offline refuta "causa = skin".**
-> Comparando `cell_native` (bueno) vs `cell_win2` (port) descomprimidos: `world`
-> (bind) IDÉNTICO, `bone`@+16 IDÉNTICO, `uv`@+40 IDÉNTICO, IB/huesos iguales, sin
-> permutación de ejes, bounds model-space casi idénticos; solo cambian `pos`/`nrm`.
-> ⇒ El port es estructuralmente correcto. La causa del render deforme NO es el
-> bind/skin: mirar **cómo el renderer interpreta `pos`/`nrm`** o el **VB servido al
-> GPU**. Herramientas: `awo_tools/bind_oracle.py`/`bind_oracle_bones.py`; detalle en
-> `docs/07_ports/SESION_DRAW_SEMANTICS_2026-09-11.md` §21 y
-> `docs/07_ports/UNIVERSAL_MODDER_2026-09-30.md` (método de oráculos).
+> **F4 update (2026-09-30) — the offline oracle refutes "cause = skin".**
+> Comparing `cell_native` (good) vs `cell_win2` (port) decompressed: `world`
+> (bind) IDENTICAL, `bone`@+16 IDENTICAL, `uv`@+40 IDENTICAL, IB/bones equal,
+> no axis permutation, model-space bounds almost identical; only `pos`/`nrm`
+> change. ⇒ The port is structurally correct. The cause of the deformed
+> render is NOT the bind/skin: look at **how the renderer interprets
+> `pos`/`nrm`** or the **VB served to the GPU**. Tools:
+> `awo_tools/bind_oracle.py`/`bind_oracle_bones.py`; detail in
+> `docs/07_ports/SESION_DRAW_SEMANTICS_2026-09-11.md` §21 and
+> `docs/07_ports/UNIVERSAL_MODDER_2026-09-30.md` (oracle method).
 
-### F5 — Roster y contenido nuevo
+### F5 — Roster and new content
 
-- Alias de slot que reutilice recursos originales.
-- Modelo y retrato independientes.
-- Record, formas y moveset.
-- Voz, textos, aura y persistencia.
-- Perfil experimental separado de partidas normales.
+- A slot alias reusing the original resources.
+- Independent model and portrait.
+- Record, forms and moveset.
+- Voice, texts, aura and persistence.
+- An experimental profile separate from normal saves.
 
-Cada dependencia se activa en una prueba separada.
+Each dependency is enabled in a separate test.
 
-### F6 — Stages, habilidades y herramientas
+### F6 — Stages, abilities and tools
 
-Investigar layout de stages, colisión/animación, `#ACM`, parámetros de combate
-y un pipeline genérico de duplicación con manifest y rollback.
+Investigate the stage layout, collision/animation, `#ACM`, fight parameters
+and a generic duplication pipeline with a manifest and rollback.
 
-## 6. Primera batería
+## 6. First battery
 
-1. Baseline sin mods, US, menú y combate con Krillin.
-2. Swap HD→HD conocido en entry 327 con hit confirmado.
-3. Bin Tien temporal, solo US y con logs de hit/read.
-4. Tien sobre Tenshinhan, no Krillin, para eliminar cambio de rig.
-5. Tien sin capa, solo los 42 huesos comunes.
-6. Tien con capa, añadiendo los 10 huesos extra.
-7. Solo después, reconstruir pool y estructura de dibujo.
+1. Baseline without mods, US, menu and a fight with Krillin.
+2. A known HD→HD swap in entry 327 with a confirmed hit.
+3. A temporary Tien bin, US only and with hit/read logs.
+4. Tien over Tenshinhan, not Krillin, to remove the rig change.
+5. Tien without the cape, only the 42 common bones.
+6. Tien with the cape, adding the 10 extra bones.
+7. Only afterwards, rebuild the pool and the draw structure.
 
-La prueba que crasheó al situarse sobre Krillin queda clasificada como
-`INFRA_CRASH` provisional hasta demostrar que entry 327 fue servido.
+The test that crashed when placed over Krillin is provisionally classified as
+`INFRA_CRASH` until it is shown that entry 327 was served.
 
-## 7. Referencias
+## 7. References
 
-- Formato: `docs/03_formatos/AWO_FORMAT.md`, `BIN_LAYOUT.md` y
+- Format: `docs/03_formatos/AWO_FORMAT.md`, `BIN_LAYOUT.md` and
   `docs/07_ports/ESTRUCTURA_DIBUJO_HD.md`.
-- Roster: `MAPA_ROSTER_HD.md` y `AUDITORIA_DATA_CMN.md`.
-- Port: `docs/07_ports/HOJA_DE_RUTA_PORT_PS2_B3.md` y sesiones fechadas.
-- RE histórico: `awo_tools/RE_PROGRESO.md` y `awo_tools/CONSOLIDADO.md`.
-- Operación: `AGENTS.md` y `docs/05_build/COMO_COMPILAR.md`.
+- Roster: `MAPA_ROSTER_HD.md` and `AUDITORIA_DATA_CMN.md`.
+- Port: `docs/07_ports/HOJA_DE_RUTA_PORT_PS2_B3.md` and dated sessions.
+- Historical RE: `awo_tools/RE_PROGRESO.md` and `awo_tools/CONSOLIDADO.md`.
+- Operation: `AGENTS.md` and `docs/05_build/COMO_COMPILAR.md`.
 
-Si un documento antiguo contradice una prueba reproducible posterior, prevalece
-la prueba posterior y se marca la corrección con fecha; el historial no se borra.
+If an old document contradicts a later reproducible test, the later test
+prevails and the correction is marked with a date; history is not deleted.

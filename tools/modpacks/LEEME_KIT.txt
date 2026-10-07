@@ -1,55 +1,52 @@
-DBZ BUDOKAI 3 HD COLLECTION - KIT DE MODDING (v1.4.0)
-=====================================================
+DBZ BUDOKAI 3 HD COLLECTION - MODDING KIT (v1.4.0)
+==================================================
 
-Todas las herramientas de modding del port, ahora con su propia ventana (DBZ3 HD Mod Kit):
-crear e importar personajes nuevos (Budokai 1, Budokai 2, Infinite World y modelos de la
-comunidad), capsulas propias, voces y gritos, texturas, cambio de modelo y el resto de
-conversores. No hace falta abrir ninguna consola.
+All the port's modding tools, now with their own window (DBZ3 HD Mod Kit): create and
+import new characters (Budokai 1, Budokai 2, Infinite World and community models), own
+capsules, voices and yells, textures, model swap and the rest of the converters. No
+need to open any console.
 
-QUE NECESITAS
-- DBZ Budokai 3 HD Collection v1.4.0 o superior, con los datos del juego en una CARPETA.
-- Python 3.11 o superior (gratis: https://www.python.org/downloads/). Al instalarlo,
-  marca la casilla "Add python.exe to PATH".
+WHAT YOU NEED
+- DBZ Budokai 3 HD Collection v1.4.0 or later, with the game data in a FOLDER.
+- Python 3.11 or later (free: https://www.python.org/downloads/). When installing it,
+  tick the "Add python.exe to PATH" box.
 
-INSTALAR (4 pasos)
-1. Cierra el juego.
-2. Copia TODO el contenido de este ZIP en la carpeta del juego (donde estan dbz3.exe y
-   la carpeta us). Deben quedar "mod center hd" y "awo_tools" junto a dbz3.exe.
-3. Haz doble clic en "instalar_requisitos.bat" (instala numpy, Pillow y scipy, las
-   librerias que usan las herramientas; solo hace falta una vez).
-4. Haz doble clic en "DBZ3_ModKit.bat": se abre la ventana del kit.
+INSTALL (4 steps)
+1. Close the game.
+2. Copy EVERYTHING in this ZIP into the game folder (where dbz3.exe and the us folder
+   are). "mod center hd" and "awo_tools" must end up next to dbz3.exe.
+3. Double-click "instalar_requisitos.bat" (it installs numpy, Pillow and scipy, the
+   libraries the tools use; only needed once).
+4. Double-click "DBZ3_ModKit.bat": the kit window opens.
 
-LA VENTANA DEL KIT (DBZ3_ModKit.bat)
-- Modo BASICO: tarjetas grandes y guiadas. Empieza por "Comprobar instalacion" (todo en
-  verde) y despues elige: Mis mods, Importar personaje, Personajes nuevos, Crear con mis
-  modelos, Texturas, Cambio de modelo o Ayuda y comunidad.
-- Modo AVANZADO (arriba a la derecha): pestanas con TODAS las opciones de cada herramienta,
-  el registro completo, las rutas y la pestana "Herramientas" con cada script del kit.
-- Idioma: ES / EN, arriba a la derecha.
-- Hace lo mismo que las pestanas de modding del launcher (mismas herramientas y mismos
-  argumentos): puedes usar las dos cosas. Los personajes nuevos se anaden al pulsar JUGAR.
-- Al editar un archivo de un mod se guarda antes una copia en "modkit_backups".
+THE KIT WINDOW (DBZ3_ModKit.bat)
+- BASIC mode: big, guided cards. Start with "Check installation" (all green) and then
+  choose: My mods, Import character, New characters, Create with my models, Textures,
+  Model swap or Help and community.
+- ADVANCED mode (top right): tabs with ALL the options of each tool, the full log, the
+  paths and the "Tools" tab with every script of the kit.
+- Language: ES / EN, top right.
+- It does the same as the launcher's modding tabs (same tools and same arguments): you
+  can use both. New characters are added when you press PLAY.
+- Before editing a mod's file, a copy is saved in "modkit_backups".
 
-IMPORTAR PERSONAJES DE OTROS JUEGOS
-- Pon TUS copias de los juegos de PS2 en la carpeta "ps2_games" (lee ps2_games\LEEME.txt).
-- En la ventana del kit: "Importar personaje": elige el juego, busca el personaje, revisa
-  el nombre y pulsa Importar (o en el launcher: "Personajes nuevos" > "Importar personaje
-  de otro juego"). Se anade al pulsar JUGAR.
-- Los modelos de la comunidad (.amb o .amo + .amt) se buscan en "modding resources".
+IMPORTING CHARACTERS FROM OTHER GAMES
+- Put YOUR copies of the PS2 games in the "ps2_games" folder (read ps2_games\LEEME.txt).
+- In the kit window: "Import character": pick the game, search the character, check the
+  name and press Import (or in the launcher: "New characters" > "Import a character
+  from another game"). It is added when you press PLAY.
+- Community models (.amb or .amo + .amt) are looked for in "modding resources".
 
-CONTENIDO
-- DBZ3_ModKit.bat  abre la ventana del kit (doble clic)
-- mod center hd\   herramientas (roster_build, importar, capsulas, voces, gritos, texturas,
-                   modkit_gui...) y tools\ (compresion LZX de Xbox 360)
-- awo_tools\       conversores de formatos (PS2 -> HD, Budokai 1, alturas, rotulos, retratos...)
-- modding resources\  listas de la comunidad (capsulas, IDs, voces) que usa el importador
-- docs\            guias (como hacer mods, texturas, cambio de modelo) y docs\formatos
+CONTENTS
+- DBZ3_ModKit.bat  opens the kit window (double-click)
+- mod center hd\   tools (roster_build, import, capsules, voices, yells, textures,
+                   modkit_gui...) and tools\ (Xbox 360 LZX compression)
+- awo_tools\       format converters (PS2 -> HD, Budokai 1, heights, name banners,
+                   portraits...)
+- modding resources\  community lists (capsules, IDs, voices) used by the importer
+- docs\            guides (how to make mods, textures, model swap) and docs\formatos
 
-No incluye archivos de ningun juego: usa siempre los de tus copias.
+It contains no files from any game: always use the ones from your own copies.
 
-----------------------------------------------------------------------------------
-ENGLISH (short): copy everything next to dbz3.exe (v1.4.0+), install Python 3.11+, run
-instalar_requisitos.bat once, then double-click DBZ3_ModKit.bat: the Mod Kit window opens
-(Basic mode = guided cards, Advanced mode = every tool option, log and paths; ES/EN toggle
-at the top right). It runs the same tools as the launcher's "New characters" / "Textures" /
-"Model Swap" tabs. Put your own PS2 game copies in ps2_games to import characters.
+The kit runs on Windows. Mods made with it can also be copied to the experimental PS5
+build (/data/dbz3/mods on the console; see docs/PS5.md in the source repository).

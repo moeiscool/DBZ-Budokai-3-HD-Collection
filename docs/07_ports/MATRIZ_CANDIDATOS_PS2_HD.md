@@ -1,105 +1,105 @@
-# Matriz de candidatos PS2 → B3 HD
+# PS2 → B3 HD candidate matrix
 
-> Preparación de la siguiente fase: 2026-09-08. No se ha generado ningún bin
-> ni mod nuevo. La selección se basa en el rig, no en el parecido visual.
-> **Babidi es el conejillo de indias técnico**: no es jugable ni candidato de
-> slot; se instala temporalmente sobre Krillin para validar el conversor.
+> Preparation of the next phase: 2026-09-08. No new bin or mod has been
+> generated. The selection is based on the rig, not on visual resemblance.
+> **Babidi is the technical guinea pig**: he is neither playable nor a slot
+> candidate; he is installed temporarily over Krillin to validate the converter.
 
-> **Bloqueo de fuente detectado 2026-09-08**: los `data_cmn.afs` disponibles
-> bajo `ps2_games/Budokai 3 Greatest Hits` y `ps2_games/Budokai 2` devuelven
-> entradas `#AMB/#AWO` big-endian, no `#AMO0/#AMG` PS2 LE. No usar esas entradas
-> como fuente PS2 hasta localizar/examinar el AFS correcto.
+> **Source blocker found 2026-09-08**: the `data_cmn.afs` files available
+> under `ps2_games/Budokai 3 Greatest Hits` and `ps2_games/Budokai 2` return
+> big-endian `#AMB/#AWO` entries, not PS2 LE `#AMO0/#AMG`. Do not use those
+> entries as a PS2 source until the correct AFS is located/examined.
 
-## Objetivo
+## Goal
 
-Resolver primero un caso **1:1 estructural** para validar el conversor. Babidi
-es un control técnico sobre Krillin, no un personaje nuevo seleccionable. El
-primer modelo jugable será una fase posterior y separada.
+First solve a **structurally 1:1** case to validate the converter. Babidi is a
+technical control over Krillin, not a new selectable character. The first
+playable model will be a later, separate phase.
 
-## Orden de candidatos
+## Candidate order
 
-| Prioridad | Candidato | Origen | Plantilla HD | Motivo | Estado |
+| Priority | Candidate | Origin | HD template | Reason | State |
 |---:|---|---|---|---|---|
-| 1 | Babidi | B3 PS2 Greatest Hits | Babidi HD, entry 96 → prueba sobre Krillin | 1 AWG/41 huesos; control no jugable | Pendiente verificar rig |
-| 2 | Bulma | B3 PS2 Greatest Hits | Bulma HD → prueba sobre Krillin | 2 AWGs; control técnico | Pendiente verificar rig |
-| 3 | Tien con capa | IW → B3 PS2 (`Tien (With Cape).amo`) | Tenshinhan HD, entry 400 | 42 labels comunes en mismo orden; 10 bones extra de capa | **Pasa rig 1:1 base** |
-| 4 | Pan | Infinite World | anfitrión HD compatible | Candidato de contenido nuevo | No comprometer sin scan |
-| 5 | Super 17 | Infinite World | anfitrión HD compatible | Moveset existente | No comprometer sin scan |
-| X | Pikkon | Infinite World | Krillin/KLL | 58 huesos y `SKIRT`, rig PKH distinto | **Descartado** |
-| X | Janemba | Infinite World | Krillin/KLL | Retargeting y estructura incompatibles | **Archivado/descartado** |
+| 1 | Babidi | B3 PS2 Greatest Hits | HD Babidi, entry 96 → test over Krillin | 1 AWG/41 bones; non-playable control | Rig to be verified |
+| 2 | Bulma | B3 PS2 Greatest Hits | HD Bulma → test over Krillin | 2 AWGs; technical control | Rig to be verified |
+| 3 | Tien with cape | IW → B3 PS2 (`Tien (With Cape).amo`) | HD Tenshinhan, entry 400 | 42 common labels in the same order; 10 extra cape bones | **Passes the 1:1 base rig** |
+| 4 | Pan | Infinite World | compatible HD host | New-content candidate | Do not commit without a scan |
+| 5 | Super 17 | Infinite World | compatible HD host | Existing moveset | Do not commit without a scan |
+| X | Pikkon | Infinite World | Krillin/KLL | 58 bones and `SKIRT`, different PKH rig | **Discarded** |
+| X | Janemba | Infinite World | Krillin/KLL | Incompatible retargeting and structure | **Archived/discarded** |
 
-## Criterio de aceptación del rig
+## Rig acceptance criterion
 
-Antes de tocar geometría, el candidato debe producir un informe con:
+Before touching geometry, the candidate must produce a report with:
 
-- labels de huesos normalizados;
-- número de huesos y AWGs;
-- jerarquía y matrices de bind;
-- correspondencia 1:1 por label y por orden;
-- lista de bones usados por vértices y por `vb2`;
-- ausencia de huesos extra sin destino HD.
+- normalised bone labels;
+- number of bones and AWGs;
+- hierarchy and bind matrices;
+- 1:1 correspondence by label and by order;
+- list of bones used by vertices and by `vb2`;
+- no extra bones without an HD destination.
 
-El criterio mínimo para el primer validador es **mismos labels, mismo orden y
-misma numeración de huesos**. Un mapeo manual no 1:1 se reserva para una fase
-posterior de retargeting.
+The minimum criterion for the first validator is **same labels, same order and
+same bone numbering**. A non-1:1 manual mapping is reserved for a later
+retargeting phase.
 
-## Protocolo de prueba
+## Test protocol
 
-1. Extraer el bin PS2 del candidato desde el AFS de referencia.
-2. Ejecutar solo `port_ps2_b3_extract.py` y conservar el JSON.
-3. Comparar el informe de rig contra el bin HD de destino.
-4. Abortar si el rig no es 1:1; no intentar arreglarlo con geometría.
-5. Generar geometría bone-local con el pipeline existente.
-6. Reconstruir estructura de dibujo solo cuando el pool y sus referencias estén
-   documentados; no reutilizar descriptores por índice sin prueba.
-7. Empaquetar un bin autocontenido en un slot de prueba aislado.
-8. Ejecutar `port_ps2_b3_verify.py` y exportar OBJ antes del juego.
-9. Probar con un único mod activo, hash del bin registrado y perfil de guardado
-   desechable.
-10. Para Babidi/Bulma validar carga y render sobre el anfitrión; no exigir
-    select, combate autónomo ni guardado.
-11. Para el primer candidato jugable posterior validar select, carga, combate,
-    animación, transformaciones y revancha.
+1. Extract the candidate's PS2 bin from the reference AFS.
+2. Run only `port_ps2_b3_extract.py` and keep the JSON.
+3. Compare the rig report against the target HD bin.
+4. Abort if the rig is not 1:1; do not try to fix it with geometry.
+5. Generate bone-local geometry with the existing pipeline.
+6. Rebuild the draw structure only when the pool and its references are
+   documented; do not reuse descriptors by index without proof.
+7. Pack a self-contained bin into an isolated test slot.
+8. Run `port_ps2_b3_verify.py` and export an OBJ before the game.
+9. Test with a single active mod, the bin's hash recorded and a disposable
+   save profile.
+10. For Babidi/Bulma, validate loading and rendering on the host; do not
+    require select, autonomous fighting or saving.
+11. For the first later playable candidate, validate select, loading,
+    fighting, animation, transformations and rematch.
 
-## Diagnóstico por capas
+## Diagnosis by layers
 
-| Resultado | Interpretación probable |
+| Result | Probable interpretation |
 |---|---|
-| JSON incorrecto | Parser PS2/FaceType/rig |
-| OBJ incorrecto | Geometría, matrices, normales o índices |
-| OBJ correcto, juego amorfo | Pool/referencias mesh-ref, zonas, arms o descriptores |
-| Modelo correcto, animación incorrecta | Rig/arms/orden de huesos |
-| Combate correcto, cara/piernas HD | `vb2` todavía no convertido |
-| Crash al cargar | AFS, LZX, padding, bin autocontenido o descriptor |
+| Wrong JSON | PS2 parser/FaceType/rig |
+| Wrong OBJ | Geometry, matrices, normals or indices |
+| OBJ correct, amorphous in game | Pool/mesh-ref references, zones, arms or descriptors |
+| Model correct, animation wrong | Rig/arms/bone order |
+| Fighting correct, HD face/legs | `vb2` not converted yet |
+| Crash on load | AFS, LZX, padding, self-contained bin or descriptor |
 
-## Decisión
+## Decision
 
-La inyección sobre una plantilla de otro personaje queda como técnica de mejora
-local, no como port general. El primer intento técnico será Babidi sobre
-Krillin si pasa el scan 1:1. Solo después se estudiará un personaje jugable
-nuevo de IW o un candidato con identidad propia.
+Injection over another character's template remains a local-improvement
+technique, not a general port. The first technical attempt will be Babidi
+over Krillin if he passes the 1:1 scan. Only afterwards will a new playable
+IW character or a candidate with its own identity be studied.
 
-## Resultado ejecutado 2026-09-08
+## Result executed 2026-09-08
 
-El primer candidato PS2 real disponible no fue Babidi, sino
+The first real PS2 candidate available was not Babidi, but
 `modding resources/All Character Models from IW into AMB format` /
 `modding resources update 2/MOD EJEMPLO/Tien With Cape/IW/Tien (With Cape).amo`.
 
-Extracción realizada:
+Extraction performed:
 
 ```text
 PS2: n_bones=52 parts=15 verts=4565 skinned=3346
 ```
 
-Comparación contra Tenshinhan HD entry 400:
+Comparison against HD Tenshinhan entry 400:
 
 - HD: 42 bones.
 - PS2: 52 bones.
-- Los 42 labels HD están presentes en PS2.
-- Los 42 labels comunes conservan el mismo orden.
-- Los 10 extras PS2 son `MANT`, `RMANT` y `LMANT`.
-- Veredicto: **rig base 1:1 aprobado**, con accesorios/capa extra aislables.
+- All 42 HD labels are present in PS2.
+- The 42 common labels keep the same order.
+- The 10 PS2 extras are `MANT`, `RMANT` and `LMANT`.
+- Verdict: **1:1 base rig approved**, with isolatable extra accessories/cape.
 
-Siguiente paso: convertir la geometría del Tien con capa usando Tenshinhan HD
-como plantilla, manteniendo inicialmente solo los 42 bones comunes y tratando
-los 10 bones de capa como una parte separada. No instalar todavía.
+Next step: convert the geometry of Tien with cape using HD Tenshinhan as the
+template, initially keeping only the 42 common bones and treating the 10 cape
+bones as a separate part. Do not install yet.

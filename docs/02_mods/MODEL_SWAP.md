@@ -1,190 +1,200 @@
-# MODEL SWAP — Investigación completa
+# MODEL SWAP — Complete research
 
-> Actualizado: 2026-08-14. Qué sabemos, qué falla, y qué dice la documentación
-> de la comunidad sobre cómo se hacía el model swap en el B3 original.
-
----
-
-## RESUMEN
-
-El **model swap** (poner el modelo de un personaje en el slot de otro) es la meta.
-Estado actual: **el mecanismo de override funciona** (el bin se sirve íntegro),
-pero **el guest crashea al procesar un bin de otro personaje**. La investigación
-sigue abierta.
+> Updated: 2026-08-14. What we know, what fails, and what the community's
+> documentation says about how the model swap was done in the original B3.
+>
+> **Later outcome (2026-09-10):** the native HD↔HD swap works when the
+> **complete** bin of a character is installed (see
+> `docs/07_ports/SESION_SWAP_NATIVO_2026-09-10.md`). This document records the
+> research as of 2026-08-14.
 
 ---
 
-## 1. LO QUE SABEMOS QUE FUNCIONA
+## SUMMARY
 
-| Técnica | Resultado |
+The **model swap** (putting one character's model in another's slot) is the
+goal. Current state: **the override mechanism works** (the bin is served
+whole), but **the guest crashes when processing another character's bin**.
+The research is still open.
+
+---
+
+## 1. WHAT WE KNOW WORKS
+
+| Technique | Result |
 |---|---|
-| Reemplazar el bin de Krillin por **el mismo bin** (afstest) | ✅ Carga perfecto |
-| Mod de **textura** (solo #AZT) | ✅ Funciona |
-| **Override por entrada** (mecanismo) | ✅ El bin se sirve íntegro |
-| Reemplazar el bin por el de **otro personaje** (Goten→Krillin) | 🔴 Crashea |
-| Inyectar **cuerpo de otro personaje** en los slots (Goten body→Krillin) | 🔴 Crashea |
+| Replacing Krillin's bin with **the same bin** (afstest) | ✅ Loads perfectly |
+| **Texture** mod (#AZT only) | ✅ Works |
+| **Per-entry override** (mechanism) | ✅ The bin is served whole |
+| Replacing the bin with **another character's** (Goten→Krillin) | 🔴 Crashes |
+| Injecting **another character's body** into the slots (Goten body→Krillin) | 🔴 Crashes |
 
-> La conclusión clave: el guest NO acepta un bin de otro personaje sin más.
-> El problema NO es el mecanismo, es el CONTENIDO/estructura del bin.
+> The key conclusion: the guest does NOT simply accept another character's
+> bin. The problem is NOT the mechanism, it is the bin's CONTENT/structure.
 
 ---
 
-## 2. LO QUE DICE LA DOCUMENTACIÓN DE LA COMUNIDAD
+## 2. WHAT THE COMMUNITY'S DOCUMENTATION SAYS
 
 ### 2.1 LGBT Method (Lean's Ginyu Bodyswap Technique) — `modding resources discord\tutorials\LGBT_Method.zip`
 
-El método de la comunidad para bodyswap en B3 PS2:
+The community's method for bodyswaps in B3 PS2:
 
-1. **NUNCA reemplazan el bin completo del personaje**.
-2. Se identifica qué **ejes (axis)** se necesitan: para piernas `WAIST STMC RLEGROT RLEG1 RLEG2 RFOOT1 RFOOT2 LLEGROT LLEG1 LLEG2 LFOOT1 LFOOT2`; para cuerpo `WAIST CHEST STMC RCHN RARMROT...`.
-3. Se localizan los **model parts** de esos ejes en el donante.
-4. Se copian los parts al receptor, ajustando offsets y punteros.
-5. Se ajusta la textura/shader.
+1. **They NEVER replace the character's complete bin**.
+2. They identify which **axes** are needed: for legs `WAIST STMC RLEGROT RLEG1 RLEG2 RFOOT1 RFOOT2 LLEGROT LLEG1 LLEG2 LFOOT1 LFOOT2`; for the body `WAIST CHEST STMC RCHN RARMROT...`.
+3. They locate those axes' **model parts** in the donor.
+4. They copy the parts into the recipient, adjusting offsets and pointers.
+5. They adjust the texture/shader.
 
-**Lección**: el swap es selectivo por ejes, no de bin completo.
+**Lesson**: the swap is selective by axes, not the whole bin.
 
-### 2.2 Tutorial "Añadir AMG manualmente" (JaromSc) — `modding resources update 2\Tutorial #1 Añadir AMG manualmente`
+### 2.2 Tutorial "Add AMG manually" (JaromSc) — `modding resources update 2\Tutorial #1 Añadir AMG manualmente`
 
-1. Copiar el AMG (mesh part) del donante → pegarlo al final del modelo base.
-2. Editar **longitud del archivo** y **conteo de partes** en el header.
-3. Copiar los **nombres de huesos** (desde "Body" al último).
-4. Buscar el **offset del hueso** destino (ej: NH=0x1E) y reemplazar su puntero por la ubicación del nuevo AMG.
-5. Asignar textura y shader.
+1. Copy the donor's AMG (mesh part) → paste it at the end of the base model.
+2. Edit the **file length** and the **part count** in the header.
+3. Copy the **bone names** (from "Body" to the last one).
+4. Find the target **bone's offset** (e.g. NH=0x1E) and replace its pointer
+   with the location of the new AMG.
+5. Assign the texture and shader.
 
-**Lección**: añadir una parte implica ajustar: longitud, conteo de parts, punteros de huesos, textura/shader.
+**Lesson**: adding a part means adjusting: length, part count, bone pointers,
+texture/shader.
 
-### 2.3 La comunidad NO tiene conversor PS2→HD
+### 2.3 The community has NO PS2→HD converter
 
-- Todo el tooling de la comunidad (OBJ to AMG, Model Rig Toolset, AMO Decompiler)
-  trabaja con el formato **PS2 (#AMO0 LE)**.
-- El formato HD (#AWO BE) lo editan con 010 Editor + template `B3_AMB_PS3.bt`.
-- El salto PS2→HD es un **re-layout** (endianness + magics + tabla de offsets),
-  no un formato distinto. Documentado en AWO_FORMAT.md.
+- All the community's tooling (OBJ to AMG, Model Rig Toolset, AMO Decompiler)
+  works with the **PS2 (#AMO0 LE)** format.
+- The HD format (#AWO BE) is edited with 010 Editor + the `B3_AMB_PS3.bt` template.
+- The PS2→HD jump is a **re-layout** (endianness + magics + offset table), not
+  a different format. Documented in AWO_FORMAT.md.
 
 ---
 
-## 3. LO QUE HEMOS VERIFICADO POR RE
+## 3. WHAT WE HAVE VERIFIED BY RE
 
-### 3.1 Estructura del bin HD (con template B3_AMB_PS3.bt)
+### 3.1 HD bin structure (with the B3_AMB_PS3.bt template)
 
 ```
-AMB: #AMB + tabla de entradas (loc+size)
-  entry0: #AWO (modelo)
-  entry1: #AZT (texturas)
+AMB: #AMB + entry table (loc+size)
+  entry0: #AWO (model)
+  entry1: #AZT (textures)
 
 AWO: +0x10 numberOfBones, +0x14 ptrConnections, +0x18 numberOfAWGs,
      +0x1C pointerAWGoffsets, +0x24 ptrBoneNames,
-     +0x30 AWOunk[bones](32B) → zonas de hueso, + tabla AWGptr + BoneNames
+     +0x30 AWOunk[bones](32B) → bone zones, + AWGptr table + BoneNames
 
-AWG (por mesh group): +0x10 numberOfBones, +0x14 rigging_data_ptr,
+AWG (per mesh group): +0x10 numberOfBones, +0x14 rigging_data_ptr,
      +0x1C ptrBones, +0x24 unk_Count(80B blocks), +0x28 ptrVertexBlock,
      +0x2C VertexBlockSize, +0x30 ptrFaceData, +0x34 FaceDataSize,
      +0x38 unk_ptr_28, +0x3C sizeOfunk_ptr_28
 ```
 
-### 3.2 Comparativa Krillin vs Goten (ambos HD, mismo juego)
+### 3.2 Krillin vs Goten comparison (both HD, same game)
 
-| | Krillin (entrada 327) | Goten (entrada 298) |
+| | Krillin (entry 327) | Goten (entry 298) |
 |---|---|---|
-| Huesos | 51 | 56 |
+| Bones | 51 | 56 |
 | AWGs | 18 | 21 |
-| AWG0 (cuerpo) | vb=2190, face=233 | vb=2035, face=225 |
-| Dedos | 10 (L01-L10 L/R) | 12 (L01-L38 L/R) |
-| Caras | 7 (L01-L23) | 8 (L01-L41 S00) |
+| AWG0 (body) | vb=2190, face=233 | vb=2035, face=225 |
+| Fingers | 10 (L01-L10 L/R) | 12 (L01-L38 L/R) |
+| Faces | 7 (L01-L23) | 8 (L01-L41 S00) |
 | Labels | KLL_*/XKLL_* | GTN_*/XGTN_* |
 
-**Conclusión**: estructura casi idéntica (mismo patrón), difieren en conteos y labels.
-Un humanode del mismo juego debería ser compatible... pero crashea.
+**Conclusion**: almost identical structure (same pattern), they differ in
+counts and labels. A humanoid from the same game should be compatible... but
+it crashes.
 
-### 3.3 El vértice HD (stride 44)
+### 3.3 The HD vertex (stride 44)
 
 ```
 +00 nan (flag)  +04 u  +08 v
 +12 z_local     +16 x_local   +20 y_local
-+24 peso        +28 BONE(u32)  +32 nz  +36 -ny  +40 nx
++24 weight      +28 BONE(u32)  +32 nz  +36 -ny  +40 nx
 ```
 
-### 3.4 Los 3 fixes del override (críticos)
+### 3.4 The 3 override fixes (critical)
 
-Ver [02_mods/COMO_HACER_MODS.md](COMO_HACER_MODS.md). Resumen:
-1. El hook debe soportar carpetas (portado del B1).
-2. Compresión `/N:2048` (no /N:32).
-3. Padding al tamaño exacto del slot.
+See [02_mods/COMO_HACER_MODS.md](COMO_HACER_MODS.md). Summary:
+1. The hook must support folders (ported from B1).
+2. `/N:2048` compression (not /N:32).
+3. Padding to the slot's exact size.
 
 ---
 
-## 4. HIPÓTESIS DEL CRASH (por investigar)
+## 4. CRASH HYPOTHESES (to investigate)
 
-Tras confirmar que el override funciona y el bin se sirve íntegro, el crash al
-cargar un bin de otro personaje podría deberse a:
+Having confirmed that the override works and the bin is served whole, the
+crash when loading another character's bin could be due to:
 
-| Hipótesis | Explicación | Cómo verificarla |
+| Hypothesis | Explanation | How to verify it |
 |---|---|---|
-| **A. El guest valida labels/conteos** | El moveset/animaciones de Krillin referencian huesos KLL_* por índice; el bin de Goten usa GTN_* | Comparar cómo el guest indexa huesos |
-| **B. El guest usa el mesh group del slot** | El slot 327 espera cierta estructura de mesh-ref blocks | Instrumentar el parser del guest |
-| **C. El crash es en otro campo** | Algún offset interno del AWG no coincide | Instrumentar el guest |
+| **A. The guest validates labels/counts** | Krillin's moveset/animations reference KLL_* bones by index; Goten's bin uses GTN_* | Compare how the guest indexes bones |
+| **B. The guest uses the slot's mesh group** | Slot 327 expects a certain structure of mesh-ref blocks | Instrument the guest's parser |
+| **C. The crash is in another field** | Some internal AWG offset does not match | Instrument the guest |
 
-### 4.1 Confirmado: el crash NO es por truncado LZX (2026-08-14)
+### 4.1 Confirmed: the crash is NOT from LZX truncation (2026-08-14)
 
-El último test de `goten_body` (cuerpo de Goten en Krillin, LZX `/N:2048`,
-padding a 106496) mostró en logs:
+The last `goten_body` test (Goten's body in Krillin, LZX `/N:2048`, padding to
+106496) showed in the logs:
 ```
 AFS MOD READ: bin 327 mod_off=0x0 to_read=106496 got=106496 mod_size=106496
 UNHANDLED EXCEPTION: Code=0xC0000005 Addr=0x7ff7bdfe87ee
 ```
-→ El bin se sirvió **íntegro** (got=106496, el LZX completo) y aun así crasheó.
-→ El crash es por el **contenido del bin** (la geometría/estructura del modelo),
-  no por el mecanismo de override ni la compresión.
+→ The bin was served **whole** (got=106496, the complete LZX) and it still
+  crashed.
+→ The crash is about the **bin's content** (the model's geometry/structure),
+  not the override mechanism or the compression.
 
-### 4.2 Hallazgo: el rigData difiere entre personajes (2026-08-14)
+### 4.2 Finding: the rigData differs between characters (2026-08-14)
 
-Comparando el `rigData` (matrices de pose) del AWG0 de Krillin vs Goten:
+Comparing the `rigData` (pose matrices) of Krillin's AWG0 vs Goten's:
 
 | Bone | Krillin | Goten |
 |---|---|---|
 | bone 2 | scale=(0, 0, 0) | scale=(-0.7071, -0.7071, 0) |
 | bone 5 | pos=(-0.33, 0, 0.52) | pos=(2.30, 0, 0) |
 
-→ **Cada personaje tiene su propio rigData** (posición/rotación/escala de huesos).
-→ El guest del slot 327 espera el esqueleto de Krillin. Un bin de Goten trae
-  otro rig → desajuste → crash.
-→ **El model swap NO es copiar geometría**: hay que transformar la geometría del
-  donante al ESPACIO del esqueleto del receptor (`local_donante → world → local_receptor`).
-→ Esto invalida la suposición previa de "matrices world idénticas" (era solo
-  para el MISMO personaje PS2 vs HD).
+→ **Each character has its own rigData** (bone position/rotation/scale).
+→ The guest of slot 327 expects Krillin's skeleton. Goten's bin brings another
+  rig → mismatch → crash.
+→ **The model swap is NOT copying geometry**: the donor's geometry has to be
+  transformed into the recipient's skeleton SPACE
+  (`local_donor → world → local_recipient`).
+→ This invalidates the earlier assumption of "identical world matrices" (that
+  was only for the SAME character PS2 vs HD).
 
 ---
 
-## 5. PRÓXIMOS PASOS (RE real del guest)
+## 5. NEXT STEPS (real RE of the guest)
 
-La documentación de la comunidad NO documenta el swap de bin completo entre
-personajes del B3 (nunca lo hicieron). Para avanzar necesitamos **ingeniería
-inversa del parser del guest**, que vive en `generated/dbz3_recomp.*.cpp`:
+The community's documentation does NOT document the whole-bin swap between B3
+characters (they never did it). To move forward we need **reverse engineering
+of the guest's parser**, which lives in `generated/dbz3_recomp.*.cpp`:
 
-1. **Localizar la función que parsea el bin 327** en el código guest recompilado
-   (el crash addr `0x7ff7...` apunta ahí).
-2. **Instrumentar**: loguear qué offsets lee el guest del bin (como hicimos con
-   `AFS327 READ` pero a nivel de parseo del modelo).
-3. **Comparar** el flujo de parseo del bin original vs el bin de Goten: ver
-   exactamente qué campo provoca el crash.
+1. **Locate the function that parses bin 327** in the recompiled guest code
+   (the crash addr `0x7ff7...` points there).
+2. **Instrument**: log which offsets the guest reads from the bin (as we did
+   with `AFS327 READ` but at the model-parsing level).
+3. **Compare** the parsing flow of the original bin vs Goten's bin: see exactly
+   which field causes the crash.
 
-### Herramientas disponibles para esta RE
-- `awo_tools/awg_to_obj_b3.py` — exportador recomendado para verificar bins B3 HD
-- `awo_tools/awg0_export.py` — exportador AWG0 con autodetección A/C
-- `awo_tools/analyze_bin_hd.py` — parser histórico PS3, obsoleto
-- `generated/dbz3_recomp.*.cpp` — código guest recompilado (el parser real)
-- `rexglue-sdk-0.10/` — runtime instrumentable (C++), donde vive el hook
+### Tools available for this RE
+- `awo_tools/awg_to_obj_b3.py` — recommended exporter to check B3 HD bins
+- `awo_tools/awg0_export.py` — AWG0 exporter with A/C auto-detection
+- `awo_tools/analyze_bin_hd.py` — historical PS3 parser, obsolete
+- `generated/dbz3_recomp.*.cpp` — recompiled guest code (the real parser)
+- `rexglue-sdk-0.10/` — instrumentable runtime (C++), where the hook lives
 - Tracy profiling (build `win-amd64-tracy`)
-- `mod center hd/` — herramientas HD que hemos creado
+- `mod center hd/` — HD tools we have created
 
 ---
 
-## 6. REFERENCIAS
+## 6. REFERENCES
 
-- `AWO_FORMAT.md` (raíz) — formato completo AFS/AFL/LZX/#AMB/#AWO
-- `modding resources discord\tutorials\LGBT_Method.zip` — método bodyswap
-- `modding resources update 2\Tutorial #1 Añadir AMG manualmente` — añadir AMG
-- `modding resources discord\research\B3_AMB_PS3.bt` — template 010 del formato
-- `modding resources discord\research\00000002-00000002-b3.AMO.json` — formato intermedio aerithdevs
-- `mod center\OBJ to AMG v0.92` — pipeline OBJ→AMG PS2
-- `mod center\Model Rig Toolset V0.6` — rig PS2
+- `AWO_FORMAT.md` (root) — complete AFS/AFL/LZX/#AMB/#AWO format
+- `modding resources discord\tutorials\LGBT_Method.zip` — bodyswap method
+- `modding resources update 2\Tutorial #1 Añadir AMG manualmente` — adding an AMG
+- `modding resources discord\research\B3_AMB_PS3.bt` — 010 template of the format
+- `modding resources discord\research\00000002-00000002-b3.AMO.json` — aerithdevs intermediate format
+- `mod center\OBJ to AMG v0.92` — OBJ→AMG PS2 pipeline
+- `mod center\Model Rig Toolset V0.6` — PS2 rig

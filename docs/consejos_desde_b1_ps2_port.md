@@ -1,96 +1,93 @@
-# CONSEJOS PARA BUDOKAI 3 HD — desde el proyecto B1 HD (17/08/2026)
+# ADVICE FOR BUDOKAI 3 HD — from the B1 HD project (17/08/2026)
 
-> Lecciones transferibles del port PS2→HD del B1 (Chaozu HD nativo validado,
-> submesh data descifrado, mapeo B2 PS2→HD 1:1) que deberían influir en el
-> proyecto `DBZ Budokai 3 HD Collection` (añadir personajes IW/B2/B3).
+> Transferable lessons from B1's PS2→HD port (native HD Chaozu validated,
+> submesh data decoded, B2 PS2→HD 1:1 mapping) that should influence the
+> `DBZ Budokai 3 HD Collection` project (adding IW/B2/B3 characters).
 
 ---
 
-## 1. EL SWAP NATIVO ES LA VÍA PRIMARIA (validado en B1)
+## 1. THE NATIVE SWAP IS THE PRIMARY ROUTE (validated in B1)
 
-**Principio** (lección 9/10 B1): el runtime dibuja el bin `#AWO`/`#AMB`
-completo tal cual (mesh group + IB + bones + UVs). No valida el slot.
+**Principle** (B1 lesson 9/10): the runtime draws the complete `#AWO`/`#AMB`
+bin as it is (mesh group + IB + bones + UVs). It does not validate the slot.
 
-**Consecuencia para B3**: si un personaje ya existe en algún bin HD del B3
-(o del B1), el swap con bins HD completos del MISMO personaje es la vía
-definitiva — render perfecto sin conversión de geometría. En B1, el Chaozu
-HD completo (bin 352+353, 3 AWGs = cuerpo+manos) en el slot Tenshinhan
-validó esto al 100%.
+**Consequence for B3**: if a character already exists in some HD bin of B3
+(or B1), swapping in complete HD bins of the SAME character is the definitive
+route — perfect render without converting geometry. In B1, the complete HD
+Chaozu (bins 352+353, 3 AWGs = body+hands) in Tenshinhan's slot validated
+this 100%.
 
-**Aplicación en B3**:
-- Para personajes B3→B3 (nuevos slots): usar el bin HD del personaje tal
-  cual (par geom+tex del mismo personaje).
-- Para B1→B3 (si el personaje existe en B1 HD): el `awg_to_obj.py` del B3
-  + `port_b1_to_b3.py` ya cubren la dirección opuesta.
+**Application in B3**:
+- For B3→B3 characters (new slots): use the character's HD bin as it is (the
+  geom+tex pair of the same character).
+- For B1→B3 (if the character exists in B1 HD): B3's `awg_to_obj.py` +
+  `port_b1_to_b3.py` already cover the opposite direction.
 
-## 2. PARA PERSONAJES QUE NO EXISTEN EN HD: RECONSTRUIR, NO INYECTAR
+## 2. FOR CHARACTERS NOT IN HD: REBUILD, DO NOT INJECT
 
-**El error más común** (documentado en `RE_PROGRESO.md` del B3 §15-19 y
-confirmado en B1): inyectar posiciones PS2 sobre un bin HD anfitrión
-**deforma** porque la geometría HD es **re-topologizada** (IB propio,
-vértices reordenados). El matching por vecino al 98% sigue deformando en
-brazos/manos/cabeza/piernas.
+**The most common mistake** (documented in B3's `RE_PROGRESO.md` §15-19 and
+confirmed in B1): injecting PS2 positions over a host HD bin **deforms**
+because the HD geometry is **re-topologised** (its own IB, reordered
+vertices). Nearest-neighbour matching at 98% still deforms arms/hands/head/legs.
 
-**La vía correcta**: reconstruir el bin HD COMPLETO con la topología PS2:
-1. Parsear el `#AMO0` PS2 (mesh parts, verts, rig → coords locales).
-2. Generar sec34 (44B) + IB desde los triángulos PS2.
-3. Regenerar arms (rangos del IB por bone).
-4. **Regenerar la zona de submesh data** (descriptores por mesh part).
+**The correct route**: rebuild the COMPLETE HD bin with the PS2 topology:
+1. Parse the PS2 `#AMO0` (mesh parts, verts, rig → local coords).
+2. Generate sec34 (44 B) + IB from the PS2 triangles.
+3. Regenerate the arms (IB ranges per bone).
+4. **Regenerate the submesh data zone** (descriptors per mesh part).
 
-## 3. SUBMESH DATA: LA PIEZA QUE FALTABA (descifrada en B1)
+## 3. SUBMESH DATA: THE MISSING PIECE (decoded in B1)
 
-En los AWG HD, entre la zona de arms y el sec34 hay una zona de **descriptores
-de submesh** (uno por mesh part) con:
-- floats de transformación/material
-- `c08/c0C` = inicio/tamaño rango A (contiguos entre descriptores)
-- `c10/c14` = inicio/tamaño rango B
-- label del part (X??_BODY, ??_L01_LHAND...) + string debug `max N m`
+In the HD AWGs, between the arms zone and sec34 there is a zone of **submesh
+descriptors** (one per mesh part) with:
+- transform/material floats
+- `c08/c0C` = start/size of range A (contiguous between descriptors)
+- `c10/c14` = start/size of range B
+- the part's label (X??_BODY, ??_L01_LHAND...) + debug string `max N m`
 
-**Riesgo**: copiar la zona de submesh de una plantilla (sin regenerarla)
-sobre geometría nueva → **hang** (el runtime se queda esperando datos cuyos
-offsets ya no coinciden). Para portar hay que **generar un descriptor por
-cada mesh part PS2** con los rangos de los buffers nuevos.
+**Risk**: copying the submesh zone from a template (without regenerating it)
+over new geometry → **hang** (the runtime waits for data whose offsets no
+longer match). To port, **generate one descriptor per PS2 mesh part** with
+the new buffers' ranges.
 
-## 4. ESQUELETO B2 PS2 = HD 1:1 (verificado con Tenshinhan)
+## 4. B2 PS2 SKELETON = HD 1:1 (verified with Tenshinhan)
 
-El B2 PS2 usa el MISMO formato `#AMO0`/`#AMG` que el B1 PS2, y los personajes
-comparten esqueleto con el HD:
+B2 PS2 uses the SAME `#AMO0`/`#AMG` format as B1 PS2, and the characters share
+their skeleton with HD:
 
-- **Tenshinhan B2 PS2** (entry 282 del data_cmn.afs): 14 mesh parts, 4427
-  verts, 2944 skin. Los 42 labels base (`TSH_BODY, TSH_WAIST, TSH_STMC...`)
-  son **idénticos y en el mismo orden** que el TSH HD. Solo difieren los
-  labels extra de manos/caras (24 más en PS2, que en HD viven en AWGs
-  separados).
-- **Aplicación en B3**: el mismo mapeo aplica para añadir personajes IW/B2/B3
-  con traje distinto: el esqueleto base es el del personaje, solo cambia la
-  malla. Se puede usar el bin HD nativo del mismo personaje como plantilla
-  estructural (ejes, arms, mesh headers, submesh data) y reemplazar solo la
-  geometría.
+- **Tenshinhan B2 PS2** (entry 282 of data_cmn.afs): 14 mesh parts, 4427
+  verts, 2944 skin. The 42 base labels (`TSH_BODY, TSH_WAIST, TSH_STMC...`)
+  are **identical and in the same order** as HD TSH. Only the extra
+  hand/face labels differ (24 more in PS2, which in HD live in separate AWGs).
+- **Application in B3**: the same mapping applies for adding IW/B2/B3
+  characters with a different costume: the base skeleton is the character's,
+  only the mesh changes. The native HD bin of the same character can be used
+  as the structural template (axes, arms, mesh headers, submesh data),
+  replacing only the geometry.
 
-## 5. GAMECUBE: NO ES FUENTE PARA MODELS
+## 5. GAMECUBE: NOT A SOURCE FOR MODELS
 
-El ISO GC del B1 (`DragonBall Z - Budokai [NGC].iso`) usa formatos
-`#ACO/#ACB/#AMB` (`.act/.aco/.acm/.acb`) — distintos al `#AMO0` PS2 y al
-`#AWO` HD. Los nombres de archivo no corresponden a personajes (la entry
-"TSH" es Trunks). **Usar solo los AFS del PS2 como fuente de modelos.**
+B1's GC ISO (`DragonBall Z - Budokai [NGC].iso`) uses `#ACO/#ACB/#AMB` formats
+(`.act/.aco/.acm/.acb`) — different from PS2 `#AMO0` and HD `#AWO`. File names
+do not correspond to characters (the "TSH" entry is Trunks). **Use only the
+PS2 AFS files as a model source.**
 
-## 6. RECOMENDACIÓN PARA EL PIPELINE B3
+## 6. RECOMMENDATION FOR THE B3 PIPELINE
 
-1. **Catálogo de personajes**: escanear los AFS PS2 (B1/B2/B3/IW) por
-   labels `X??_BODY` (escaneando el AMO completo, no solo el inicio) →
-   mismo catálogo que `launcher_mod_pipeline.py` del B1 pero multi-juego.
-2. **Priorizar swap nativo** para personajes que existen en HD.
-3. **Port PS2→HD** solo para personajes sin versión HD: reconstrucción
-   completa (sec34+IB+arms+submesh data), usando el bin HD del mismo
-   esqueleto como plantilla estructural.
-4. **Validar con personaje de prueba** antes de automatizar (en B1 el
-   Tenshinhan B2 PS2 es el caso de prueba perfecto: esqueleto 1:1, traje
-   distinto).
+1. **Character catalogue**: scan the PS2 AFS files (B1/B2/B3/IW) for
+   `X??_BODY` labels (scanning the whole AMO, not just the start) → the same
+   catalogue as B1's `launcher_mod_pipeline.py` but multi-game.
+2. **Prioritise the native swap** for characters that exist in HD.
+3. **PS2→HD port** only for characters without an HD version: complete
+   rebuild (sec34+IB+arms+submesh data), using the HD bin with the same
+   skeleton as the structural template.
+4. **Validate with a test character** before automating (in B1, Tenshinhan
+   B2 PS2 is the perfect test case: 1:1 skeleton, different costume).
 
-## 7. ARCHIVOS DE REFERENCIA
+## 7. REFERENCE FILES
 
-- B1: `docs/re/SESION11_PORT_PS2_METODOLOGIA.md` (metodología completa).
-- B1: `conversores/amo0_to_awo.py` (parser PS2 + reempaquetado a extender).
-- B1: `mods/test_chz_hd_completo_on_tsh/` (swap nativo validado).
+- B1: `docs/re/SESION11_PORT_PS2_METODOLOGIA.md` (complete methodology).
+- B1: `conversores/amo0_to_awo.py` (PS2 parser + repacking to extend).
+- B1: `mods/test_chz_hd_completo_on_tsh/` (validated native swap).
 - B3: `awo_tools/RE_PROGRESO.md`, `AWO_FORMAT.md`, `PLAN_AWO_DESDE_CERO.md`.
-- B3: `mod center\B3_IW Model Converter\amb_model.py` (reempaque AMB↔AMO/AMT).
+- B3: `mod center\B3_IW Model Converter\amb_model.py` (AMB↔AMO/AMT repacking).

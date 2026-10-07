@@ -1,137 +1,139 @@
-# FORMATO DE STAGES HD + SCRIPT #SPX + CONTENEDOR PS2 (RE 2026-09-08)
+# HD STAGE FORMAT + #SPX SCRIPT + PS2 CONTAINER (RE 2026-09-08)
 
-> RE estática de los bins de stage de `data_cmn.afs` (44-69 us / 3735-3847 HD)
-> y de los ports de moveset IW→B3 (PS2) para fijar la correspondencia PS2↔HD.
-> Verificado sobre bin 44 (stage us, 1.9 MB descomp.) y los bins del port
-> Goku GT (`modding resources/Infinite World to Budokai 3 Moveset Ports/`).
+> Static RE of the stage bins in `data_cmn.afs` (44-69 us / 3735-3847 HD) and
+> of the IW→B3 (PS2) moveset ports, to pin down the PS2↔HD correspondence.
+> Verified on bin 44 (us stage, 1.9 MB decompressed) and the bins of the
+> Goku GT port (`modding resources/Infinite World to Budokai 3 Moveset Ports/`).
 
-## 1. BIN DE STAGE = CONTENEDOR #AMB DE 5 NIVELES
+## 1. STAGE BIN = 5-LEVEL #AMB CONTAINER
 
-Bin 44 (stage us, 1.94 MB descomp.):
-
-```
-#AMB contenedor BE (header estandar, ver ACM_FORMAT.md §1) n_sub=5:
-  sub 0  @0x80     1.48 MB  type=0xFFFFFFFF  #ZDD   <- geometria/efectos del stage
-  sub 1  @0x16ACC0 240 B    type=0xFFFFFFFF  #CAD   <- tabla de camara (n=4)
-  sub 2  @0x16ADC0 256 B    type=0xFFFFFFFF  #CAS   <- tabla de camara (n=5)
-  sub 3  @0x16AEC0 9752 B   type=0x8         #SPX   <- SCRIPT del stage (LE)
-  sub 4  @0x16D4E0 443 KB   type=0xFFFFFFFF  #AMB   <- contenedor ANIDADO
-```
-
-El **#AMB anidado** (sub 4) es un contenedor ESPARSO: n_sub=641, casi todo
-entradas vacías (off=0 size=0), con bloques reales agrupados por "elemento":
+Bin 44 (us stage, 1.94 MB decompressed):
 
 ```
-  #ACE (Collision/Animated Collision Element)  ~25 bloques, 352-4912 B
-  #ACM (animaciones de escenario)               2-4 bloques, 2944 B
-  #AWO (modelos) + #AZT (texturas)              por elemento (DXT3/BC2)
-  #AZT  final de 197 KB (sub 640, textura grande)
+#AMB BE container (standard header, see ACM_FORMAT.md §1) n_sub=5:
+  sub 0  @0x80     1.48 MB  type=0xFFFFFFFF  #ZDD   <- stage geometry/effects
+  sub 1  @0x16ACC0 240 B    type=0xFFFFFFFF  #CAD   <- camera table (n=4)
+  sub 2  @0x16ADC0 256 B    type=0xFFFFFFFF  #CAS   <- camera table (n=5)
+  sub 3  @0x16AEC0 9752 B   type=0x8         #SPX   <- stage SCRIPT (LE)
+  sub 4  @0x16D4E0 443 KB   type=0xFFFFFFFF  #AMB   <- NESTED container
 ```
 
-> Interpretación: el array de 641 entradas está indexado por elemento del
-> stage (p.ej. "zonas"): cada elemento tiene colisión #ACE + modelo #AWO +
-> textura #AZT + animación #ACM. Los huecos vacíos = elementos sin datos.
-
-El **#ZDD** (sub 0, 1.48 MB) es otro contenedor: cabecera propia
-(`#ZDD 01 01 00 00 00 00 00 00 FFFFFFFF 40 16AADC 16AC0C ...`) que envuelve
-#AZT (a 0x40) + #AWO/#AWG (a ~0xC1000). Geometría grande del stage.
-
-## 2. BLOQUE #SPX — SCRIPT (LE, NO BE)
+The **nested #AMB** (sub 4) is a SPARSE container: n_sub=641, almost all empty
+entries (off=0 size=0), with real blocks grouped by "element":
 
 ```
-+0x00  "#SPX ver 0.01\0"  (string de version ASCII, 16 B con padding)
+  #ACE (Collision/Animated Collision Element)  ~25 blocks, 352-4912 B
+  #ACM (scenery animations)                     2-4 blocks, 2944 B
+  #AWO (models) + #AZT (textures)               per element (DXT3/BC2)
+  #AZT  final 197 KB (sub 640, large texture)
+```
+
+> Interpretation: the 641-entry array is indexed by stage element (e.g.
+> "zones"): each element has #ACE collision + #AWO model + #AZT texture +
+> #ACM animation. The empty gaps = elements without data.
+
+The **#ZDD** (sub 0, 1.48 MB) is another container: its own header
+(`#ZDD 01 01 00 00 00 00 00 00 FFFFFFFF 40 16AADC 16AC0C ...`) that wraps
+#AZT (at 0x40) + #AWO/#AWG (at ~0xC1000). The stage's large geometry.
+
+## 2. #SPX BLOCK — SCRIPT (LE, NOT BE)
+
+```
++0x00  "#SPX ver 0.01\0"  (ASCII version string, 16 B with padding)
 +0x10  u32 LE  0x20   = header size
-+0x14  u32 LE  0x44   = offset del bytecode (0x44 = 68)  ✅
-+0x18  u32 LE  0x09   = count (9 en stage 44; 0x33=51 en el port IW)
++0x14  u32 LE  0x44   = bytecode offset (0x44 = 68)  ✅
++0x18  u32 LE  0x09   = count (9 in stage 44; 0x33=51 in the IW port)
 +0x1C  u32 LE  0x00
-+0x20  ...            = 2ª copia del header (0x20 0x44 0x09 0x00)
-+0x30  ...            = 16 B 0xFF (sentinel)
++0x20  ...            = 2nd copy of the header (0x20 0x44 0x09 0x00)
++0x30  ...            = 16 B of 0xFF (sentinel)
 +0x38  00 00 00 00    = pad
-+0x44  ...            = STREAM de bytecode (hasta el final ~0x25D0)
-+~0x25D0              = tabla final (6×u16 LE: 2 2 2 1 3 3) + strings debug:
++0x44  ...            = bytecode STREAM (until the end ~0x25D0)
++~0x25D0              = final table (6×u16 LE: 2 2 2 1 3 3) + debug strings:
 +                       "INPUT REST = " / "INPUT WAIT = " / "SCRIPT FRAME = "
 ```
 
-### 2.1 ENCODING DEL BYTECODE (parcial, 2026-09-08)
+### 2.1 BYTECODE ENCODING (partial, 2026-09-08)
 
-Stream de opcodes 1 byte + inmediatos tipados. Encoding verificado:
+A stream of 1-byte opcodes + typed immediates. Verified encoding:
 
-| Opcode | Formato | Significado |
+| Opcode | Format | Meaning |
 |---|---|---|
 | 0x08 0x10 `u8` | 3 B | load const u8 (0x00/0x01/0xff/0x15/0x3c/0xfe...) |
 | 0x08 0x20 `u16` | 4 B | load const u16 (0x00c8=200...) |
 | 0x09 0x30 `u32` | 6 B | load const float LE (0x3f800000=1.0, 0x00000000=0.0) |
-| 0x01 0x20 `u16` | 4 B | op con inmediato u16 (0x00c6=198, 0x00a7=167, 0x0106=262...) |
-| 0x01 0x30 `u32` | 6 B | op con inmediato u32 (0x2b9=697, 0xe4=228...) |
-| 0x02 `u16` | 3 B | op con inmediato u16 (0x0273/0x0280/0x0270/0x22d6...) |
-| 0x12 0x10 `u8` | 3 B | sub-rutina / op con u8 (0x0c, 0x04, 0x1c) |
-| 0x13 0x10 `u8` | 3 B | idem (0x04, 0x00) |
-| 0x0b | 1 B | marcador de bucle/retorno (aparece tras 0x12/0x13) |
-| 0x0a / 0x00 / 0x4b / 0x51... | 1 B | opcodes cortos (frecuentes 0x0a=446, 0x0b=382) |
+| 0x01 0x20 `u16` | 4 B | op with u16 immediate (0x00c6=198, 0x00a7=167, 0x0106=262...) |
+| 0x01 0x30 `u32` | 6 B | op with u32 immediate (0x2b9=697, 0xe4=228...) |
+| 0x02 `u16` | 3 B | op with u16 immediate (0x0273/0x0280/0x0270/0x22d6...) |
+| 0x12 0x10 `u8` | 3 B | subroutine / op with u8 (0x0c, 0x04, 0x1c) |
+| 0x13 0x10 `u8` | 3 B | same (0x04, 0x00) |
+| 0x0b | 1 B | loop/return marker (appears after 0x12/0x13) |
+| 0x0a / 0x00 / 0x4b / 0x51... | 1 B | short opcodes (frequent 0x0a=446, 0x0b=382) |
 
-- El stream es una VM de comandos de escenario (cámara/eventos): los strings
-  debug ("INPUT REST/WAIT", "SCRIPT FRAME") revelan un bucle por frame con
-  polling de input.
-- Estructura típica por sub-bloque: `[13 10 xx] [0b] [08 10 xx]... [01/09 30...]
-  [02 u16] [12 10 xx] [0b]` → set-up + carga de consts + llamadas.
-- Los floats 1.0/0.0 repetidos en stage 44 (luego `01 20 a7 00` = cámara a
-  posición 167?) sugieren parámetros de cámara por-frame.
-- Verificación del encoding: el stream de stage 44 parsea limpio ~48-49
-  instrucciones antes del primer caso ambiguo (0x08 0x4b / opcodes 0x4b 0x51
-  0x52 0x33 0x5e 0x50 = 1 byte). No se ha alcanzado disassembly completo.
+- The stream is a VM of scenery commands (camera/events): the debug strings
+  ("INPUT REST/WAIT", "SCRIPT FRAME") reveal a per-frame loop with input
+  polling.
+- Typical structure per sub-block: `[13 10 xx] [0b] [08 10 xx]... [01/09 30...]
+  [02 u16] [12 10 xx] [0b]` → set-up + loading consts + calls.
+- The repeated 1.0/0.0 floats in stage 44 (then `01 20 a7 00` = camera to
+  position 167?) suggest per-frame camera parameters.
+- Encoding check: the stage 44 stream parses cleanly for ~48-49 instructions
+  before the first ambiguous case (0x08 0x4b / opcodes 0x4b 0x51 0x52 0x33
+  0x5e 0x50 = 1 byte). A complete disassembly has not been reached.
 
-- **El #SPX es LITTLE-ENDIAN** (a diferencia del contenedor BE) — es el script
-  PS2 portado sin conversión. Histograma de bytes: 00 (24%), 01, 08, 10, 02,
-  0A, 0B → opcodes compactos de VM.
-- El mismo magic "#SPX ver 0.01" aparece en los **ports de moveset IW (PS2)**:
-  la cadena de version no cambia entre juegos.
-- `type=0x8` en el contenedor #AMB identifica el bloque #SPX (tanto en stage
-  HD como en el port PS2: sub type 8 = #SPX).
-- En los movesets HD (bins #CSK+#ACM) NO hay bloque #SPX: el script HD de
-  movimientos vive en el #CSK (ver ACM_FORMAT.md §4) o el gamepad lo fusiona.
+- **#SPX is LITTLE-ENDIAN** (unlike the BE container) — it is the PS2 script
+  ported without conversion. Byte histogram: 00 (24%), 01, 08, 10, 02, 0A,
+  0B → compact VM opcodes.
+- The same magic "#SPX ver 0.01" appears in the **IW (PS2) moveset ports**:
+  the version string does not change between games.
+- `type=0x8` in the #AMB container identifies the #SPX block (both in the HD
+  stage and in the PS2 port: sub type 8 = #SPX).
+- In HD movesets (#CSK+#ACM bins) there is NO #SPX block: the HD move script
+  lives in the #CSK (see ACM_FORMAT.md §4) or the gamepad merges it.
+  *(Later RE, 2026-10-06: the character CAM bins do carry a `#SPX` with the
+  technique scripts — see `CAMARA_ACC.md`.)*
 
-> PENDIENTE: disassembly completo de opcodes (falta el intérprete: no hay
-> referencias a "#SPX" en `generated/` — el guest despacha por type=8). Valor
-> bajo para modding (scripts de cámara/eventos de escenario); la estructura y
-> el encoding ya están documentados.
+> PENDING: complete opcode disassembly (the interpreter is missing: there are
+> no references to "#SPX" in `generated/` — the guest dispatches by type=8).
+> Low value for modding (scenery camera/event scripts); the structure and the
+> encoding are already documented.
 
-## 3. CONTENEDOR PS2 (LE) vs HD (BE) — PORTS IW→B3
+## 3. PS2 (LE) vs HD (BE) CONTAINER — IW→B3 PORTS
 
-Los ports IW→B3 (`modding resources/.../Goku GT/IW/unnamed_359.bin` etc.) son
-los contenedores PS2 originales:
+The IW→B3 ports (`modding resources/.../Goku GT/IW/unnamed_359.bin` etc.) are
+the original PS2 containers:
 
 ```
 PS2 #AMB (LITTLE-ENDIAN):
 +0x00 "#AMB" ; +0x04 0x20 (hdr size) ; +0x08 0 ; +0x0C n_files ;
-+0x10 n_lista ; +0x14 0x20 (tabla) ; +0x18 first_sub_offset
-+0x20  tabla [off u32, size u32, type u32, pad u32] x n
++0x10 n_list ; +0x14 0x20 (table) ; +0x18 first_sub_offset
++0x20  table [off u32, size u32, type u32, pad u32] x n
 ```
 
-**Correspondencia exacta con el HD** (misma estructura, LE↔BE, tabla en +0x20).
-Ejemplo Goku GT IW (359): #AMC (0x50, type=5) + #BCMg (0x12E30, type=FFFFFFFF)
+**Exact correspondence with HD** (same structure, LE↔BE, table at +0x20).
+Example Goku GT IW (359): #AMC (0x50, type=5) + #BCMg (0x12E30, type=FFFFFFFF)
 + #SPX (0x149A0, type=8).
-Ejemplo Goku GT B3 (241): #AMC (type=5) + #AML stub (type=6) + #BCMg
+Example Goku GT B3 (241): #AMC (type=5) + #AML stub (type=6) + #BCMg
 (type=FFFFFFFF) + #SPX (type=8).
 
-**Tipos de bloque del contenedor (constantes):**
+**Container block types (constants):**
 
-| type | Bloque | Función | HD |
+| type | Block | Function | HD |
 |------|--------|---------|----|
-| 0xFFFFFFFF | #BCMg / #CSK | movelist + propiedades + hit reactions | #CSK |
-| 3 | #AMM | animaciones crudas | #ACM |
-| 5 | #AMC | cámara | bin CAM pequeño |
-| 6 | #AML | stub (vacio, 5 B) | — |
-| 8 | #SPX | script de combate/escenario (LE) | #SPX (stage) |
+| 0xFFFFFFFF | #BCMg / #CSK | movelist + properties + hit reactions | #CSK |
+| 3 | #AMM | raw animations | #ACM |
+| 5 | #AMC | camera | small CAM bin |
+| 6 | #AML | stub (empty, 5 B) | — |
+| 8 | #SPX | fight/scenery script (LE) | #SPX (stage) |
 
-> Para el port de moveset IW→HD: el BCMg+BSK+AMM PS2 → #CSK+#ACM HD
-> (conversión LE→BE + rename de magics + tabla), y el #AMC → bin CAM.
+> For the IW→HD moveset port: PS2 BCMg+BSK+AMM → HD #CSK+#ACM (LE→BE
+> conversion + magic renames + table), and #AMC → CAM bin.
 
-## 4. NOMBRES DE STAGES CONFIRMADOS (AFL Pal, alineado 1:1 con US 44-69)
+## 4. CONFIRMED STAGE NAMES (AFL Pal, aligned 1:1 with US 44-69)
 
-Los bins de stage de `data_cmn.afs` (US, mismo índice que Pal en este rango)
-son 13 mapas en los pares y 13 "SE_" (sounds/effects del mapa) en los impares:
+The stage bins in `data_cmn.afs` (US, same index as Pal in this range) are 13
+maps at the even entries and 13 "SE_" (the map's sounds/effects) at the odd ones:
 
-| Entrada | Nombre AFL | | Entrada | Nombre AFL |
+| Entry | AFL name | | Entry | AFL name |
 |---:|---|---|---:|---|
 | 44 | RED_RIBBON_BASE_MAP.amb | | 58 | TIME_BOLIC_CHAMBER_MAP.amb |
 | 45 | SE_RED_RIBBON_BASE_MAP | | 59 | SE_TIME_BOLIC_CHAMBER |
@@ -148,21 +150,21 @@ son 13 mapas en los pares y 13 "SE_" (sounds/effects del mapa) en los impares:
 | 56 | ISLAND_MAP.amb | | | |
 | 57 | SE_ISLAND_MAP | | | |
 
-> Los vídeos del select de stage (`*_SELEC.sfd`) están en 3930-3937 Pal →
-> en US con el desfase +6 (≈3936-3943). NO confundir con los retratos del
-> select (US 3884-3960, tabla del guest `0x82372818`).
+> The stage select videos (`*_SELEC.sfd`) are at 3930-3937 Pal → in US with
+> the +6 offset (≈3936-3943). Do NOT confuse them with the select portraits
+> (US 3884-3960, guest table `0x82372818`).
 
-## 5. MAGICS NUEVOS REGISTRADOS EN EL CORPUS
+## 5. NEW MAGICS REGISTERED IN THE CORPUS
 
-`#ZDD` (contenedor de escenario), `#CAD` (tabla cámara n=4), `#CAS` (tabla
-cámara n=5), `#ACE` (elemento de colisión/animado), `#AML` (stub), `#MTC`
-(bloque de transform/matriz, 2160 B, en bins 3796/3808/3812/3816/3831).
-Estos se suman a #CSK/#BFC/#BCM/#BSK/#AMM/#AMC/#AST/#ASE/#AME/#AWA/#AWB/#AWBK.
-Añadir al escáner `awo_tools/corpus_scan.py`.
+`#ZDD` (scenery container), `#CAD` (camera table n=4), `#CAS` (camera table
+n=5), `#ACE` (collision/animated element), `#AML` (stub), `#MTC`
+(transform/matrix block, 2160 B, in bins 3796/3808/3812/3816/3831).
+They add to #CSK/#BFC/#BCM/#BSK/#AMM/#AMC/#AST/#ASE/#AME/#AWA/#AWB/#AWBK.
+Add them to the scanner `awo_tools/corpus_scan.py`.
 
-## 6. REFERENCIAS
+## 6. REFERENCES
 
-- `docs/03_formatos/ACM_FORMAT.md` — contenedor BE + #CSK/#ACM (moveset HD).
+- `docs/03_formatos/ACM_FORMAT.md` — BE container + #CSK/#ACM (HD moveset).
 - `modding resources/Infinite World to Budokai 3 Moveset Ports/Goku GT/{IW,B3}/`
-  — bins PS2 de referencia del port.
-- Volcados: `out/analysis/acm/entry_44.bin` (stage) + `stage44/sub0-4.bin`.
+  — the port's PS2 reference bins.
+- Dumps: `out/analysis/acm/entry_44.bin` (stage) + `stage44/sub0-4.bin`.

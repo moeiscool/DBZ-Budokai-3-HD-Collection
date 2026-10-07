@@ -1,122 +1,128 @@
-# INVESTIGACIÓN PS2→B3 HD — 2026-09-13 (subagentes: web + RE + mods)
+# PS2→B3 HD RESEARCH — 2026-09-13 (subagents: web + RE + mods)
 
-> Consolidado de 4 investigaciones paralelas para intentar cerrar el port PS2→HD
-> (Vía B). Leer junto a `SESION_DRAW_SEMANTICS_2026-09-11.md` y `AGENTS.md §3.4`.
+> Consolidation of 4 parallel investigations attempting to close the PS2→HD
+> port (Route B). Read together with `SESION_DRAW_SEMANTICS_2026-09-11.md` and
+> `AGENTS.md §3.4`.
 
-## 0. RESUMEN EJECUTIVO
+## 0. EXECUTIVE SUMMARY
 
-- **Nadie en público ha hecho un port PS2→HD Collection de modelos Budokai.** El
-  proyecto está en el estado del arte. Los que moddean Budokai lo hacen en PS2;
-  los que tocan HD lo hacen solo en texturas/audio/swaps HD→HD.
-- La comunidad sí tiene: (a) un **pipeline de skinning PS2** (budokai ps2 2025.ms,
-  `lean bone tutorial`, `OBJ_to_AMG`), y (b) **~430 modelos `#AMB` ya convertidos
-  de PS2 (IW→B3, B1→B3)** — pero en formato **PS2**, no HD.
-- **Hallazgo técnico decisivo (web)**: "correcto en bind, explota animado" es el
-  síntoma canónico de **índices de hueso / paleta incorrectos** (en bind la
-  matriz de skin es la identidad para TODOS los huesos ⇒ un índice erróneo es
-  invisible en bind y explosivo al animar).
-- **Dato duro nuevo**: `fc=94` = paleta de **128 matrices × 48 B** (3×vec4),
-  **por draw**; el bone se lee como **1 byte con `endian=2` (k8in32)**, o sea el
-  byte **+19** de la ventana (no +16). El fetch es global (`fc=95`, stride 11).
+- **Nobody in public has done a PS2→HD Collection port of Budokai models.** The
+  project is at the state of the art. Those who mod Budokai do it on PS2;
+  those who touch HD only do textures/audio/HD→HD swaps.
+- The community does have: (a) a **PS2 skinning pipeline** (budokai ps2
+  2025.ms, `lean bone tutorial`, `OBJ_to_AMG`), and (b) **~430 `#AMB` models
+  already converted from PS2 (IW→B3, B1→B3)** — but in **PS2** format, not HD.
+- **Decisive technical finding (web)**: "correct in bind, explodes when
+  animated" is the canonical symptom of **wrong bone indices / palette** (in
+  bind the skin matrix is the identity for ALL bones ⇒ a wrong index is
+  invisible in bind and explosive when animated).
+- **New hard data**: `fc=94` = a palette of **128 matrices × 48 B** (3×vec4),
+  **per draw**; the bone is read as **1 byte with `endian=2` (k8in32)**, i.e.
+  byte **+19** of the window (not +16). The fetch is global (`fc=95`, stride 11).
 
-## 1. WEB — personas/proyectos que importan
+> **Superseded (2026-10-03):** later RE showed B3 HD does **no GPU skinning**
+> (no VS indexes constants; skinning is CPU-side) — see
+> `SESION_DRAW_SEMANTICS_2026-09-11.md` §24 and `AGENTS.md` §3.4.10.
 
-| Quién | Dónde | Por qué |
+## 1. WEB — people/projects that matter
+
+| Who | Where | Why |
 |---|---|---|
-| **WistfulHopes** | github.com/WistfulHopes/DBZ1 (+RB2) | **Otro recompilado ReXGlue del MISMO juego**. Mismo path AWO/AWG. Mejor colaborador potencial. |
-| **h3x3r** | ResHax topic/18350 | Autor de la única plantilla pública **#AWG** (010 Editor). Confirma NUESTRO layout de 44 B (pos/weight/bone/normal/FFFFFFFF/uv) y que manos/cara NO usan strip. |
-| **NocturnalRhys** | ResHax | Trabajando explícitamente en **OBJ→AWG→AWO** para B3HD (+ reimportador A3T). Sin publicar aún. |
-| **killercracker / SleepyZay** | github.com/sleepyzay/Maxscript-Projects | `budokai ps2 2025.ms`: parsea huesos, AMGs, **tablas de peso (weightData)** y aplica skinning en 3ds Max. |
-| Comunidad | Discord B3 modding, ReXGlue Discord | Venues de modders. |
+| **WistfulHopes** | github.com/WistfulHopes/DBZ1 (+RB2) | **Another ReXGlue recompilation of the SAME game**. Same AWO/AWG path. Best potential collaborator. |
+| **h3x3r** | ResHax topic/18350 | Author of the only public **#AWG** template (010 Editor). Confirms OUR 44-byte layout (pos/weight/bone/normal/FFFFFFFF/uv) and that hands/face do NOT use strips. |
+| **NocturnalRhys** | ResHax | Explicitly working on **OBJ→AWG→AWO** for B3HD (+ A3T reimporter). Not published yet. |
+| **killercracker / SleepyZay** | github.com/sleepyzay/Maxscript-Projects | `budokai ps2 2025.ms`: parses bones, AMGs, **weight tables (weightData)** and applies skinning in 3ds Max. |
+| Community | B3 modding Discord, ReXGlue Discord | Modder venues. |
 
-**Veredicto**: contactar WistfulHopes (mismo stack) y NocturnalRhys (mismo objetivo).
-No hay converter PS2→HD público.
+**Verdict**: contact WistfulHopes (same stack) and NocturnalRhys (same goal).
+There is no public PS2→HD converter.
 
-## 2. WEB — skinning X360/Xenos (por qué explota)
+## 2. WEB — X360/Xenos skinning (why it explodes)
 
-- Xenos **no tiene unidad de matriz paleta**: el "palette" es un buffer que el VS
-  lee con `vfetch` indexado por el bone del vértice. Sin magia del emulador.
-- **`fc=N` = fetch constant** (0-95). `fc=95` = vertex stream (stride 44 B);
-  `fc=94` = **paleta 48 B/matriz** (3×16, fila comprimida de una 4×4).
-- El shader lee **1 byte** del campo bone (`fmt=6` = 8_8_8_8, `used=.x`),
-  swapeado por `endian=2` (k8in32) ⇒ afecta al byte **+19**.
-- Formato/hints del SDK: `36=FMT_32_FLOAT, 37=FMT_32_32_FLOAT, 38=FMT_32_32_32_32_FLOAT, 57=FMT_32_32_32_FLOAT, 6=FMT_8_8_8_8`.
-- **Ranking de causas de "bind OK / animado explota"**:
-  1. **Espacio de índices de paleta / base por draw** (paleta local vs global).
-  2. **Byte equivocado** en el campo bone (posición/endian).
-  3. **Frame bone-local calculado contra el bind de OTRO esqueleto**
-     (`local = inv(world_PS2)·model` cuando el juego anima con `world_HD`).
-  4. Endianness/format del registro entero.
-  5. Asumir 4 influencias cuando solo hay 1 peso=1.0.
-  6. Índice fuera del `size` de la fetch constant.
-- Acción recomendada: **volcar la paleta `fc=94` en el draw** y compararla por
-  slot con los huesos del modelo + hexdump del byte bone del vértice.
+- Xenos **has no palette matrix unit**: the "palette" is a buffer the VS reads
+  with an indexed `vfetch` by the vertex's bone. No emulator magic.
+- **`fc=N` = fetch constant** (0-95). `fc=95` = vertex stream (44-byte
+  stride); `fc=94` = **palette 48 B/matrix** (3×16, a compressed row of a 4×4).
+- The shader reads **1 byte** of the bone field (`fmt=6` = 8_8_8_8,
+  `used=.x`), swapped by `endian=2` (k8in32) ⇒ it affects byte **+19**.
+- SDK format hints: `36=FMT_32_FLOAT, 37=FMT_32_32_FLOAT, 38=FMT_32_32_32_32_FLOAT, 57=FMT_32_32_32_FLOAT, 6=FMT_8_8_8_8`.
+- **Ranking of causes of "bind OK / animated explodes"**:
+  1. **Palette index space / per-draw base** (local vs global palette).
+  2. **Wrong byte** in the bone field (position/endian).
+  3. **Bone-local frame computed against ANOTHER skeleton's bind**
+     (`local = inv(world_PS2)·model` when the game animates with `world_HD`).
+  4. Endianness/format of the whole record.
+  5. Assuming 4 influences when there is only 1 weight=1.0.
+  6. Index outside the fetch constant's `size`.
+- Recommended action: **dump the `fc=94` palette in the draw** and compare it
+  slot by slot with the model's bones + a hexdump of the vertex's bone byte.
 
-## 3. RE DEL GUEST (código recompilado) — ubicaciones exactas
+## 3. GUEST RE (recompiled code) — exact locations
 
-| Concern | Ubicación |
+| Concern | Location |
 |---|---|
-| Handler de tag AWO (relocaliza árboles de punteros arms/mesh-group + registra) | `generated\dbz3_recomp.11.cpp:3` (`sub_82080A40`) |
-| Dispatcher de tags (AWO/AMG/AZT/ACM/ACC/ACL/ACP) | `generated\dbz3_recomp.3.cpp:3` (`sub_820800A8`); registro en guest `0x82310110` |
-| Walker del esqueleto (80 B, quat+pos+hijos) | `generated\dbz3_recomp.16.cpp:248` (`sub_82087F58`) |
-| Builders de comandos GPU (packets PM4, `stwu`) | `generated\dbz3_recomp.41.cpp:23855` (`sub_82241848`), `...23.cpp:23639`, `...36.cpp:8571` |
-| Decode de draw en el runtime | `rexglue-sdk-0.10\src\graphics\command_processor.cpp:1301-1397`; `packet_disassembler.cpp:213-251` |
-| vfetch/formatos en el runtime | `...\pipeline\shader\translator.cpp:379-453`, `translator_disasm.cpp:253-318` |
+| AWO tag handler (relocates arms/mesh-group pointer trees + registers) | `generated\dbz3_recomp.11.cpp:3` (`sub_82080A40`) |
+| Tag dispatcher (AWO/AMG/AZT/ACM/ACC/ACL/ACP) | `generated\dbz3_recomp.3.cpp:3` (`sub_820800A8`); registry at guest `0x82310110` |
+| Skeleton walker (80 B, quat+pos+children) | `generated\dbz3_recomp.16.cpp:248` (`sub_82087F58`) |
+| GPU command builders (PM4 packets, `stwu`) | `generated\dbz3_recomp.41.cpp:23855` (`sub_82241848`), `...23.cpp:23639`, `...36.cpp:8571` |
+| Draw decode in the runtime | `rexglue-sdk-0.10\src\graphics\command_processor.cpp:1301-1397`; `packet_disassembler.cpp:213-251` |
+| vfetch/formats in the runtime | `...\pipeline\shader\translator.cpp:379-453`, `translator_disasm.cpp:253-318` |
 
-**Conclusión RE**: skinning **rígido de un solo hueso por vértice** (`+16`, 44 B)
-contra una **paleta de 48 B** construida en CPU desde los ejes 80 B
-(`sub_82087F58`). No hay código (ni hidden path) que compense un índice malo.
+**RE conclusion**: **rigid single-bone-per-vertex** skinning (`+16`, 44 B)
+against a **48-byte palette** built on the CPU from the 80-byte axes
+(`sub_82087F58`). There is no code (nor hidden path) that compensates for a
+bad index.
 
-## 4. INVENTARIO DE RECURSOS (mods + comunidad)
+## 4. RESOURCE INVENTORY (mods + community)
 
-### 4.1 Recursos de comunidad más valiosos (en `modding resources*`)
-- `All Character Models from IW into AMB format\` — ~200 `.amb` IW→B3 (**formato PS2**).
+### 4.1 Most valuable community resources (in `modding resources*`)
+- `All Character Models from IW into AMB format\` — ~200 IW→B3 `.amb` (**PS2 format**).
 - `Budokai 1 Models Converted to AMB\` — ~230 B1→B3 `.bin` (**PS2**).
-- `Budokai Models\` (Son Swag) — `.amo/.amt/.amb` por slot + B3GHC exclusivos.
-- `update 2\MOD EJEMPLO\` — mods de ejemplo en ambos formatos (Ginyu Force, etc.).
-- `update 2\lean bone tutorial\` — **workflow de RE-RIG completo** (`budokai_updated.ms`, `Rig Data Tool`, `Goku_Skeleton.FBX`).
-- `discord\research\00000002-00000002-b3.AMO.json` — descomposición **AMO B3** más completa (aerithdevs).
-- `discord\research\B3_AMB_PS3.bt` — plantilla 010 del **AWO/AWG HD**.
+- `Budokai Models\` (Son Swag) — `.amo/.amt/.amb` per slot + B3GHC exclusives.
+- `update 2\MOD EJEMPLO\` — example mods in both formats (Ginyu Force, etc.).
+- `update 2\lean bone tutorial\` — complete **RE-RIG workflow** (`budokai_updated.ms`, `Rig Data Tool`, `Goku_Skeleton.FBX`).
+- `discord\research\00000002-00000002-b3.AMO.json` — the most complete **B3 AMO** breakdown (aerithdevs).
+- `discord\research\B3_AMB_PS3.bt` — 010 template of the **HD AWO/AWG**.
 - `discord\tools\` — `Model-Rig_Extractor`, `AMG_to_OBJ_V2`, `OBJ_to_AMG_v0.92`, `Bone_Addition_Tool`, `B3_IW_Model_Converter`, `Budokai_B3_IW_B1_AMO_Converter`, `axis_data.py`.
-- `update 2\INFORME_modding_resources_update_2.md` — **mejor referencia única** de formatos PS2 (AMB/AMO0/AMG/AMT, FaceType, bone/axis 0x20).
+- `update 2\INFORME_modding_resources_update_2.md` — **best single reference** for PS2 formats (AMB/AMO0/AMG/AMT, FaceType, bone/axis 0x20).
 
-### 4.2 Estado de los mods del proyecto
-- **Solo `_body33` activo**; 77 mods `.disabled` (todos first-party; `NovaPowers` = el autor).
-- Vía B: `_strip3` = mejor (1 draw strip, VB+IB correctos, aún deforme). `_grow_tpl` descarta `grow()`. `_body33`/`_nottail` = aislamiento por hueso.
-- Vía A: `cell_npm4_test` (mejor inyección) / `cell_best2` / `cell_npm_fix` = **entrega usable validada**.
-- Diagnóstico: `cell_bone0_test` (prueba que el guest usa el bone del vértice), `cell_clamp33_test`, `cell_boneclamp_test`.
+### 4.2 State of the project's mods
+- **Only `_body33` active**; 77 `.disabled` mods (all first-party; `NovaPowers` = the author).
+- Route B: `_strip3` = best (1 strip draw, correct VB+IB, still deformed). `_grow_tpl` rules out `grow()`. `_body33`/`_nottail` = per-bone isolation.
+- Route A: `cell_npm4_test` (best injection) / `cell_best2` / `cell_npm_fix` = **validated usable deliverable**.
+- Diagnosis: `cell_bone0_test` (proves the guest uses the vertex's bone), `cell_clamp33_test`, `cell_boneclamp_test`.
 
-## 5. HECHOS DUROS NUEVOS (captura `%TEMP%\opencode\draw_evidence\`)
+## 5. NEW HARD FACTS (capture `%TEMP%\opencode\draw_evidence\`)
 
-- `VF[94]` (paleta) **siempre `size=1536`** dwords = **6144 B = 128 matrices** de
-  48 B. `endian=2`. **Por draw** (cambia de dirección entre draws).
-- `VF[95] size=56628` (= **5148×44**, el AWG0 del port) aparece **33 veces** ⇒ la
-  captura ES del port (no del swap nativo).
-- `dbz3_vf.bin` = [VF95 de 6776 B (=154 verts×44)][**paleta de 6144 B** desde el
-  offset 6776]. La paleta tiene **slot 0 (bone 0) = matriz CERO** y el resto
-  matrices afines.
-- El registro del bone se lee del byte **+19** (por `k8in32`), no +16.
+- `VF[94]` (palette) **always `size=1536`** dwords = **6144 B = 128 matrices**
+  of 48 B. `endian=2`. **Per draw** (the address changes between draws).
+- `VF[95] size=56628` (= **5148×44**, the port's AWG0) appears **33 times** ⇒
+  the capture IS of the port (not of the native swap).
+- `dbz3_vf.bin` = [VF95 of 6776 B (=154 verts×44)][**6144-byte palette** from
+  offset 6776]. The palette has **slot 0 (bone 0) = ZERO matrix** and the rest
+  affine matrices.
+- The bone register is read from byte **+19** (due to `k8in32`), not +16.
 
-## 6. HIPÓTESIS PRINCIPAL
+## 6. MAIN HYPOTHESIS
 
-El síntoma (bind OK / animado explota) + paleta por-draw + skin PS2 traducido por
-etiqueta apuntan a: **los índices de hueso por vértice del port no seleccionan la
-misma matriz que el mesh HD original seleccionaba**. Candidatos, por orden:
-1. La paleta del draw del AWG0 está construida para el mesh HD y el port conserva
-   el índice de hueso PS2 (por etiqueta) — puede no ser el mismo "slot" que el HD
-   usa para esa zona (p. ej. el HD manda torso a bone 0/23; el port a 1/16/32).
-2. Algún vértice con hueso cuyo eje en AWG0 es placeholder (34-47) — pero `_body33`
-   descarta que sea lo único.
-3. `local` calculado contra un bind que no coincide exactamente con el animado.
+The symptom (bind OK / animated explodes) + per-draw palette + PS2 skin
+translated by label point to: **the port's per-vertex bone indices do not
+select the same matrix the original HD mesh selected**. Candidates, in order:
+1. The AWG0 draw's palette is built for the HD mesh and the port keeps the PS2
+   bone index (by label) — it may not be the same "slot" HD uses for that zone
+   (e.g. HD sends the torso to bone 0/23; the port to 1/16/32).
+2. Some vertex with a bone whose axis in AWG0 is a placeholder (34-47) — but
+   `_body33` rules out that this is the only cause.
+3. `local` computed against a bind that does not exactly match the animated one.
 
-## 7. PLAN PROPUESTO (2 vías)
+## 7. PROPOSED PLAN (2 routes)
 
-**Vía B (investigación, decisiva):** re-instrumentar el runtime para volcar, por
-draw del AWG0, la **paleta completa (6144 B)** + el VB + el IB. Con eso:
-reproducir el skinning **offline** (`skinned = P[bone]·[pos,1]`), localizar los
-vértices que explotan y qué slot de paleta es el culpable; comparar con el
-template NATIVO (que renderiza bien) para hallar la diferencia exacta.
-Coste: recompilar `rexgpu-xenos` + 1 partida del usuario.
+**Route B (research, decisive):** re-instrument the runtime to dump, per AWG0
+draw, the **complete palette (6144 B)** + the VB + the IB. With that:
+reproduce the skinning **offline** (`skinned = P[bone]·[pos,1]`), locate the
+vertices that explode and which palette slot is the culprit; compare with the
+NATIVE template (which renders fine) to find the exact difference.
+Cost: rebuild `rexgpu-xenos` + 1 play session by the user.
 
-**Vía A (producto, cierre):** mantener la inyección (`cell_npm4`/`cell_best2`)
-como entrega; documentar Vía B como investigación abierta con este informe.
+**Route A (product, closing):** keep the injection (`cell_npm4`/`cell_best2`)
+as the deliverable; document Route B as open research with this report.

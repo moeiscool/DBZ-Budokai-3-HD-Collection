@@ -1,102 +1,105 @@
-# Plan 1.4.2: DLSS y FSR 3 (2026-10-05)
+# Plan 1.4.2: DLSS and FSR 3 (2026-10-05)
 
-Objetivo pedido por el usuario: DLSS y FSR3 de verdad (escalado temporal y, si se
-puede, generación de fotogramas), tomando como referencia Burst Limit, Blue Dragon
-(reblue) y Lost Odyssey.
+Goal requested by the user: real DLSS and FSR3 (temporal upscaling and, if
+possible, frame generation), using Burst Limit, Blue Dragon (reblue) and Lost
+Odyssey as references.
 
-## 1. Qué hay en cada referencia (revisado hoy)
+> On **PS5** (`docs/PS5.md`) none of this applies: the console build is Vulkan
+> only and leaves FidelityFX/DLSS out.
 
-| Proyecto | Base GPU | DLSS | FSR3 | Cómo saca los vectores de movimiento |
+## 1. What each reference has (reviewed today)
+
+| Project | GPU base | DLSS | FSR3 | How it gets motion vectors |
 |---|---|---|---|---|
-| Burst Limit (iExplosiveRage) | rexglue `rexgpu-xenos` | No | Stub del SDK (sin movimiento) | No los saca |
-| reblue (zolaware, BSD-3) | GPU propia sobre plume | No | No | No hay escalado temporal |
-| Lost Odyssey (freefrank, **GPL-3.0**) | GPU propia sobre plume | Sí: SR, DLAA y FG (Streamline) | Sí: FSR 3.1 SR + FG | **Re-ejecuta cada draw** con las constantes del frame anterior y escribe la velocidad por píxel ("motion replay") |
+| Burst Limit (iExplosiveRage) | rexglue `rexgpu-xenos` | No | SDK stub (no motion) | It does not |
+| reblue (zolaware, BSD-3) | its own GPU on plume | No | No | There is no temporal upscaling |
+| Lost Odyssey (freefrank, **GPL-3.0**) | its own GPU on plume | Yes: SR, DLAA and FG (Streamline) | Yes: FSR 3.1 SR + FG | **Re-runs every draw** with the previous frame's constants and writes per-pixel velocity ("motion replay") |
 
-- Lost Odyssey es la única referencia con DLSS/FSR3 funcionando. Su código es
-  GPL-3.0 y el nuestro es MIT: **se estudia, no se copia**. Se reimplementa la idea.
-- Cambio respecto al estudio del 2026-09-29 (`VIABILIDAD_UPSCALING_TEMPORAL`):
-  entonces no compilábamos la capa GPU. **Ahora sí**: `rexgpu-xenos` sale de
-  nuestro `rexglue-sdk-0.10` (rama `dbz3-burstlimit`), así que el bloqueo principal
-  ha desaparecido.
-- El FidelityFX SDK (FSR 3.1 upscaler) ya se compila y enlaza
-  (`amd_fidelityfx_dx12.dll`). `D3D12Presenter::DispatchTemporalUpscaler` existe,
-  pero le pasa el color como profundidad y como movimiento, con `reset=true` en
-  cada frame. El generador de fotogramas está apagado en
-  `cmake/rexglue_fidelityfx.cmake`.
+- Lost Odyssey is the only reference with DLSS/FSR3 working. Its code is
+  GPL-3.0 and ours is MIT: **it is studied, not copied**. The idea is
+  reimplemented.
+- Change compared with the 2026-09-29 study (`VIABILIDAD_UPSCALING_TEMPORAL`):
+  back then we did not build the GPU layer. **Now we do**: `rexgpu-xenos` comes
+  from our `rexglue-sdk-0.10` (branch `dbz3-burstlimit`), so the main blocker
+  has disappeared.
+- The FidelityFX SDK (FSR 3.1 upscaler) is already built and linked
+  (`amd_fidelityfx_dx12.dll`). `D3D12Presenter::DispatchTemporalUpscaler`
+  exists, but it passes the colour as depth and as motion, with `reset=true`
+  every frame. The frame generator is off in `cmake/rexglue_fidelityfx.cmake`.
 
-## 2. Cómo dibuja un fotograma de combate (medido hoy)
+## 2. How a fight frame is drawn (measured today)
 
-Traza nueva: crear `dbz3_frame_trace.req` junto al exe vuelca 3 frames como líneas
-`dbz3: ft ...` (draws, copias de EDRAM y swap). Captura:
-`scratchpad/ft_battle.txt` (Goku vs Goku, Torneo).
+New trace: creating `dbz3_frame_trace.req` next to the exe dumps 3 frames as
+`dbz3: ft ...` lines (draws, EDRAM copies and swap). Capture:
+`scratchpad/ft_battle.txt` (Goku vs Goku, Tournament).
 
-- 1280x720 nativo, **sin MSAA** en la escena. Un color en EDRAM base 0 y la
-  profundidad en base 1328.
-- **d0-d383 = escena 3D:**
-  - escenario;
-  - personajes, con varios VS distintos;
-  - unos 210 quads con z-test y sin z-write, y luego sin z: efectos y partículas.
-- **copy#384:** el juego resuelve la **profundidad** a una textura 1280x720.
-  Ya la tenemos gratis.
-- **copy#385 a copy#405:** post-proceso.
-  - Color a un buffer que alterna cada frame (1F35F000 / 1EFC7000).
-  - Reducción a 320x180 y bloom.
-  - Composición en 1D991000.
-- **d406-d477:** vuelve la composición y encima **el HUD**: unos 70 quads de 6
-  vértices, sin profundidad.
-- **copy#478, d479 y copy#480:** pasada final al front buffer 1F6F8000 y swap.
+- Native 1280x720, **no MSAA** in the scene. One colour in EDRAM base 0 and the
+  depth at base 1328.
+- **d0-d383 = 3D scene:**
+  - stage;
+  - characters, with several different VS;
+  - about 210 quads with z-test and without z-write, then without z: effects
+    and particles.
+- **copy#384:** the game resolves the **depth** to a 1280x720 texture. We get
+  it for free.
+- **copy#385 to copy#405:** post-processing.
+  - Colour to a buffer that alternates every frame (1F35F000 / 1EFC7000).
+  - Reduction to 320x180 and bloom.
+  - Composition in 1D991000.
+- **d406-d477:** the composition comes back and on top of it **the HUD**: about
+  70 quads of 6 vertices, without depth.
+- **copy#478, d479 and copy#480:** final pass to the front buffer 1F6F8000 and swap.
 
-Consecuencia:
-- La **frontera escena/HUD es limpia y genérica**: la escena va desde el inicio
-  del frame hasta la primera copia de profundidad a resolución completa.
-- Los menús, el select y otras pantallas sin 3D no tienen esa copia. Ahí no se
-  aplica jitter y el escalador recibe imágenes quietas.
+Consequence:
+- The **scene/HUD boundary is clean and generic**: the scene runs from the
+  start of the frame until the first full-resolution depth copy.
+- Menus, the select screen and other screens without 3D do not have that copy.
+  There, no jitter is applied and the upscaler receives still images.
 
-## 3. Plan por fases (cada fase se compila y se prueba en el juego antes de seguir)
+## 3. Phased plan (each phase is built and tested in game before moving on)
 
-1. **Jitter y profundidad.**
-   - Desplazamiento sub-píxel (Halton) en `ndc_offset`, solo para los draws de
-     la fase de escena.
-   - La profundidad real de esa fase se pasa al escalador.
-   - FSR 3.1 se prueba con movimiento solo de cámara, con un interruptor oculto.
-2. **Vectores de movimiento por re-ejecución (la pieza grande).**
-   - Se registra cada draw de escena: VS, buffers, índices y una copia propia de
-     sus constantes.
-   - Se empareja con el mismo draw del frame anterior: hash de VS y PS, buffer
-     de posiciones, índices, número de vértices y orden.
-   - Al terminar la escena se vuelve a dibujar con una modificación del VS que
-     ejecuta el cuerpo dos veces, con las constantes anteriores y las actuales,
-     y escribe la diferencia en un RT R16G16. La prueba de profundidad usa la
-     de la escena.
-   - Es lo que hace Lost Odyssey. El cambio está en `dxbc_translator.cpp`: el
-     cuerpo se traduce dos veces y se guarda la posición de la primera pasada.
-3. **Máscara del HUD.**
-   - Se compara la composición previa al HUD (1D991000) con la salida final.
-   - Los píxeles que cambian forman la máscara reactiva para el escalador, y así
-     el HUD no deja estela.
-4. **FSR 3.1 real.** Escalado temporal con todo lo anterior y opción en
-   Launcher → Vídeo y en el menú F4.
-5. **DLSS (SR y DLAA).**
-   - Usa el mismo contrato: NGX en D3D12.
-   - Requiere descargar el SDK oficial de NVIDIA (código de terceros: **pedir
-     permiso**) y redistribuir `nvngx_dlss.dll`. Su licencia lo permite;
-     revisarla antes de publicar.
-6. **Generación de fotogramas (opcional, si lo anterior queda bien).**
-   - FSR 3.1 FG con el proveedor de frame gen del FFX SDK, hoy apagado.
-   - DLSS FG requiere Streamline y es más trabajo.
-   - El juego va fijo a 60, así que FG daría 120 en pantallas rápidas.
-7. **Vulkan y Linux:** FSR 3.1 en Vulkan con el mismo contrato. DLSS en Linux es
-   opcional.
+1. **Jitter and depth.**
+   - Sub-pixel offset (Halton) in `ndc_offset`, only for the draws of the
+     scene phase.
+   - The real depth of that phase is passed to the upscaler.
+   - FSR 3.1 is tested with camera-only motion, behind a hidden switch.
+2. **Motion vectors by re-execution (the big piece).**
+   - Each scene draw is recorded: VS, buffers, indices and our own copy of its
+     constants.
+   - It is paired with the same draw from the previous frame: VS and PS hash,
+     position buffer, indices, vertex count and order.
+   - At the end of the scene it is drawn again with a VS modification that
+     runs the body twice, with the previous and the current constants, and
+     writes the difference into an R16G16 RT. The depth test uses the scene's.
+   - It is what Lost Odyssey does. The change is in `dxbc_translator.cpp`: the
+     body is translated twice and the first pass's position is kept.
+3. **HUD mask.**
+   - The pre-HUD composition (1D991000) is compared with the final output.
+   - The pixels that change form the reactive mask for the upscaler, so the
+     HUD does not leave trails.
+4. **Real FSR 3.1.** Temporal upscaling with all of the above and an option in
+   Launcher → Video and in the F4 menu.
+5. **DLSS (SR and DLAA).**
+   - Uses the same contract: NGX on D3D12.
+   - Requires downloading NVIDIA's official SDK (third-party code: **ask for
+     permission**) and redistributing `nvngx_dlss.dll`. Its licence allows it;
+     review it before publishing.
+6. **Frame generation (optional, if the above turns out well).**
+   - FSR 3.1 FG with the FFX SDK's frame-gen provider, off today.
+   - DLSS FG requires Streamline and is more work.
+   - The game is fixed at 60, so FG would give 120 on fast displays.
+7. **Vulkan and Linux:** FSR 3.1 on Vulkan with the same contract. DLSS on
+   Linux is optional.
 
-## 4. Riesgos conocidos
+## 4. Known risks
 
-- La re-ejecución duplica el coste de vértices de la escena. Son ~380 draws:
-  asumible.
-- Los draws con alpha-test (pelo, público) pueden dar velocidad donde el original
-  descartó el píxel. Lost Odyssey reutiliza el PS original para la cobertura; lo
-  copiaremos en la fase 2b si hace falta.
-- Efectos que reutilizan direcciones de buffers cada frame. El emparejamiento debe
-  rechazar lo dudoso y dejar velocidad cero con la máscara reactiva.
-- La escala de dibujo del SDK es un entero (1x, 2x, 3x). La resolución interna de
-  DLSS/FSR (Quality, Balanced, Performance) se obtiene renderizando a escala 1x o
-  2x y escalando a la pantalla. No hace falta tocar la escala del guest.
+- Re-execution doubles the scene's vertex cost. It is ~380 draws: affordable.
+- Alpha-tested draws (hair, crowd) may give velocity where the original
+  discarded the pixel. Lost Odyssey reuses the original PS for coverage; we
+  will copy that in phase 2b if needed.
+- Effects that reuse buffer addresses every frame. The pairing must reject
+  anything doubtful and leave zero velocity with the reactive mask.
+- The SDK's draw scale is an integer (1x, 2x, 3x). DLSS/FSR's internal
+  resolution (Quality, Balanced, Performance) is obtained by rendering at 1x
+  or 2x scale and upscaling to the display. The guest's scale does not need
+  to change.

@@ -1,49 +1,49 @@
-# Sesión Tien con capa — rig PS2 contra Tenshinhan HD — 2026-09-08
+# Tien with cape session — PS2 rig against HD Tenshinhan — 2026-09-08
 
-## Fuente
+## Source
 
 ```text
 modding resources update 2/MOD EJEMPLO/Tien With Cape/IW/Tien (With Cape).amo
 ```
 
-El archivo empieza por `#AMO0` y el extractor real PS2 funciona.
+The file starts with `#AMO0` and the real PS2 extractor works.
 
 ```text
 PS2: base=0x0 n_bones=52 parts=15 verts=4565 skinned=3346
 ```
 
-JSON temporal de extracción:
+Temporary extraction JSON:
 
 ```text
 C:\Users\javie\AppData\Local\Temp\opencode\ps2_candidates\tien_with_cape.json
 ```
 
-## Plantilla HD
+## HD template
 
 ```text
 us/data_cmn.afs entry 400
-label raíz: TSH_BODY
-AWG: primer grupo Tenshinhan HD
-bones HD: 42
+root label: TSH_BODY
+AWG: first HD Tenshinhan group
+HD bones: 42
 ```
 
-## Comparación
+## Comparison
 
-- Los 42 labels de Tenshinhan HD existen en la fuente PS2.
-- Los 42 labels comunes mantienen exactamente el mismo orden.
-- PS2 añade 10 labels de capa: `XTSH_MANT*`, `XTSH_RMANT`, `XTSH_LMANT`.
-- No hay labels HD ausentes en PS2.
-- Veredicto: **pasa rig base 1:1**.
+- All 42 HD Tenshinhan labels exist in the PS2 source.
+- The 42 common labels keep exactly the same order.
+- PS2 adds 10 cape labels: `XTSH_MANT*`, `XTSH_RMANT`, `XTSH_LMANT`.
+- No HD labels are missing from PS2.
+- Verdict: **passes the 1:1 base rig**.
 
-## Decisión técnica
+## Technical decision
 
-Este candidato es mucho mejor que Krillin para validar el port completo:
+This candidate is much better than Krillin for validating the full port:
 
-1. Mantener Tenshinhan HD como plantilla estructural.
-2. Convertir primero solo geometría de los 42 bones comunes.
-3. Aislar la capa como segundo experimento; no mezclarla con el primer
-   diagnóstico.
-4. Verificar OBJ y bounds antes de empaquetar.
-5. Instalar temporalmente sobre Krillin, slot 327, con un único mod activo.
+1. Keep HD Tenshinhan as the structural template.
+2. Convert only the geometry of the 42 common bones first.
+3. Isolate the cape as a second experiment; do not mix it into the first
+   diagnosis.
+4. Check the OBJ and bounds before packing.
+5. Install temporarily over Krillin, slot 327, with a single active mod.
 
-No se ha generado todavía bin HD ni mod jugable.
+No HD bin or playable mod has been generated yet.

@@ -1,99 +1,102 @@
-# Árbol del proyecto — qué es cada carpeta
+# Project tree — what each folder is
 
-> Actualizado: 2026-08-14. Rutas relativas a `C:\Users\javie\Desktop\PROYECTOS IA\DBZ Budokai 3 HD Collection\`.
+> Updated: 2026-08-14 (+ `ps5/`, 2026-10-06). Paths relative to `C:\Users\javie\Desktop\PROYECTOS IA\DBZ Budokai 3 HD Collection\`.
 
 ---
 
-## ARBOL GENERAL
+## GENERAL TREE
 
 ```
 DBZ Budokai 3 HD Collection/
-├── src/                     ← Código del launcher y del juego (main.cpp, launcher/, ingame/)
-├── rexglue-sdk-0.10/         ← SDK FUENTE 0.10 (runtime, GPU, filesystem, kernel) — compilable
-├── rexglue/                 ← SDK INSTALADO (bin/lib/include) — lo que usa el build del juego
-├── generated/               ← Código recompilado del guest (dbz3_recomp.*.cpp) — 23 archivos ~2MB c/u
-├── out/build/               ← Builds del juego (4 configuraciones, ver abajo)
-├── docs/                    ← ESTA documentación (organizada por tema)
-├── us/                      ← Assets región US (AFS del juego, ~2.4GB)
-├── eu/                      ← Assets región EU (AFS del juego, ~2.2GB)
-├── afs_out/                 ← Bins de personajes DESCOMPRIMIDOS del AFS (para RE)
-├── ps2_games/               ← AFS de B1, B2, B2V, B3 GH, IW (referencias PS2, ~8.4GB)
-├── SDBH_body/               ← Extracciones de Super Dragon Ball Heroes (modelos EMD)
-├── awo_tools/               ← SCRIPTS de RE y conversión (parse_model.py, build_*.py...)
-├── mod center/              ← Herramientas de la comunidad (36 programas, ~1.7GB)
-├── mod center hd/           ← Herramientas HD adaptadas/creadas por nosotros
-├── modding resources/       ← Documentación + recursos de modding (modelos, listas, arte)
-├── modding resources update/       ← Buzón para archivos nuevos del usuario
-├── modding resources update 2/     ← Más recursos (tutoriales, modelos)
-├── modding resources discord/      ← Recursos descargados del Discord de la comunidad
-├── default.xex / yae3_xenon.xex    ← Imágenes del juego (US/EU)
-├── CMakeLists.txt, CMakePresets.json ← Config de build
-├── dbz3_config.toml, dbz3_manifest.toml ← Config/metadata del juego
-├── bin/ tools/             ← Utilidades varias
+├── src/                     ← Launcher and game code (main.cpp, launcher/, ingame/)
+├── ps5/                     ← PS5 (jailbroken) port: host, build scripts, SDK patches (GPL-3) — see docs/PS5.md
+├── rexglue-sdk-0.10/        ← SDK SOURCE 0.10 (runtime, GPU, filesystem, kernel) — buildable
+├── rexglue/                 ← INSTALLED SDK (bin/lib/include) — what the game build uses
+├── generated/               ← Recompiled guest code (dbz3_recomp.*.cpp) — 23 files ~2 MB each
+├── out/build/               ← Game builds (4 configurations, see below)
+├── docs/                    ← THIS documentation (organised by topic)
+├── us/                      ← US region assets (the game's AFS, ~2.4 GB)
+├── eu/                      ← EU region assets (the game's AFS, ~2.2 GB)
+├── afs_out/                 ← DECOMPRESSED character bins from the AFS (for RE)
+├── ps2_games/               ← AFS of B1, B2, B2V, B3 GH, IW (PS2 references, ~8.4 GB)
+├── SDBH_body/               ← Super Dragon Ball Heroes extractions (EMD models)
+├── awo_tools/               ← RE and conversion SCRIPTS (parse_model.py, build_*.py...)
+├── mod center/              ← Community tools (36 programs, ~1.7 GB)
+├── mod center hd/           ← HD tools adapted/created by us
+├── modding resources/       ← Modding documentation + resources (models, lists, art)
+├── modding resources update/       ← Inbox for new files from the user
+├── modding resources update 2/     ← More resources (tutorials, models)
+├── modding resources discord/      ← Resources downloaded from the community Discord
+├── default.xex / yae3_xenon.xex    ← Game images (US/EU)
+├── CMakeLists.txt, CMakePresets.json ← Build config
+├── dbz3_config.toml, dbz3_manifest.toml ← Game config/metadata
+├── bin/ tools/             ← Miscellaneous utilities
 ```
 
 ---
 
-## out/build/ — Los builds
+## out/build/ — The builds
 
-| Build | Uso | Tamaño | Necesario |
+| Build | Use | Size | Needed |
 |---|---|---|---|
-| `win-amd64-release` | **El build principal** (dbz3.exe, juego jugable) | 4.5GB | ✅ SÍ |
-| `win-amd64-tracy` | Instrumentado con Tracy (profiling) | 10.7GB | 🔸 Ocacional |
-| `_archivo_builds/` | Builds archivados (relwithdebinfo, sdk-test) | 266MB | 🗄 Archivo |
-| `_archivo_dlls/` | Backups de DLLs | 62MB | 🗄 Archivo |
-| `_archivo_mods/` | Mods de experimentos pasados | 2.7GB | 🗄 Archivo |
+| `win-amd64-release` | **The main build** (dbz3.exe, playable game) | 4.5 GB | ✅ YES |
+| `win-amd64-tracy` | Instrumented with Tracy (profiling) | 10.7 GB | 🔸 Occasional |
+| `_archivo_builds/` | Archived builds (relwithdebinfo, sdk-test) | 266 MB | 🗄 Archive |
+| `_archivo_dlls/` | DLL backups | 62 MB | 🗄 Archive |
+| `_archivo_mods/` | Mods from past experiments | 2.7 GB | 🗄 Archive |
 
-> Ver [06_limpieza/PLAN_LIMPIEZA.md](../06_limpieza/PLAN_LIMPIEZA.md) para el detalle.
+> See [06_limpieza/PLAN_LIMPIEZA.md](../06_limpieza/PLAN_LIMPIEZA.md) for details.
+> The PS5 build lives outside this tree: `/root/dbz3` on the Arch host, the
+> packaged title in `out/ps5-title/` (see `docs/PS5.md`).
 
 ---
 
-## out/build/win-amd64-release/ — El build principal
+## out/build/win-amd64-release/ — The main build
 
 ```
 win-amd64-release/
-├── dbz3.exe              ← El juego (lanza desde aquí)
-├── dbz3_user.toml        ← CONFIG del usuario (mods, región, backend GPU, frame cap)
-├── rexruntime.dll        ← Runtime (el hook de mods vive aquí) — se actualiza desde rexglue-sdk-0.10/out/win-amd64-baseline/
-├── rexruntimerd.dll      ← Runtime debug (para Tracy)
-├── rexgpu-xenos.dll      ← Backend GPU
+├── dbz3.exe              ← The game (launch from here)
+├── dbz3_user.toml        ← User CONFIG (mods, region, GPU backend, frame cap)
+├── rexruntime.dll        ← Runtime (the mod hook lives here) — updated from rexglue-sdk-0.10/out/win-amd64-baseline/
+├── rexruntimerd.dll      ← Debug runtime (for Tracy)
+├── rexgpu-xenos.dll      ← GPU backend
 ├── amd_fidelityfx_*.dll  ← FidelityFX (FSR/CAS)
-├── mods/                 ← MODS (ver abajo)
-├── active_region/        ← Overlay de región que se monta como game: (se reconstruye en cada arranque)
-├── logs/                 ← Logs del runtime (dbz3_001.log...)
-├── user_data/            ← Datos de guardado
-├── *_backup*.bmp / frontbuf_*.bmp / black_*.bmp ← DUMPS DE FRAMEBUFFER (debug, ~1GB) — LIMPIABLES
-├── _backup_d3d12/ _backup_pre_opt/ _backup_tracy/ ← Backups de DLLs
-├── crash_*.dmp           ← Dumps de crash
+├── mods/                 ← MODS (see below)
+├── active_region/        ← Region overlay mounted as game: (rebuilt at every start)
+├── logs/                 ← Runtime logs (dbz3_001.log...)
+├── user_data/            ← Save data
+├── *_backup*.bmp / frontbuf_*.bmp / black_*.bmp ← FRAMEBUFFER DUMPS (debug, ~1 GB) — CAN BE CLEANED
+├── _backup_d3d12/ _backup_pre_opt/ _backup_tracy/ ← DLL backups
+├── crash_*.dmp           ← Crash dumps
 ```
 
 ---
 
-## out/build/win-amd64-release/mods/ — Los mods
+## out/build/win-amd64-release/mods/ — The mods
 
-| Mod | Contenido | Estado |
+| Mod | Contents | State |
 |---|---|---|
-| `og_music` | Música original (ADX/SFD) — solo us/ (eu deduplicado) | ✅ Funciona (activarlo: quitar `.disabled`) |
-| `janemba_v10` | AFS con bin de Krillin ORIGINAL (referencia) | ✅ Es el AFS intacto |
-| `goten_body` | Cuerpo de Goten inyectado en Krillin (vía override) | 🔴 Crashea (en investigación) |
+| `og_music` | Original music (ADX/SFD) — us/ only (eu deduplicated) | ✅ Works (enable it: remove `.disabled`) |
+| `janemba_v10` | AFS with the ORIGINAL Krillin bin (reference) | ✅ It is the untouched AFS |
+| `goten_body` | Goten's body injected into Krillin (via override) | 🔴 Crashes (under investigation) |
 
-> Los mods viejos (janemba, krillin_*, afstest, janemba_v11) están archivados en
-> `out/build/_archivo_mods/` — fuera de `mods/` para que el runtime no los escanee.
+> Old mods (janemba, krillin_*, afstest, janemba_v11) are archived in
+> `out/build/_archivo_mods/` — outside `mods/` so the runtime does not scan them.
 
 ---
 
-## awo_tools/ — Scripts de RE (nuestros)
+## awo_tools/ — RE scripts (ours)
 
-| Script | Función |
+| Script | Function |
 |---|---|
-| `analyze_bin_hd.py` | Parser histórico PS3; obsoleto, no usar para bins B3 HD |
-| `awg_to_obj_b3.py` | Exportar bins B3 HD completos a OBJ |
-| `awg0_export.py` | Exportar AWG0 con autodetección de formatos A/C |
-| `awg_cara_export.py` | Exportar AWGs de cara |
-| `build_awo_desde_cero.py` | Parsear Janemba.amb → AMGs (extracción) |
-| `build_janemba_final.py` | Inyectar geometría de Janemba en slots de Krillin |
-| `swap_cuerpo_hd.py` | Inyectar cuerpo de Goten en Krillin |
-| `parse_ps2_mesh.py` | Parser de malla PS2 (submeshes, FaceType) |
-| `pose_matrix.py` | Matrices world de huesos PS2 |
-| `rig_mapeo.py` | Re-mapeo JNB→KLL por labels |
-| `build_janemba2.py`, `build_afs.py`, `mezclar_ps2_hd.py` | Experimentos previos |
+| `analyze_bin_hd.py` | Historical PS3 parser; obsolete, do not use for B3 HD bins |
+| `awg_to_obj_b3.py` | Export complete B3 HD bins to OBJ |
+| `awg0_export.py` | Export AWG0 with auto-detection of formats A/C |
+| `awg_cara_export.py` | Export face AWGs |
+| `build_awo_desde_cero.py` | Parse Janemba.amb → AMGs (extraction) |
+| `build_janemba_final.py` | Inject Janemba's geometry into Krillin's slots |
+| `swap_cuerpo_hd.py` | Inject Goten's body into Krillin |
+| `parse_ps2_mesh.py` | PS2 mesh parser (submeshes, FaceType) |
+| `pose_matrix.py` | World matrices of PS2 bones |
+| `rig_mapeo.py` | JNB→KLL remapping by labels |
+| `build_janemba2.py`, `build_afs.py`, `mezclar_ps2_hd.py` | Earlier experiments |

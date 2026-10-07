@@ -1,56 +1,63 @@
-# Sombreado toon de los personajes HD y brillo HD de borde
+# Toon shading of the HD characters and the HD rim light
 
-RE del 2026-10-04/06 sobre los volcados de shaders (`dump_shaders` → `D:\DBZ3HD\shaders_dump`, con el
-desensamblado del ucode) y calibrado contra los 38 iconos y retratos oficiales. Render offline
-equivalente: `mod center hd/model_render.py`.
+RE from 2026-10-04/06 on the shader dumps (`dump_shaders` → `D:\DBZ3HD\shaders_dump`, with the
+ucode disassembly) and calibrated against the 38 official icons and portraits. Equivalent offline
+render: `mod center hd/model_render.py`.
 
-## El shader toon (PS `5F27AACEB38B1088`)
+## The toon shader (PS `5F27AACEB38B1088`)
 
 ```
-u = ½·(N·L) + ½              (izquierda = sombra, derecha = luz)
-v = c1.x                     (fila de la rampa: la elige el ALFA de la textura base)
-color = base − rampa[u, v]   (RESTA)
-si base.a > c255.z  ->  color = base          ("sin sombrear")
-color += c39.x · ( ½·(1 − |N·V|)²  +  escalón((1 − |N·V|)⁶ ≥ ½) )     (brillo HD de borde)
+u = ½·(N·L) + ½              (left = shadow, right = light)
+v = c1.x                     (ramp row: chosen by the ALPHA of the base texture)
+color = base − ramp[u, v]    (SUBTRACTION)
+if base.a > c255.z  ->  color = base          ("unshaded")
+color += c39.x · ( ½·(1 − |N·V|)²  +  step((1 − |N·V|)⁶ ≥ ½) )     (HD rim light)
 ```
 
-- **Resta, no multiplica.** La fórmula antigua de las notas, `base × (1 − rampa)`, solo coincide con
-  bases blancas. Con bases de color (las de PSP) la diferencia se ve.
-- **Material del AWG0** (0x50 B): `+0x00` color difuso RGB, `+0x30` textura base, `+0x34` **rampa**
-  64×64. Textura `FFFFFFFF` = color plano (masa de pelo de Goku/Goten); bandera `0x80000000` =
-  translúcido.
-- **La rampa guarda el complementario del tono**: piel humana = rampa azulada, Ginyu = rampa verde.
-- **Filas de la rampa:** bandas de 4 filas elegidas por el alfa DXT3 de la base (16 niveles). Las
-  filas 56–63 están reservadas (negro/blanco); falta confirmar si el contorno las usa.
-- **Nativos:** bases casi blancas con las líneas dibujadas, el color sale de la rampa; **alfa 0** en
-  todo salvo el blanco de los ojos (alfa 255 = sin sombrear).
+- **It subtracts, it does not multiply.** The old formula in the notes,
+  `base × (1 − ramp)`, only matches white bases. With coloured bases (the PSP
+  ones) the difference shows.
+- **AWG0 material** (0x50 B): `+0x00` diffuse RGB colour, `+0x30` base texture,
+  `+0x34` 64×64 **ramp**. Texture `FFFFFFFF` = flat colour (Goku/Goten hair
+  mass); flag `0x80000000` = translucent.
+- **The ramp stores the complement of the tone**: human skin = bluish ramp,
+  Ginyu = green ramp.
+- **Ramp rows:** bands of 4 rows chosen by the base's DXT3 alpha (16 levels).
+  Rows 56–63 are reserved (black/white); it is still to be confirmed whether
+  the outline uses them.
+- **Native models:** almost-white bases with the lines drawn in, the colour
+  comes from the ramp; **alpha 0** everywhere except the whites of the eyes
+  (alpha 255 = unshaded).
 
-## Consecuencias para los modelos importados
+## Consequences for imported models
 
-| Origen | Estado | Qué hacer |
+| Source | State | What to do |
 |---|---|---|
-| PSP (Shin Budokai, `psp_amo.py`) | texturas de 16 colores con la sombra **pintada** y **alfa 255 en todo** → en el juego sale **plano**, solo con el brillo de borde; normales peores (manchas en el brillo) | alfa 0 + rampa por material; normales suaves. **Ojo:** la rampa neutra `psp_ramp.npy` se pensó para multiplicar: restada, oscurecería el modelo |
-| Heroes World Mission (`sdbh_model.py`) | bases con color + rampas toon propias | usa las **rampas nativas** de la plantilla (piel = la de Gohan, ropa y pelo = gris), alfa 0 en las bases y 255 solo en ojos, boca y dientes |
-| Comunidad PS2 (`ps2hd`, `amo2awo`) | según el modelo | revisar el alfa de las texturas si sale plano |
+| PSP (Shin Budokai, `psp_amo.py`) | 16-colour textures with the shadow **painted in** and **alpha 255 everywhere** → in game it looks **flat**, only with the rim light; worse normals (blotches in the rim) | alpha 0 + a ramp per material; smooth normals. **Careful:** the neutral ramp `psp_ramp.npy` was meant for multiplying: subtracted, it would darken the model |
+| Heroes World Mission (`sdbh_model.py`) | coloured bases + their own toon ramps | use the template's **native ramps** (skin = Gohan's, clothes and hair = grey), alpha 0 on the bases and 255 only on eyes, mouth and teeth |
+| PS2 community (`ps2hd`, `amo2awo`) | depends on the model | check the textures' alpha if it looks flat |
 
-Si un personaje sale **negro**: rampa demasiado oscura para una base de color (la resta satura).
-Si sale **plano**: alfa alto en la base.
+If a character comes out **black**: the ramp is too dark for a coloured base
+(the subtraction saturates). If it comes out **flat**: high alpha in the base.
 
-## Brillo HD de borde (rim light)
+## HD rim light
 
-- Su intensidad viene del vertex shader: **`o2.w = c39.x`**, solo si la normal no es cero (los
-  nativos ponen normal nula en lo que no se ilumina). Todos los VS de modelo tienen esa línea.
-- **Interruptor nativo** (2026-10-06): el SDK escala `c39.x` al subirlo, solo en los shaders cuyo
-  ucode contiene `o2.___w, c39.x`.
-  - Variable del juego: **`dbz3_hd_rim_light`** (0–1). Del SDK: `dbz3_rim_light_scale`.
-  - Launcher → pestaña «Mods nativos» → **«Brillo HD de los personajes»** (casilla + 5–100 %).
-  - En el juego: menú rápido **F1** → «Brillo HD». Se aplica al momento.
-- Afecta a todos los personajes por igual (nativos y nuevos): no es una propiedad del mod.
-- Con normales malas, el brillo dibuja manchas: es la forma más rápida de ver si un modelo
-  importado necesita normales suaves (pon el brillo al 100 %).
+- Its intensity comes from the vertex shader: **`o2.w = c39.x`**, only if the
+  normal is non-zero (native models set a null normal on what is not lit).
+  Every model VS has that line.
+- **Native switch** (2026-10-06): the SDK scales `c39.x` when uploading it,
+  only in shaders whose ucode contains `o2.___w, c39.x`.
+  - Game variable: **`dbz3_hd_rim_light`** (0–1). SDK one: `dbz3_rim_light_scale`.
+  - Launcher → "Native mods" tab → **"HD character rim light"** (checkbox + 5–100 %).
+  - In game: quick menu **F1** → "HD rim light". Applies immediately.
+- It affects every character equally (native and new): it is not a property
+  of the mod.
+- With bad normals, the rim light draws blotches: it is the fastest way to see
+  whether an imported model needs smooth normals (set the rim light to 100 %).
 
-## Comprobación sin juego
+## Checking without the game
 
-`mod center hd/model_render.py` (iconos y retratos de los personajes nuevos, vista previa del Mod Kit
-y del Studio) usa todavía la forma **producto** `base × (1 − rampa)`: exacta con las bases blancas de
-los nativos, aproximada con bases de color (PSP). Pasarla a resta está pendiente.
+`mod center hd/model_render.py` (icons and portraits of the new characters,
+Mod Kit and Studio preview) still uses the **product** form
+`base × (1 − ramp)`: exact with the native white bases, approximate with
+coloured bases (PSP). Switching it to subtraction is pending.

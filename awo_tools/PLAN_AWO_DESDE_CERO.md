@@ -1,99 +1,99 @@
-# PLAN: CONSTRUIR EL AWO HD DESDE CERO (añadir personajes IW)
+# PLAN: BUILD THE HD AWO FROM SCRATCH (add IW characters)
 
-> Documento de planificación (2026-08-14). Objetivo: añadir personajes de
-> Budokai Infinite World (Janemba, Pikkon, Pan, Super 17...) al recomp B3.
+> Planning document (2026-08-14). Goal: add characters from Budokai Infinite
+> World (Janemba, Pikkon, Pan, Super 17...) to the B3 recomp.
 
 ---
 
-## 1. POR QUÉ EL RE-LAYOUT NO FUNCIONÓ (resumen ejecutivo)
+## 1. WHY THE RE-LAYOUT DID NOT WORK (executive summary)
 
-- El runtime B3 espera que `sec34_count`/`vb2_count` (derivados de los offsets
-  del AWG header) sean coherentes con la estructura completa del modelo.
-- Agrandar un buffer de un modelo EXISTENTE (aunque sea +1 vértice) rompe la
-  deserialización del guest → crash (null deref en combate).
-- **PERO**: el runtime acepta conteos VARIABLES entre bins distintos
-  (Krillin 327: sec34=1956; Krillin 328: sec34=1791; ambos funcionan).
+- The B3 runtime expects `sec34_count`/`vb2_count` (derived from the AWG
+  header's offsets) to be consistent with the model's whole structure.
+- Enlarging a buffer of an EXISTING model (even by +1 vertex) breaks the
+  guest's deserialisation → crash (null deref in a fight).
+- **BUT**: the runtime accepts VARIABLE counts between different bins
+  (Krillin 327: sec34=1956; Krillin 328: sec34=1791; both work).
 
-## 2. LA ESTRATEGIA VIABLE
+## 2. THE VIABLE STRATEGY
 
-**Construir un AWO HD COMPLETO desde cero** con los conteos correctos del
-personaje objetivo (no modificar un modelo existente). Un AWO nuevo con
-estructura 100% coherente debería ser aceptado por el runtime.
+**Build a COMPLETE HD AWO from scratch** with the target character's correct
+counts (do not modify an existing model). A new AWO with a 100% consistent
+structure should be accepted by the runtime.
 
-**Dato de referencia**: el B1 (proyecto hermano) maneja modelos de combate con
-sec34=3729 vértices (Tenshinhan). El formato AWO soporta buffers grandes.
+**Reference data**: B1 (the sibling project) handles fight models with
+sec34=3729 vertices (Tenshinhan). The AWO format supports large buffers.
 
-## 3. REFERENCIAS DE FORMATO (mapeadas)
+## 3. FORMAT REFERENCES (mapped)
 
-### 3.1 AWO (contenedor #AMB del B3)
+### 3.1 AWO (B3's #AMB container)
 ```
 #AMB header (0x40): entry0=AWO (loc 0x40, size), entry1=AZT (loc, size)
 #AWO header:
   +0x10: bones (51 Krillin)
   +0x18: amg_count (18)
   +0x1C: amg_table (0x690, rel AWO)
-  +0x34: axes_base (zona de ejes al final)
-  +0x54..0x674: 51 entradas de 0x20 con punteros a zona ejes
-Tabla AMG (18 entradas): apunta a magics #AWG (rel AWO)
+  +0x34: axes_base (axis zone at the end)
+  +0x54..0x674: 51 entries of 0x20 with pointers to the axis zone
+AMG table (18 entries): points at #AWG magics (rel AWO)
 ```
 
-### 3.2 AWG0 (magic en awg0_off, offsets rel magic)
+### 3.2 AWG0 (magic at awg0_off, offsets rel magic)
 ```
 +0x10: bone_am   +0x14: axes_loc   +0x18: axis_lines
-+0x2C: vb2 (secundario)  +0x30: ib (index buffer)
-+0x34: sec34 (principal) +0x38: restart
-+0x1C: labels (51×32B)   +0x20: sec20 (mesh parts)  +0x28: meshgroup
++0x2C: vb2 (secondary)  +0x30: ib (index buffer)
++0x34: sec34 (main)     +0x38: restart
++0x1C: labels (51×32B)  +0x20: sec20 (mesh parts)  +0x28: meshgroup
 ```
 
-### 3.3 Vértice HD (stride 44, alineado +2)
+### 3.3 HD vertex (stride 44, aligned +2)
 ```
 sec34:  [nan, VT.v, VT.u, V.z, pos.x_local, pos.y_local, weight, 0, VN.z, -VN.y, VN.x]
-vb2:    [pos.x, pos.y, pos.z(1.0), 0,0,0,0, nan, VN.x, VN.y, VN.z] (layout distinto)
+vb2:    [pos.x, pos.y, pos.z(1.0), 0,0,0,0, nan, VN.x, VN.y, VN.z] (different layout)
 ```
 
-### 3.4 Mesh group (hueso0)
+### 3.4 Mesh group (bone0)
 ```
-+0x00: count (13)   +0x28: ptr tabla mesh-ref blocks (0x1ED8)
-Cada mesh-ref block (0x50): +0x18 sello, +0x1C arm, +0x20 idx, +0x28 tr
-Cadena recursiva: dat@+0x30 → siguiente arm+dat
++0x00: count (13)   +0x28: ptr to the mesh-ref block table (0x1ED8)
+Each mesh-ref block (0x50): +0x18 seal, +0x1C arm, +0x20 idx, +0x28 tr
+Recursive chain: dat@+0x30 → next arm+dat
 ```
 
-## 4. PLAN DE CONSTRUCCIÓN (AWO de Janemba)
+## 4. CONSTRUCTION PLAN (Janemba's AWO)
 
-### Fase A — Preparar geometría Janemba (bin 541 IW)
-1. Extraer #AMO0 de Janemba (48 huesos, 17 AMGs, 4415 vértices únicos).
-2. Aplicar skinning (rig 3056+ entradas → coords locales por hueso).
-3. Convertir vértices al layout HD (stride 44): sec34 para cuerpo, vb2 para
-   cabeza/accesorios (como hace el HD).
-4. Deduplicar → N1 vértices para sec34, N2 para vb2.
+### Phase A — Prepare Janemba's geometry (IW bin 541)
+1. Extract Janemba's #AMO0 (48 bones, 17 AMGs, 4415 unique vertices).
+2. Apply skinning (rig with 3056+ entries → per-bone local coords).
+3. Convert the vertices to the HD layout (stride 44): sec34 for the body, vb2
+   for the head/accessories (as HD does).
+4. Deduplicate → N1 vertices for sec34, N2 for vb2.
 
-### Fase B — Construir el AWO HD (estructura desde cero)
-1. Header AWO: bones=48, amg_count=17 (los AMGs de Janemba), tabla AMG.
-2. 17 AWGs, cada uno con su estructura (ejes, labels, mesh group).
-3. AWG0: sec34 con N1 vértices, vb2 con N2, IB con los triángulos de Janemba,
+### Phase B — Build the HD AWO (structure from scratch)
+1. AWO header: bones=48, amg_count=17 (Janemba's AMGs), AMG table.
+2. 17 AWGs, each with its structure (axes, labels, mesh group).
+3. AWG0: sec34 with N1 vertices, vb2 with N2, IB with Janemba's triangles,
    restart buffer.
-4. Mesh group + mesh-ref blocks + arms reconstruidos para la geometría de
-   Janemba (agrupando triángulos por hueso/material).
-5. Zona de ejes (axes-array) con los 48 punteros del header.
+4. Mesh group + mesh-ref blocks + arms rebuilt for Janemba's geometry
+   (grouping triangles by bone/material).
+5. Axis zone (axes-array) with the header's 48 pointers.
 
-### Fase C — Empaquetar y validar
-1. Empaquetar #AMB (AWO + AZT). El AZT de Janemba es el bin 542 del IW
-   (convertido a #AZT HD).
-2. Comprimir con `xbcompress /N:2048`.
-3. Colocar en un slot (override por entrada o AFS completo).
-4. Validar: Janemba carga, se ve correcto, combate sin crash.
+### Phase C — Pack and validate
+1. Pack the #AMB (AWO + AZT). Janemba's AZT is IW bin 542 (converted to HD
+   #AZT).
+2. Compress with `xbcompress /N:2048`.
+3. Place it in a slot (per-entry override or full AFS).
+4. Validate: Janemba loads, looks right, fights without crashing.
 
-## 5. RIESGOS Y MITIGACIONES
+## 5. RISKS AND MITIGATIONS
 
-| Riesgo | Mitigación |
+| Risk | Mitigation |
 |--------|-----------|
-| El runtime rechaza un AWO con conteos muy distintos | Los bins 327/328 ya tienen conteos distintos; se probará incrementalmente |
-| Los mesh-ref/arms reconstruidos no son aceptados | Se validará con un AWG0 mínimo primero (solo el cuerpo) |
-| El layout del vértice de Janemba difiere | Usar el mismo layout que Krillin (validado por el skin PS2) |
-| El skinning (huesos 48 vs 51) | Janemba tiene su propio esqueleto; los moveset ports ya mapean Janemba→Krillin |
+| The runtime rejects an AWO with very different counts | Bins 327/328 already have different counts; it will be tested incrementally |
+| The rebuilt mesh-refs/arms are not accepted | Validate with a minimal AWG0 first (just the body) |
+| Janemba's vertex layout differs | Use the same layout as Krillin (validated by the PS2 skin) |
+| Skinning (48 vs 51 bones) | Janemba has its own skeleton; the moveset ports already map Janemba→Krillin |
 
-## 6. PRÓXIMO PASO INMEDIATO
+## 6. IMMEDIATE NEXT STEP
 
-Construir el **AWG0 de prueba mínimo**: header AWO + AWG0 + sec34 con los
-vértices skinneados de Janemba (primeros 2190) + IB reconstruido, para validar
-que el runtime acepta la estructura antes de construir los 17 AWGs completos.
+Build the **minimal test AWG0**: AWO header + AWG0 + sec34 with Janemba's
+skinned vertices (first 2190) + rebuilt IB, to validate that the runtime
+accepts the structure before building all 17 AWGs.

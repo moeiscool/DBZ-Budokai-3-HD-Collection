@@ -1,359 +1,353 @@
-# Informe 02 — Técnicas de Shin Budokai → Budokai 3 HD (primer objetivo: Gohan del Futuro)
+# Report 02 — Shin Budokai techniques → Budokai 3 HD (first target: Future Gohan)
 
-Fecha: 2026-10-06. Solo exploración / RE: no se ha tocado ningún fichero del proyecto ni se ha
-lanzado el juego. Todo lo leído es PS2 GH (LE, mismo contenido que la HD en BE), las ISO de PSP
-leídas en sitio (`iso.py`) y los ficheros del port actual. Scripts y salidas en esta carpeta
-(lista al final); extracciones grandes en `D:\DBZ3HD\explore\02_tecnicas\`.
-
----
-
-## 0. Resumen ejecutivo
-
-1. **El port actual de Gohan del Futuro no tiene técnicas funcionales, y no es (solo) por
-   `tecnicas.bin`.** Su moveset (`anm_forma1.bin`) y su cámara (`camara.bin`) son la
-   "conversión comunitaria" `ghf_365/367`, que en realidad es **una copia byte a byte de los
-   datos de Shin Budokai 2** (BSK, BCM, SPX idénticos; ver §2.4). El BSK de SB2 usa **líneas AP
-   de 20 B** (B3: 16 B) y bloques de golpe de 160 B (B3: 128 B): el motor de B3 lee todas las
-   propiedades de animación (golpes, efectos, voces, velocidad) desalineadas a partir de la
-   segunda línea. Además su BCM usa semánticas de SB (cond 0x0004 = especial cuerpo a cuerpo en
-   SB, pero **transformación** en B3), no tiene entrada de modo hiper (sin hiper no hay
-   definitivo en B3), su `#ACC` (cámaras) está vacío y su `#SPX` es bytecode de SB (otra VM).
-2. **`tecnicas.bin` (= `scratchpad/ghf/hd_BSP_GHF.amb`, mismo SHA-1) es el BSP de SB2 pasado por
-   `ps2hd` como si fuera de B3.** Las capas de SB2 no son las de B3: `#AME` es otro sistema de
-   partículas (nodos `Line/Sprite/Plane/Model/Gravity/Vortex…` frente a
-   `Emitter/Particle/Field` de B3, cabecera 0x40 frente a 0x10), `#ASE` tiene bloques de 0xB0
-   (B3 0xD0) y SB numera sus rayos con códigos que en B3 están **reservados** (0x15E/0x15F =
-   aspecto de las ráfagas de ki). Comentarlo fue lo correcto; no hay nota escrita del motivo,
-   pero los datos lo explican (§2.5).
-3. **Lista real de técnicas de GHF (datos de SB2 Another Road):** 6 especiales + 2 definitivos,
-   cada uno condicionado a un "booster" (equivalente SB de la cápsula). Kamehameha (rayo azul
-   >E), bola de energía (>E), especial cuerpo a cuerpo (<E), explosión de corto alcance (>E),
-   proyectil (<E), golpe + bola (<E); definitivos: rayo gigante azul (gemelo exacto del Super
-   Kamehameha de Gohan adulto en SB2) y una onda magenta de tipo 12. Los nombres de SB2 son
-   texturas, no texto: los nombres exactos quedan por confirmar (§2.3).
-4. **En B3 una técnica = BCM (entrada/cápsula) → BSK (animación + AP1 golpe + AP7 efectos) →
-   BSP (`#AST` energía / `#ASE` efecto visual / `#AME` partículas / texturas) y, solo para
-   definitivos y agarres, SPX (cinemática) + `#ACC` (cámara).** Hallazgos nuevos con evidencia
-   sobre los 38 personajes: el **coste de ki y las formas de una técnica viven en la cápsula**
-   (`#SKC` +15 = ki en décimas de barra, 169/191 coinciden; +14 = máscara de formas), no en el
-   BCM; el **beam struggle** se marca con el bit **0x2000** de la condición del BCM + la línea
-   AP7 `c0=0x68`, y cada personaje con rayo tiene una **entrada de respuesta** (cond2 bit 0x4000,
-   `c0=0x69`) (35/38 coinciden); **todo definitivo de B3 es P+K+G+E en modo hiper → golpe con HR
-   tipo 3 → SPX ranura 0** (2º definitivo → ranura 1), con sus animaciones en los códigos
-   **0x4A0+**; la ranura 20 es el agarre (P+G).
-5. **Viable con un enfoque híbrido**: convertir lo que es compatible (BCM, BSK, `#AST`, `#ASE`,
-   texturas, animaciones) y **reconstruir sobre el donante B3** (Gohan adulto, ID 4) lo que no
-   lo es (partículas `#AME`, cinemática SPX + cámara del definitivo, entradas de beam struggle y
-   de modo hiper). Casi todo es automatizable; lo artesanal es elegir/recolorear las partículas
-   y montar la cinemática del definitivo. Esfuerzo estimado: 6–9 sesiones + 3 rondas de prueba
-   en juego.
+Date: 2026-10-06. Exploration / RE only: no project file was touched and the game was not
+launched. Everything read is PS2 GH (LE, same content as the HD in BE), the PSP ISOs read in
+place (`iso.py`) and the files of the current port. Scripts and outputs in this folder (list at
+the end); large extractions in the exploration work folder (`02_tecnicas\`).
 
 ---
 
-## 1. Cómo define B3 HD una técnica, de punta a punta
+## 0. Executive summary
 
-### 1.1 La cadena
+1. **The current Future Gohan port has no working techniques, and it is not (only) because of
+   `tecnicas.bin`.** Its moveset (`anm_forma1.bin`) and its camera (`camara.bin`) are the
+   "community conversion" `ghf_365/367`, which is really **a byte-for-byte copy of the Shin
+   Budokai 2 data** (identical BSK, BCM, SPX; see §2.4). SB2's BSK uses **20 B AP lines** (B3:
+   16 B) and 160 B hit blocks (B3: 128 B): B3's engine reads all the animation properties (hits,
+   effects, voices, speed) misaligned from the second line onwards. In addition its BCM uses SB
+   semantics (cond 0x0004 = close-range special in SB, but **transformation** in B3), it has no
+   hyper mode entry (without hyper there is no ultimate in B3), its `#ACC` (cameras) is empty
+   and its `#SPX` is SB bytecode (another VM).
+2. **`tecnicas.bin` (= `scratchpad/ghf/hd_BSP_GHF.amb`, same SHA-1) is SB2's BSP run through
+   `ps2hd` as if it were B3's.** SB2's layers are not B3's: `#AME` is another particle system
+   (nodes `Line/Sprite/Plane/Model/Gravity/Vortex…` versus B3's `Emitter/Particle/Field`, 0x40
+   header versus 0x10), `#ASE` has 0xB0 blocks (B3 0xD0) and SB numbers its beams with codes
+   that are **reserved** in B3 (0x15E/0x15F = the look of ki blasts). Commenting it out was
+   right; there is no written note of why, but the data explain it (§2.5).
+3. **GHF's real technique list (SB2 Another Road data):** 6 specials + 2 ultimates, each gated
+   by a "booster" (SB's equivalent of the capsule). Kamehameha (blue beam >E), energy ball
+   (>E), close-range special (<E), short-range explosion (>E), projectile (<E), hit + ball (<E);
+   ultimates: a giant blue beam (exact twin of Adult Gohan's Super Kamehameha in SB2) and a
+   type-12 magenta wave. SB2's names are textures, not text: the exact names are still to be
+   confirmed (§2.3).
+4. **In B3 a technique = BCM (input/capsule) → BSK (animation + AP1 hit + AP7 effects) → BSP
+   (`#AST` energy / `#ASE` visual effect / `#AME` particles / textures) and, only for ultimates
+   and grabs, SPX (cinematic) + `#ACC` (camera).** New findings with evidence over the 38
+   characters: a **technique's ki cost and forms live in the capsule** (`#SKC` +15 = ki in
+   tenths of a bar, 169/191 match; +14 = form mask), not in the BCM; the **beam struggle** is
+   marked by bit **0x2000** of the BCM condition + the AP7 line `c0=0x68`, and every character
+   with a beam has a **response entry** (cond2 bit 0x4000, `c0=0x69`) (35/38 match); **every B3
+   ultimate is P+K+G+E in hyper mode → a hit with HR type 3 → SPX slot 0** (2nd ultimate → slot
+   1), with its animations at codes **0x4A0+**; slot 20 is the grab (P+G).
+5. **Viable with a hybrid approach**: convert what is compatible (BCM, BSK, `#AST`, `#ASE`,
+   textures, animations) and **rebuild on the B3 donor** (Adult Gohan, ID 4) what is not
+   (`#AME` particles, the ultimate's SPX cinematic + camera, beam struggle and hyper mode
+   entries). Almost everything can be automated; the craft part is choosing/recolouring the
+   particles and assembling the ultimate's cinematic. Estimated effort: 6–9 sessions + 3 rounds
+   of in-game testing.
+
+---
+
+## 1. How B3 HD defines a technique, end to end
+
+### 1.1 The chain
 
 ```
-Cápsula (#SKC, data_usi 4)  ── ki (+15), formas (+14), cápsula requerida (+16 u16), clase (+8)
-   │  (id en el bloque BCM, w8)
-BCM (#BCM/#CCM, bin CAM)    ── botones, dirección, condición (w4 en PS2 / w5 en HD), cond2 (w6),
-   │                           códigos de ataque suelo/aire (w12..w15)
-BSK (#BSK/#CSK, bin ANM)    ── código → sub-bloque de 48 B: animación (almacén 3 = AMM propio)
-   │                           + AP0..AP7 (líneas de 16 B)
-   ├─ AP1: ventana de golpe → código HR → bloque HR (8×16 B: daño, tipo, aturdimiento)
-   │        HR tipo 3 → guion SPX (ranura = código)            → #SPX + #ACC (cámara) del bin CAM
-   └─ AP7 [frame u16][id u8][act u8][categoría u32][valor u32]:
-        c0 = acción del motor   (0/1 ráfaga de ki, 0x32–0x38 cargas, 0x64/0x66 congelar/descongelar,
-                                 0x68/0x69 beam struggle; probables: 0x46/0x47 inicio/fin de rayo,
-                                 0x28 transformar — según la nota comunitaria de IW y los datos)
-        c1 = sonido, c2/c3 = voz (ranura del banco de gritos), c5/c6 = efectos de golpe/suelo
-        c4 = enlace al BSP: código de #AST (energía) o de #ASE (efecto visual)
-BSP (data_cmn 504–555; tabla por ID 0x82333208; `tecnicas =` en personaje.toml)
-   ├─ AMB[0] = #AST (bloques "wk" 0xF0: tipo, código, duración, velocidad, hueso, texturas del
-   │            rayo, daño, radio, aturdimiento, formas) + #AMT pequeño + #AME
-   ├─ AMB[1] = #ASE (bloques 0xD0: códigos inicio/medio/fin, hueso, enlace a #AME, formas)
+Capsule (#SKC, data_usi 4)  ── ki (+15), forms (+14), required capsule (+16 u16), class (+8)
+   │  (id in the BCM block, w8)
+BCM (#BCM/#CCM, CAM bin)    ── buttons, direction, condition (w4 on PS2 / w5 in HD), cond2 (w6),
+   │                           ground/air attack codes (w12..w15)
+BSK (#BSK/#CSK, ANM bin)    ── code → 48 B sub-block: animation (store 3 = own AMM)
+   │                           + AP0..AP7 (16 B lines)
+   ├─ AP1: hit window → HR code → HR block (8×16 B: damage, type, stun)
+   │        HR type 3 → SPX script (slot = code)            → #SPX + #ACC (camera) of the CAM bin
+   └─ AP7 [frame u16][id u8][act u8][category u32][value u32]:
+        c0 = engine action      (0/1 ki blast, 0x32–0x38 charges, 0x64/0x66 freeze/unfreeze,
+                                 0x68/0x69 beam struggle; probable: 0x46/0x47 beam start/end,
+                                 0x28 transform — according to the IW community note and the data)
+        c1 = sound, c2/c3 = voice (yell bank slot), c5/c6 = hit/ground effects
+        c4 = link to the BSP: code of an #AST (energy) or of an #ASE (visual effect)
+BSP (data_cmn 504–555; table by ID 0x82333208; `tecnicas =` in personaje.toml)
+   ├─ AMB[0] = #AST ("wk" blocks 0xF0: type, code, duration, speed, bone, beam textures,
+   │            damage, radius, stun, forms) + small #AMT + #AME
+   ├─ AMB[1] = #ASE (0xD0 blocks: start/middle/end codes, bone, link to #AME, forms)
    │            + #AME (+ #AWV)
-   └─ resto: #AMT grande (texturas de efectos), #AME, #AMO (+#AMM) modelos de efecto, #ATR, #AWV
+   └─ rest: large #AMT (effect textures), #AME, #AMO (+#AMM) effect models, #ATR, #AWV
 ```
 
-### 1.2 Gohan adulto (ID 4: CAM 231, ANM 234, BSP 528) — `gohan_adulto_b3.txt`
+### 1.2 Adult Gohan (ID 4: CAM 231, ANM 234, BSP 528) — `gohan_adulto_b3.txt`
 
-| Técnica | Cápsula (ki, formas) | BCM | Códigos | Lo que hace (AP7 / HR) |
+| Technique | Capsule (ki, forms) | BCM | Codes | What it does (AP7 / HR) |
 |---|---|---|---|---|
-| Kamehameha | 26 (10 = 1 barra, 0x0F) | >E, cond **0x2002**, cond2 1 | 0x24B/0x34B (+ 0x24C, 0x24D tras combo) | c0 0x64 congela f8 · c4 0x04/0x05 carga (ASE wk0) · c4 0x10 · **c0 0x68 f34** · c0 0x66 f35 · **c4 0x0 = AST wk0** (rayo, 250 de daño) f46 · c0 0x46/0x47 |
-| Kamehameha (respuesta) | 26 | >E, cond 0x0002, **cond2 0x4003** | 0x26C | igual pero sin 0x64/0x66, **c0 0x69** en vez de 0x68, + c0 0x40/0x43 |
-| Soaring Dragon Strike | 27 (20 = 2 barras, 0x0F) | <E, cond 0x0002 | 0x24E (+0x24F/0x250) | 5 golpes AP1 (80/30/90/100/110, el último tipo 2 = despide) · c4 0x24, 0x2C–0x30 (ASE) · c4 0x131 |
-| Modo hiper | — | P+K+G+E, cond 0x0400 | 0x259 | c7 0x4, c8 0x72 (probable cámara), c0 0x64, c4 0x12C, c0 0x2C, c0 0x66 |
-| Super Kamehameha (definitivo) | 28 (50 = 5 barras, 0x0E = no en forma base, requiere 23 SSJ) | P+K+G+E, cond **0x000A**, cond2 0x8001 | 0x25A | carrera; AP1 f30 HR 0x68 → **tipo 3, código 0 = SPX ranura 0** |
-| Agarre | — | P+G | 0x258 | AP1 HR 0xD0 → tipo 3, código 0x14 = **SPX ranura 20** (rutina común, BASE 0x480) |
+| Kamehameha | 26 (10 = 1 bar, 0x0F) | >E, cond **0x2002**, cond2 1 | 0x24B/0x34B (+ 0x24C, 0x24D after combo) | c0 0x64 freezes f8 · c4 0x04/0x05 charge (ASE wk0) · c4 0x10 · **c0 0x68 f34** · c0 0x66 f35 · **c4 0x0 = AST wk0** (beam, 250 damage) f46 · c0 0x46/0x47 |
+| Kamehameha (response) | 26 | >E, cond 0x0002, **cond2 0x4003** | 0x26C | same but without 0x64/0x66, **c0 0x69** instead of 0x68, + c0 0x40/0x43 |
+| Soaring Dragon Strike | 27 (20 = 2 bars, 0x0F) | <E, cond 0x0002 | 0x24E (+0x24F/0x250) | 5 AP1 hits (80/30/90/100/110, the last type 2 = launches) · c4 0x24, 0x2C–0x30 (ASE) · c4 0x131 |
+| Hyper mode | — | P+K+G+E, cond 0x0400 | 0x259 | c7 0x4, c8 0x72 (probable camera), c0 0x64, c4 0x12C, c0 0x2C, c0 0x66 |
+| Super Kamehameha (ultimate) | 28 (50 = 5 bars, 0x0E = not in base form, requires 23 SSJ) | P+K+G+E, cond **0x000A**, cond2 0x8001 | 0x25A | rush; AP1 f30 HR 0x68 → **type 3, code 0 = SPX slot 0** |
+| Grab | — | P+G | 0x258 | AP1 HR 0xD0 → type 3, code 0x14 = **SPX slot 20** (common routine, BASE 0x480) |
 
-Gohan joven (ID 3) sigue el mismo patrón (`gohan_teen_b3.txt`): Kamehameha cápsula 20 (0x24A,
-respuesta 0x250), Soaring Dragon 21, Father-Son Kamehameha 22 (ranura 0, anims 0x4A0–0x4B6).
+Teen Gohan (ID 3) follows the same pattern (`gohan_teen_b3.txt`): Kamehameha capsule 20 (0x24A,
+response 0x250), Soaring Dragon 21, Father-Son Kamehameha 22 (slot 0, anims 0x4A0–0x4B6).
 
-### 1.3 Ki y formas: en la cápsula, no en el BCM
+### 1.3 Ki and forms: in the capsule, not in the BCM
 
-En B3 los especiales tienen **w9 (ki) = 0** en el BCM (solo las ráfagas de ki tienen ki ahí:
-350/375/400/425). El coste está en el registro `#SKC`:
+In B3 the specials have **w9 (ki) = 0** in the BCM (only the ki blasts have ki there:
+350/375/400/425). The cost is in the `#SKC` record:
 
 ```
-cápsula 26 Kamehameha     clase 0x21 formas 0x0f ki 10 (1 barra)
-cápsula 27 Soaring Dragon clase 0x21 formas 0x0f ki 20 (2 barras)
-cápsula 28 Super Kameh.   clase 0x21 formas 0x0e ki 50 (5 barras) requiere 0x17 (SSJ)
-cápsula 21/22 (Gohan joven) formas 0x04 = "solo SSJ2"  ← coincide con la ficha "Unusable without SSJ2"
+capsule 26 Kamehameha     class 0x21 forms 0x0f ki 10 (1 bar)
+capsule 27 Soaring Dragon class 0x21 forms 0x0f ki 20 (2 bars)
+capsule 28 Super Kameh.   class 0x21 forms 0x0e ki 50 (5 bars) requires 0x17 (SSJ)
+capsule 21/22 (Teen Gohan) forms 0x04 = "SSJ2 only"  ← matches the "Unusable without SSJ2" card
 ```
 
-`skc_ki_check.py`: en **169 de 191** cápsulas con texto "Consumes N Ki / N or more Ki", el byte
-+15 vale exactamente 10·N (los 22 fallos son de OCR o de fusiones). Corrige
-`docs/03_formatos/CAPSULAS_B3.md` (+15 no es "coste/nivel" sino ki; +16 es u16). Las cápsulas
-nuevas de `roster_build` copian la plantilla (especial = 13 → ki 10; definitiva = 10 → ki 50),
-que casualmente coincide con SB (1000 / 5000 de ki → 10 / 50).
+`skc_ki_check.py`: in **169 of 191** capsules with the text "Consumes N Ki / N or more Ki", byte
++15 is exactly 10·N (the 22 misses are OCR errors or fusions). It corrects
+`docs/03_formatos/CAPSULAS_B3.md` (+15 is not "cost/level" but ki; +16 is u16). The new
+`roster_build` capsules copy the template (special = 13 → ki 10; ultimate = 10 → ki 50), which
+coincidentally matches SB (1000 / 5000 ki → 10 / 50).
 
-### 1.4 Beam struggle (también responde a la petición de Discord de poder desactivarlo)
+### 1.4 Beam struggle (also answers the Discord request to be able to disable it)
 
-`beam_struggle_censo.txt` sobre los 38 personajes con BSP:
-- Las entradas BCM con **bit 0x2000** en la condición son exactamente los códigos cuyo AP7 lleva
-  **`c0 = 0x68`** (35/38 personajes; excepciones: Gohan joven en un remate, Buu M usa 0x2000
-  para otra cosa, Omega Shenron tiene 0x68 sin el bit).
-- Todo personaje con especial de rayo tiene **una** entrada extra de "respuesta" con **cond2 bit
-  0x4000** (0x4003), misma cápsula y botones, cuyo AP7 no congela la pantalla y lleva
+`beam_struggle_censo.txt` over the 38 characters with a BSP:
+- The BCM entries with **bit 0x2000** in the condition are exactly the codes whose AP7 carries
+  **`c0 = 0x68`** (35/38 characters; exceptions: Teen Gohan in a finisher, Buu M uses 0x2000
+  for something else, Omega Shenron has 0x68 without the bit).
+- Every character with a beam special has **one** extra "response" entry with **cond2 bit
+  0x4000** (0x4003), same capsule and buttons, whose AP7 does not freeze the screen and carries
   **`c0 = 0x69`** (+ 0x40 / 0x43).
-- Hipótesis (a validar en juego): 0x68 abre la ventana de choque durante la congelación; la
-  entrada 0x4000 es el rayo de contraataque que entra en el forcejeo. Quitar las entradas
-  cond2 0x4000 (o las líneas 0x68) debería desactivar los choques.
+- Hypothesis (to validate in game): 0x68 opens the clash window during the freeze; the 0x4000
+  entry is the counter-beam that enters the struggle. Removing the cond2 0x4000 entries (or the
+  0x68 lines) should disable the clashes.
 
-### 1.5 Definitivos: siempre cinemática SPX
+### 1.5 Ultimates: always an SPX cinematic
 
-`definitivos_b3.txt`: los 32 definitivos de B3 (29 personajes) son **P+K+G+E (0x0F), cond 0x000A** (0x001A si
-dependen de la forma), su golpe tiene HR **tipo 3 → SPX ranura 0** (Vegeta y Buu M: 2º/3er
-definitivo en ranuras 1/2). Las animaciones de la cinemática son bloques **sin AP** en los
-códigos **0x4A0+** (Gohan adulto 16, Gohan joven 23, Goku 23): el guion SPX las empuja
-(`08 20 a0 04`, `08 20 b0 04`) y lleva cámara (`#ACC` del bin CAM, 26 cámaras en Gohan adulto),
-daño y efectos. Ranura 20 = agarre (BASE 0x480: códigos 0x480/0x481/0x488/0x489).
-**Corrección** de notas anteriores (`b1port`, memoria): la ranura 0 no es "la acometida del
-modo hiper" sino el definitivo (cuyo inicio es la persecución tipo Dragon Rush), y 0x4A0–0x4BB
-no son "lanzamientos" sino las animaciones de la cinemática del definitivo.
+`definitivos_b3.txt`: B3's 32 ultimates (29 characters) are **P+K+G+E (0x0F), cond 0x000A**
+(0x001A if they depend on the form), their hit has HR **type 3 → SPX slot 0** (Vegeta and Buu
+M: 2nd/3rd ultimate in slots 1/2). The cinematic's animations are blocks **without AP** at codes
+**0x4A0+** (Adult Gohan 16, Teen Gohan 23, Goku 23): the SPX script pushes them (`08 20 a0 04`,
+`08 20 b0 04`) and carries the camera (the CAM bin's `#ACC`, 26 cameras in Adult Gohan), damage
+and effects. Slot 20 = grab (BASE 0x480: codes 0x480/0x481/0x488/0x489).
+**Correction** of earlier notes (`b1port`, memory): slot 0 is not "the hyper mode rush" but the
+ultimate (whose start is the Dragon Rush-like chase), and 0x4A0–0x4BB are not "throws" but the
+animations of the ultimate's cinematic.
 
-### 1.6 El BSP y sus códigos reservados (`bsp_censo_b3.txt`)
+### 1.6 The BSP and its reserved codes (`bsp_censo_b3.txt`)
 
-- `#AST` tipos usados en B3: 0 rayo (57), 1 bola (22), 11 (17), 3 proyectil (6), 2 barrera (4),
-  12 (Kaio-shin), 4–15 sueltos. El tipo 12 de SB existe en B3.
-- **AST 0x15E / 0x15F = aspecto de las ráfagas de ki** (rayo, daño 0, radio 0.7, huesos 15/14 =
-  manos) en Goku, Gohan niño/joven, Goten, Vegeta, Trunks, Piccolo, Ginyu, 17, Buu… El motor
-  los usa con `c0 = 0/1` (ráfaga). Es por esto que Zarbon "disparaba ráfagas de Broly".
-- ASE 0x67/0x68/0x69/0xC8 están en 20/38 BSP (enlazan a #AME del AMB principal 0x0E–0x10);
-  ASE 0x64 en 12. Conviene **heredarlos del donante**.
-- Categorías AP7: el enlace al BSP es la **categoría 4** (confirmado con la nota comunitaria
-  "Special effects breakdown" y con los datos). La categoría 0 son acciones del motor; el
-  `--quitar-efecto 64` de `b1port` quita la congelación (0x64), no un efecto del BSP.
+- `#AST` types used in B3: 0 beam (57), 1 ball (22), 11 (17), 3 projectile (6), 2 barrier (4),
+  12 (Kaio-shin), 4–15 individually. SB's type 12 exists in B3.
+- **AST 0x15E / 0x15F = the look of ki blasts** (beam, damage 0, radius 0.7, bones 15/14 =
+  hands) in Goku, Kid/Teen Gohan, Goten, Vegeta, Trunks, Piccolo, Ginyu, 17, Buu… The engine
+  uses them with `c0 = 0/1` (blast). That is why Zarbon "fired Broly's ki blasts".
+- ASE 0x67/0x68/0x69/0xC8 are in 20/38 BSPs (they link to #AME of the main AMB 0x0E–0x10); ASE
+  0x64 in 12. They should be **inherited from the donor**.
+- AP7 categories: the link to the BSP is **category 4** (confirmed with the community note
+  "Special effects breakdown" and with the data). Category 0 is engine actions; `b1port`'s
+  `--quitar-efecto 64` removes the freeze (0x64), not a BSP effect.
 
 ---
 
-## 2. Shin Budokai: dónde están las técnicas y qué hizo la conversión comunitaria
+## 2. Shin Budokai: where the techniques are and what the community conversion did
 
-### 2.1 Ficheros (SB2 Another Road, `data_btl_cmn.afs`, con nombres)
+### 2.1 Files (SB2 Another Road, `data_btl_cmn.afs`, with names)
 
-`BCGHF.amb` (= CAM+ANM juntos: `#AMC` vacío, `#SPX`, `#BCM`, `#BSK`, 3 `#AMM`), `BCGHFM1.amb`
-(forma SSJ, mismo BCM, BSK extra), `BCGHFB00–03.amb` (modelos), `BAR_GHF.amb` (aura),
-`BSP_GHF.amb` (técnicas), `AC_GHF.spx` (modo arcade, no técnicas). Textos de combate en
-`data_btl_us.afs` (`MSG_CMTGHF.ms` = frases de victoria; nombres de técnicas = texturas).
+`BCGHF.amb` (= CAM+ANM together: empty `#AMC`, `#SPX`, `#BCM`, `#BSK`, 3 `#AMM`), `BCGHFM1.amb`
+(SSJ form, same BCM, extra BSK), `BCGHFB00–03.amb` (models), `BAR_GHF.amb` (aura),
+`BSP_GHF.amb` (techniques), `AC_GHF.spx` (arcade mode, not techniques). Battle texts in
+`data_btl_us.afs` (`MSG_CMTGHF.ms` = victory quotes; technique names = textures).
 
-### 2.2 Diferencias de formato medidas (B3 ↔ SB2)
+### 2.2 Measured format differences (B3 ↔ SB2)
 
-| Capa | B3 | SB2 | Conversión |
+| Layer | B3 | SB2 | Conversion |
 |---|---|---|---|
-| BCM | bloque 64 B; códigos 0x2xx/0x3xx; ki de especiales en la cápsula; cond 0x0004 = transformar | mismo bloque; códigos **0x4xx/0x6xx**; w9 = 1000/5000; w8 = **booster**; cond **0x0004 = especial cuerpo a cuerpo**; definitivos **^E** cond 0x0008; sin modo hiper | por reglas (§3) |
-| BSK | sub-bloque 48 B; **líneas AP 16 B**; HR 8×16 B | sub-bloque 48 B igual; **líneas AP 20 B** (1373/1373 huecos medidos); HR 8×20 B | quitar 4 B de cola; AP1 con hitbox s16 (SB) → s8 (B3) (`bsk_oracle_ghl.txt`) |
-| SPX | cabecera `20/74/15`, librería común embebida, ranuras 0/20 | cabecera `20/1B4/65` (101 ranuras), sin la librería, otra VM; definitivos y especiales **sin** SPX (solo agarre = 20 y 0/1 de mecánicas comunes) | no se puede convertir: se usa el del donante |
-| `#AST` | 0xF0 | 0xF0, **mismos campos** (`ast_b3_vs_sb2_kamehameha.txt`); SB añade 2º daño (+0xCA) y +0xEC | copiar + renumerar código + reenlazar AME/AMT |
-| `#ASE` | 0xD0; hueso +0x80; formas +0xAA | **0xB0**; hueso +0x48; formas +0x9E; códigos +0x6A igual | remapeo por oráculo (`ase_oracle_ghl.txt`, 7 pares GHL) |
-| `#AME` | `#AME 02 00 00 00 n 10 00 00 00`, nodos Emitter/Particle/Field | `#AME 00 00 02 00 n 40 00 00 00 … 00 00 80 3f`, nodos Line/Sprite/Plane/Model/Gravity/Vortex/Omni Emitter… (`ame_nodos.txt`) | **no convertible**: sustituir por #AME del donante y recolorear |
-| `#AMT` | PS2 psm 0x13/0x14 | PSP psm 4/5 con swizzle | `psp_amo.convert_amt` (ya existe) |
-| Daño | — | SB ≈ B3 × 1,33–1,6 (Kamehameha 400 vs 250; jab 40 vs 30) | escalar ×0,63 (como B1) |
+| BCM | 64 B block; codes 0x2xx/0x3xx; specials' ki in the capsule; cond 0x0004 = transform | same block; codes **0x4xx/0x6xx**; w9 = 1000/5000; w8 = **booster**; cond **0x0004 = close-range special**; ultimates **^E** cond 0x0008; no hyper mode | by rules (§3) |
+| BSK | 48 B sub-block; **16 B AP lines**; HR 8×16 B | same 48 B sub-block; **20 B AP lines** (1373/1373 gaps measured); HR 8×20 B | drop the 4 B tail; AP1 with s16 hitbox (SB) → s8 (B3) (`bsk_oracle_ghl.txt`) |
+| SPX | header `20/74/15`, embedded common library, slots 0/20 | header `20/1B4/65` (101 slots), without the library, another VM; ultimates and specials **without** SPX (only grab = 20 and 0/1 of common mechanics) | cannot be converted: the donor's is used |
+| `#AST` | 0xF0 | 0xF0, **same fields** (`ast_b3_vs_sb2_kamehameha.txt`); SB adds a 2nd damage (+0xCA) and +0xEC | copy + renumber the code + relink AME/AMT |
+| `#ASE` | 0xD0; bone +0x80; forms +0xAA | **0xB0**; bone +0x48; forms +0x9E; codes +0x6A same | remap by oracle (`ase_oracle_ghl.txt`, 7 GHL pairs) |
+| `#AME` | `#AME 02 00 00 00 n 10 00 00 00`, Emitter/Particle/Field nodes | `#AME 00 00 02 00 n 40 00 00 00 … 00 00 80 3f`, Line/Sprite/Plane/Model/Gravity/Vortex/Omni Emitter… nodes (`ame_nodos.txt`) | **not convertible**: replace with the donor's #AME and recolour |
+| `#AMT` | PS2 psm 0x13/0x14 | PSP psm 4/5 with swizzle | `psp_amo.convert_amt` (already exists) |
+| Damage | — | SB ≈ B3 × 1.33–1.6 (Kamehameha 400 vs 250; jab 40 vs 30) | scale ×0.63 (as for B1) |
 
-Curiosidad útil: el BSP de **Gohan adulto en SB2** (`BSP_GHL`) desciende del de B3 (mismos
-códigos ASE 0x04/0x05, 0x24, 0x2C–0x2F; mismo AST código 0 Kamehameha): sirve de **oráculo**
-para mapear campos SB→B3, igual que los pares PS2/HD sirvieron para `ps2hd`.
+Useful curiosity: **Adult Gohan's BSP in SB2** (`BSP_GHL`) descends from B3's (same ASE codes
+0x04/0x05, 0x24, 0x2C–0x2F; same AST code 0 Kamehameha): it serves as an **oracle** to map SB→B3
+fields, just as the PS2/HD pairs served for `ps2hd`.
 
-### 2.3 Técnicas reales de Gohan del Futuro (SB2) — `ghf_sb2.txt`
+### 2.3 Future Gohan's real techniques (SB2) — `ghf_sb2.txt`
 
-| # | Entrada (booster) | Código | Efecto (BSP SB) | Lectura |
+| # | Input (booster) | Code | Effect (SB BSP) | Reading |
 |---|---|---|---|---|
-| S1 | >E (12), ki 1000 | 0x460 (+0x461 remate) | AST 0x15F **rayo** tipo 0, tex 44/45 **azules**, 400/560 | **Kamehameha** (texturas = las del Kamehameha de GHL) |
-| S2 | >E (2) | 0x488 (+0x489) | AST 0x160 bola tipo 1, hueso 14, 400/560 | bola de energía (¿Masenko?) |
-| S3 | <E (6), **cond 0x0004** | 0x48B (+0x48C) | golpe AP1 35 + c4 0x142 (común) | especial cuerpo a cuerpo / embestida |
-| S4 | >E (1) | 0x491 (+0x492) | AST 0x162 bola lenta, radio 17, dura 8–14 | explosión de corto alcance |
-| S5 | <E (8) | 0x495 (+0x496) | AST 0x161 proyectil tipo 3, 500/600 | ráfaga/proyectil |
-| S6 | <E (1) | 0x49C (+0x49D) | golpe + AST 0x15E bola, 500/650 | golpe y bola |
-| U1 | ^E (1), ki 5000, cond 0x0008 | 0x499 | AST 0x168 **tipo 12**, 900, juggle, tex 24/57 **magenta** | definitivo 1 (onda magenta) |
-| U2 | ^E (14), ki 5000 | 0x464 | AST 0x169 rayo **radio 23, 1000/1600**, tex 44/45 azules | definitivo 2 = gemelo exacto del **Super Kamehameha** de GHL en SB2 (mismos valores) |
+| S1 | >E (12), ki 1000 | 0x460 (+0x461 finisher) | AST 0x15F **beam** type 0, tex 44/45 **blue**, 400/560 | **Kamehameha** (textures = those of GHL's Kamehameha) |
+| S2 | >E (2) | 0x488 (+0x489) | AST 0x160 ball type 1, bone 14, 400/560 | energy ball (Masenko?) |
+| S3 | <E (6), **cond 0x0004** | 0x48B (+0x48C) | AP1 hit 35 + c4 0x142 (common) | close-range special / rush |
+| S4 | >E (1) | 0x491 (+0x492) | AST 0x162 slow ball, radius 17, lasts 8–14 | short-range explosion |
+| S5 | <E (8) | 0x495 (+0x496) | AST 0x161 projectile type 3, 500/600 | blast/projectile |
+| S6 | <E (1) | 0x49C (+0x49D) | hit + AST 0x15E ball, 500/650 | hit and ball |
+| U1 | ^E (1), ki 5000, cond 0x0008 | 0x499 | AST 0x168 **type 12**, 900, juggle, tex 24/57 **magenta** | ultimate 1 (magenta wave) |
+| U2 | ^E (14), ki 5000 | 0x464 | AST 0x169 beam **radius 23, 1000/1600**, tex 44/45 blue | ultimate 2 = exact twin of GHL's **Super Kamehameha** in SB2 (same values) |
 
-Cada AST va en pareja (normal / potenciado). Ningún especial ni definitivo de SB2 usa SPX: el
-"definitivo" de SB es un rayo con congelación (`c0 0x67` … `0x66`), no una cinemática. Los
-nombres oficiales no están como texto en la ISO (búsqueda UTF-16/ASCII en `data_sys_us`,
-`data_btl_us`, `BOOT.BIN`: sin resultados); son texturas de menú.
+Each AST comes in a pair (normal / powered up). No SB2 special or ultimate uses SPX: SB's
+"ultimate" is a beam with a freeze (`c0 0x67` … `0x66`), not a cinematic. The official names are
+not in the ISO as text (UTF-16/ASCII search in `data_sys_us`, `data_btl_us`, `BOOT.BIN`: no
+results); they are menu textures.
 
-### 2.4 La "conversión comunitaria" es una copia (`oracle_ghf.py` del explorador 01)
-
-```
-ghf_367.bin: #BSK 157824 = SB2 BCGHF hijo 3 (idéntico) · 3 #AMM = hijos 5,6,7 (idénticos, formato SB)
-ghf_365.bin: #AMC 32 B, #BCM 5996, #SPX 4136 = hijos 0, 2, 1 de BCGHF (idénticos)
-```
-
-El port del proyecto convirtió las AMM con `sb_amm.py` (bien) pero dejó el BSK tal cual
-(`BSK del port == SB2: True`). Así lee B3 el AP7 del Kamehameha (código 0x460) en el `#CSK` HD:
+### 2.4 The "community conversion" is a copy (`oracle_ghf.py` of explorer 01)
 
 ```
-SB2 real (20 B):  01 00 03 02 03 00 00 00 4a 00 00 00 00 00 00 00 00 00 00 00
-                  0a 00 04 02 02 00 00 00 1c 08 00 00 …  (voz)   …  2d 00 09 02 04 00 00 00 5f 01 … (rayo 0x15F)
-B3 leyendo 16 B:  f1 id3 cat3 val=0x4a | f0 cat33816586 val=0x2 | f0 cat0 val=0x207000b | f10 cat0 val=0 | …
+ghf_367.bin: #BSK 157824 = SB2 BCGHF child 3 (identical) · 3 #AMM = children 5,6,7 (identical, SB format)
+ghf_365.bin: #AMC 32 B, #BCM 5996, #SPX 4136 = children 0, 2, 1 of BCGHF (identical)
 ```
 
-### 2.5 Por qué `tecnicas.bin` está comentado
+The project's port converted the AMMs with `sb_amm.py` (correct) but left the BSK as is (`port
+BSK == SB2: True`). This is how B3 reads the Kamehameha's AP7 (code 0x460) in the HD `#CSK`:
 
-No hay nota escrita (handbacks, memoria, scratchpad), pero `personaje_full.toml` (14:22 del
-04-10) lo tenía activo y el definitivo lo comenta. Los datos muestran que no podía funcionar:
-- `#ACE` del port: `23 41 43 45 00 02 00 00 00 00 00 14 00 00 00 40 … 3f 80 00 00` frente al de
-  B3 `23 41 43 45 00 00 00 02 00 00 00 08 00 00 00 10`: B3 leería versión/recuento/inicio
-  erróneos en todos los `#AME`.
-- `#CSE` con 18 bloques de 0xB0 que B3 recorre a 0xD0.
-- AST con códigos 0x15E/0x15F (= ráfagas de ki en B3) con 400–650 de daño.
-- Además el BSK no los alcanzaría (AP7 desalineado), así que no aportaba nada y sí riesgo.
+```
+real SB2 (20 B):  01 00 03 02 03 00 00 00 4a 00 00 00 00 00 00 00 00 00 00 00
+                  0a 00 04 02 02 00 00 00 1c 08 00 00 …  (voice)   …  2d 00 09 02 04 00 00 00 5f 01 … (beam 0x15F)
+B3 reading 16 B:  f1 id3 cat3 val=0x4a | f0 cat33816586 val=0x2 | f0 cat0 val=0x207000b | f10 cat0 val=0 | …
+```
 
-### 2.6 Otros problemas del port actual que afectan a las técnicas
+### 2.5 Why `tecnicas.bin` is commented out
 
-- `[[capsula]] reemplaza = 12, 2, 1, 8, 14`: el booster 1 lo comparten S4, S6 **y** U1 → la
-  cápsula "Special 3" activaría también el definitivo U1; S3 (booster 6) se queda fuera.
-- S3 lleva cond 0x0004 → B3 lo trata como **transformación** con <E (y `formas = 1`).
-- Sin entrada de modo hiper (cond 0x0400) → en B3 los definitivos no son alcanzables; los
-  definitivos de SB se pulsan con ^E, no con P+K+G+E.
-- `#ACC` vacío (SB no usa cámaras): cualquier guion o línea de cámara del donante no tendría
-  datos.
-- El `#SPX` es de SB: si un agarre conectase (HR tipo 3 → ranura 20) B3 ejecutaría bytecode de
-  otra VM (riesgo de cuelgue).
-- `c0 = 0x7D0` en U2: código de SB desconocido para B3 → quitarlo.
+There is no written note (handbacks, memory, scratchpad), but `personaje_full.toml` (14:22 on
+04-10) had it active and the final one comments it out. The data show it could not work:
+- The port's `#ACE`: `23 41 43 45 00 02 00 00 00 00 00 14 00 00 00 40 … 3f 80 00 00` versus
+  B3's `23 41 43 45 00 00 00 02 00 00 00 08 00 00 00 10`: B3 would read a wrong
+  version/count/start in every `#AME`.
+- `#CSE` with 18 0xB0 blocks that B3 walks at 0xD0.
+- AST with codes 0x15E/0x15F (= ki blasts in B3) with 400–650 damage.
+- Moreover the BSK would not reach them (misaligned AP7), so it added nothing but risk.
+
+### 2.6 Other problems of the current port affecting the techniques
+
+- `[[capsula]] reemplaza = 12, 2, 1, 8, 14`: booster 1 is shared by S4, S6 **and** U1 → the
+  "Special 3" capsule would also enable ultimate U1; S3 (booster 6) is left out.
+- S3 carries cond 0x0004 → B3 treats it as a **transformation** with <E (and `formas = 1`).
+- No hyper mode entry (cond 0x0400) → in B3 the ultimates cannot be reached; SB's ultimates are
+  pressed with ^E, not P+K+G+E.
+- Empty `#ACC` (SB uses no cameras): any script or camera line of the donor would have no data.
+- The `#SPX` is SB's: if a grab connected (HR type 3 → slot 20) B3 would execute bytecode of
+  another VM (risk of a hang).
+- `c0 = 0x7D0` in U2: an SB code unknown to B3 → remove it.
 
 ---
 
-## 3. Estrategia: "reformular" las técnicas de SB sobre el sistema de B3
+## 3. Strategy: "reformulating" SB's techniques on top of B3's system
 
-**Principio**: el personaje se construye **sobre el donante B3** (Gohan adulto, ID 4: mismo
-esqueleto por sufijo `GHL_*` ↔ `GHF_*`, mismas técnicas de familia Kamehameha) y se le injerta
-lo propio de SB que sea compatible. Lo que B3 exige y SB no trae (modo hiper, cinemática,
-cámara, entradas de beam struggle, efectos reservados) viene del donante.
+**Principle**: the character is built **on the B3 donor** (Adult Gohan, ID 4: same skeleton by
+suffix `GHL_*` ↔ `GHF_*`, same Kamehameha-family techniques) and SB's own compatible parts are
+grafted onto it. What B3 requires and SB does not bring (hyper mode, cinematic, camera, beam
+struggle entries, reserved effects) comes from the donor.
 
-### 3.1 Por capas
+### 3.1 By layers
 
-1. **BCM** (automático, reglas):
-   - códigos 0x4xx/0x6xx → códigos libres 0x26x–0x27x / 0x36x–0x37x del rango de B3 (evita
-     chocar con 0x480/0x488/0x489 del agarre del donante y con 0x4A0+ de la cinemática);
-   - SB cond 0x0004 → 0x0002; booster → cápsula nueva (una por técnica, no por booster);
-   - w9 → 0 y el ki a la cápsula (+15 = w9/100: 10 especiales, 50 definitivos);
-   - remates (cond2 0x8000/0x8101, ventana 0x7530) → patrón de remate de B3 (hijos de combo
-     con la misma cápsula, como 0x24C/0x24D del donante);
-   - definitivos ^E → P+K+G+E cond 0x000A cond2 0x8001; injertar la entrada de **modo hiper**
-     del donante y ordenarla delante (`capsulas.hyper_first`).
-2. **BSK** (automático; compartido con el explorador de moveset): líneas 20 → 16 B, HR 160 →
-   128 B, AP1 hitbox s16 → s8, daño ×0,63, voces c2/c3 a ranuras del banco de gritos
-   (`gritos.py`), quitar códigos c0 desconocidos (0x7D0). Validable offline contra el par
-   SB2-GHL / B3-GHL (mismos golpes).
-3. **BSP híbrido** (automático + ajuste visual):
-   - base = BSP del donante (528) completo → conserva ASE 0x67–0x69/0xC8/0x64, AST 0x15E/0x15F
-     de ráfaga, `#AWV`, modelos y su `#AMM`;
-   - añadir los AST de SB (copia de 0xF0) **renumerados** a códigos libres (0x1–0x9…), con las
-     texturas del rayo importadas al `#AZT` grande del donante (`psp_amo.convert_amt` +
-     `azt_append`) y el AP7 c4 del BSK reescrito al nuevo código;
-   - añadir los ASE de SB remapeados 0xB0 → 0xD0 (tabla del oráculo GHL; huesos por tabla);
-   - partículas: cada ASE/AST de SB se enlaza a un `#AME` **del donante con el mismo papel**
-     (carga en manos = ASE 0x04/0x05 del Kamehameha; boca del rayo; impacto) y se recolorea
-     (bloques de color RGBA float y texturas). El magenta de U1 y el azul de S1/U2 salen de las
-     texturas de SB.
-4. **Definitivo cinemático (U2 → "Super Kamehameha" de GHF)**: injertar del donante la entrada
-   BCM, el bloque 0x25A (carrera + HR tipo 3 código 0), el **SPX completo** (ranuras 0 y 20),
-   el **`#ACC` + `#ACL`** y las animaciones 0x4A0–0x4AF (`b1port.bsk_graft` + `Amm`); opcional:
-   cambiar la animación del disparo final por la de SB (anim 132) **remuestreada a la duración
-   de la del donante**, para no tocar los tiempos del guion. Los efectos del guion apuntan al
-   BSP del donante, que está en la base híbrida.
-5. **Segundo definitivo (U1, onda magenta tipo 12)**: dos opciones. (a) Especial potente no
-   cinemático (es lo que es en SB; seguro). (b) 2º definitivo en ranura 1 (precedente: Vegeta
-   cápsula 44, Buu M) injertando una segunda cinemática de otro donante: más trabajo y riesgo.
-   Recomendado (a) en la primera versión.
-6. **Beam struggle para S1 (Kamehameha)**: marcar sus entradas con 0x2000, insertar en su AP7
-   `c0 0x64` (inicio), `c0 0x68` y `c0 0x66` anclados al frame de disparo (en el donante: 38,
-   12 y 11 frames antes del c4 del rayo) y crear la entrada de respuesta cond2 0x4003 con su
-   variante (sin 0x64/0x66, `c0 0x69`, 0x40, 0x43). Todo copiando el patrón de 0x24B/0x26C.
-7. **Cápsulas**: 6 especiales + 1–2 definitivos con nombre provisional, ki de SB (+15), formas
-   (+14 = 0x01 con `formas = 1`), sin "reemplaza" por booster sino por técnica.
+1. **BCM** (automatic, rules):
+   - codes 0x4xx/0x6xx → free codes 0x26x–0x27x / 0x36x–0x37x of B3's range (avoids clashing
+     with the donor's grab 0x480/0x488/0x489 and the cinematic's 0x4A0+);
+   - SB cond 0x0004 → 0x0002; booster → a new capsule (one per technique, not per booster);
+   - w9 → 0 and the ki to the capsule (+15 = w9/100: 10 specials, 50 ultimates);
+   - finishers (cond2 0x8000/0x8101, window 0x7530) → B3's finisher pattern (combo children
+     with the same capsule, like the donor's 0x24C/0x24D);
+   - ^E ultimates → P+K+G+E cond 0x000A cond2 0x8001; graft the donor's **hyper mode** entry
+     and order it first (`capsulas.hyper_first`).
+2. **BSK** (automatic; shared with the moveset explorer): 20 → 16 B lines, HR 160 → 128 B, AP1
+   hitbox s16 → s8, damage ×0.63, c2/c3 voices to yell bank slots (`gritos.py`), remove unknown
+   c0 codes (0x7D0). Validatable offline against the SB2-GHL / B3-GHL pair (same hits).
+3. **Hybrid BSP** (automatic + visual tuning):
+   - base = the donor's whole BSP (528) → keeps ASE 0x67–0x69/0xC8/0x64, blast AST
+     0x15E/0x15F, `#AWV`, models and their `#AMM`;
+   - add SB's ASTs (0xF0 copy) **renumbered** to free codes (0x1–0x9…), with the beam textures
+     imported into the donor's large `#AZT` (`psp_amo.convert_amt` + `azt_append`) and the
+     BSK's AP7 c4 rewritten to the new code;
+   - add SB's ASEs remapped 0xB0 → 0xD0 (GHL oracle table; bones by table);
+   - particles: each SB ASE/AST is linked to a **donor `#AME` with the same role** (hand charge
+     = the Kamehameha's ASE 0x04/0x05; beam mouth; impact) and recoloured (RGBA float colour
+     blocks and textures). U1's magenta and S1/U2's blue come from SB's textures.
+4. **Cinematic ultimate (U2 → GHF's "Super Kamehameha")**: graft from the donor the BCM entry,
+   block 0x25A (rush + HR type 3 code 0), the **whole SPX** (slots 0 and 20), the **`#ACC` +
+   `#ACL`** and animations 0x4A0–0x4AF (`b1port.bsk_graft` + `Amm`); optional: replace the final
+   shot's animation with SB's (anim 132) **resampled to the donor's duration**, so as not to
+   touch the script's timing. The script's effects point to the donor's BSP, which is in the
+   hybrid base.
+5. **Second ultimate (U1, type-12 magenta wave)**: two options. (a) A powerful non-cinematic
+   special (it is what it is in SB; safe). (b) A 2nd ultimate in slot 1 (precedent: Vegeta
+   capsule 44, Buu M) grafting a second cinematic from another donor: more work and risk.
+   Recommended (a) in the first version.
+6. **Beam struggle for S1 (Kamehameha)**: mark its entries with 0x2000, insert into its AP7
+   `c0 0x64` (start), `c0 0x68` and `c0 0x66` anchored to the firing frame (in the donor: 38, 12
+   and 11 frames before the beam's c4) and create the response entry cond2 0x4003 with its
+   variant (without 0x64/0x66, `c0 0x69`, 0x40, 0x43). All copying the pattern of 0x24B/0x26C.
+7. **Capsules**: 6 specials + 1–2 ultimates with provisional names, SB's ki (+15), forms (+14 =
+   0x01 with `formas = 1`), without "reemplaza" by booster but by technique.
 
-### 3.2 Qué se automatiza y qué es artesanal
+### 3.2 What is automated and what is craft
 
-| Automatizable (herramienta `sbport.py` o ampliar `b1port`/`ps2hd`) | A mano / iterativo |
+| Automatable (tool `sbport.py` or extend `b1port`/`ps2hd`) | By hand / iterative |
 |---|---|
-| BSK 20→16, HR, AP1 hitbox, daño, remapeo de códigos | Elegir qué #AME del donante representa cada efecto de SB |
-| BCM: conds, boosters → cápsulas, ki, hiper, remates | Recolorear partículas hasta que "parezcan oficiales" |
-| AST: copia, renumeración, texturas, enlaces | Qué animación de GHF sustituye a cuál en la cinemática |
-| ASE: remapeo 0xB0→0xD0 por oráculo | Equilibrio de daño/ki fino |
-| Injerto de hiper, definitivo (SPX, ACC, 0x4A0+), agarre | Nombres oficiales de las técnicas |
-| Patrón de beam struggle anclado al frame de disparo | Decidir U1 como especial o como 2º definitivo |
-| Comprobaciones offline (todas las líneas AP con categorías válidas, códigos c4 existentes en el BSP, sin 0x15E/0x15F con daño, estilo `deep.py`) | |
+| BSK 20→16, HR, AP1 hitbox, damage, code remap | Choosing which donor #AME represents each SB effect |
+| BCM: conds, boosters → capsules, ki, hyper, finishers | Recolouring particles until they "look official" |
+| AST: copy, renumbering, textures, links | Which GHF animation replaces which in the cinematic |
+| ASE: 0xB0→0xD0 remap by oracle | Fine damage/ki balance |
+| Grafting hyper, ultimate (SPX, ACC, 0x4A0+), grab | Official technique names |
+| Beam struggle pattern anchored to the firing frame | Deciding U1 as a special or as a 2nd ultimate |
+| Offline checks (all AP lines with valid categories, c4 codes existing in the BSP, no 0x15E/0x15F with damage, `deep.py` style) | |
 
 ---
 
-## 4. Plan concreto, riesgos, esfuerzo y validación
+## 4. Concrete plan, risks, effort and validation
 
-| Fase | Contenido | Esfuerzo | Validación |
+| Phase | Content | Effort | Validation |
 |---|---|---|---|
-| F0 | Conversor SB→B3 de BSK/BCM (con el explorador de moveset) + comprobador offline | 1–2 sesiones | offline vs par GHL; en juego: golpes y combos de GHF |
-| F1 | BSP híbrido (donante + AST/ASE de SB + texturas) y AP7 c4 reescritos | 1–2 sesiones | offline: cada c4 existe; en juego: S1–S6 disparan su energía |
-| F2 | Partículas: mapeo de papel + recoloreado | 1 sesión + iteraciones | capturas en juego frente a vídeo de SB2 |
-| F3 | Hiper + definitivo cinemático injertado (U2) + agarre del donante | 1–2 sesiones | en juego: LT/L2, P+K+G+E, cinemática completa sin poses rotas |
-| F4 | Beam struggle (S1) + cápsulas (ki/formas/nombres) | 0,5 sesión | en juego: Kamehameha contra Kamehameha |
-| F5 | U1 como especial potente; voces de técnicas | 0,5 sesión | en juego |
+| F0 | SB→B3 BSK/BCM converter (with the moveset explorer) + offline checker | 1–2 sessions | offline vs the GHL pair; in game: GHF's hits and combos |
+| F1 | Hybrid BSP (donor + SB AST/ASE + textures) and rewritten AP7 c4 | 1–2 sessions | offline: every c4 exists; in game: S1–S6 fire their energy |
+| F2 | Particles: role mapping + recolouring | 1 session + iterations | in-game captures versus SB2 video |
+| F3 | Hyper + grafted cinematic ultimate (U2) + the donor's grab | 1–2 sessions | in game: LT/L2, P+K+G+E, full cinematic without broken poses |
+| F4 | Beam struggle (S1) + capsules (ki/forms/names) | 0.5 session | in game: Kamehameha against Kamehameha |
+| F5 | U1 as a powerful special; technique voices | 0.5 session | in game |
 
-Riesgos:
-- **Motor B3 + datos parciales de SB**: cualquier código c0 desconocido o enlace AME roto puede
-  cerrar el juego → limpiar con lista blanca de categorías/valores vistos en B3.
-- **Cinemática**: las animaciones de la víctima salen del AMM 2 (3712 anims genéricas); el de
-  SB tiene el mismo recuento pero otro contenido → usar el AMM 2 del donante.
-- **Huesos extra de GHF** (`LOBI1-3`, faldón): quedan en reposo durante las animaciones del
-  donante; puede notarse.
-- Las ranuras ASE 0x67–0x69/0xC8 y el byte +20 de la cápsula (0x45 heredado de Goku en el
-  definitivo nuevo) tienen función no confirmada.
-- Choque con el trabajo de otros exploradores (moveset, transformaciones): F0 es común.
+Risks:
+- **B3 engine + partial SB data**: any unknown c0 code or broken AME link may close the game →
+  clean up with a whitelist of categories/values seen in B3.
+- **Cinematic**: the victim's animations come from AMM 2 (3712 generic anims); SB's has the same
+  count but other content → use the donor's AMM 2.
+- **GHF's extra bones** (`LOBI1-3`, coat tail): they stay at rest during the donor's
+  animations; it may be noticeable.
+- ASE slots 0x67–0x69/0xC8 and the capsule's byte +20 (0x45 inherited from Goku in the new
+  ultimate) have an unconfirmed function.
+- Clash with the other explorers' work (moveset, transformations): F0 is shared.
 
-En juego hace falta validar (el usuario guía hasta el personaje): golpes normales tras F0;
-cada especial S1–S6 (efecto, daño, ki); modo hiper y definitivo; beam struggle S1 contra un
-rayo de B3; que la ráfaga de ki (E) siga con su aspecto y daño normales; Edit Skills con las
-cápsulas nuevas.
-
----
-
-## 5. Preguntas abiertas
-
-1. Nombres oficiales de S2–S6 y U1 (¿Masenko? ¿la onda magenta?): confirmar con el usuario /
-   Kanzenshuu, o descodificar las texturas de la lista de comandos de SB2.
-2. ¿U1 como especial potente (recomendado) o como 2º definitivo cinemático?
-3. ¿Se quiere beam struggle para GHF desde el principio?
-4. ¿Qué hace exactamente cond2 0x4000 y c0 0x68/0x69 (prueba A/B en juego antes de ofrecer el
-   interruptor de Discord)?
-5. Significado de `#SKC` +20 (4 en los especiales de Gohan, 0x48 en su definitivo) y de las
-   categorías AP7 7/8 (¿cámara del modo hiper?).
+In game it must be validated (the user guides up to the character): normal hits after F0; each
+special S1–S6 (effect, damage, ki); hyper mode and ultimate; beam struggle S1 against a B3 beam;
+that the ki blast (E) keeps its normal look and damage; Edit Skills with the new capsules.
 
 ---
 
-## 6. Evidencias y scripts (en esta carpeta)
+## 5. Open questions
 
-- `tec_b3.py` — cadena BCM→BSK→BSP→SPX de un personaje B3 (`python tec_b3.py <cam> <anm> <bsp>`).
-- `tec_sb.py` — lo mismo para SB2 con sus formatos (`python tec_sb.py BCxxx.amb BSP_xxx.amb`).
-- `tree.py`, `sbafs.py` (copia del explorador 01) — árbol #AMB LE/BE; lector de AFS de PSP.
-- `skc_ki_check.py` / `skc_ki_check.txt` — ki y formas en el `#SKC`.
-- `gohan_adulto_b3.txt`, `gohan_teen_b3.txt`, `goku_b3.txt`, `nappa_b3.txt` — cadenas B3.
-- `ghf_sb2.txt`, `ghf_m1_sb2.txt` — técnicas de GHF en SB2 (forma base y SSJ).
-- `beam_struggle_censo.txt`, `definitivos_b3.txt`, `bsp_censo_b3.txt` — censos de los 38.
+1. Official names of S2–S6 and U1 (Masenko? the magenta wave?): confirm with the user /
+   Kanzenshuu, or decode the textures of SB2's command list.
+2. U1 as a powerful special (recommended) or as a 2nd cinematic ultimate?
+3. Is beam struggle wanted for GHF from the start?
+4. What exactly do cond2 0x4000 and c0 0x68/0x69 do (A/B test in game before offering the
+   Discord switch)?
+5. Meaning of `#SKC` +20 (4 in Gohan's specials, 0x48 in his ultimate) and of AP7 categories
+   7/8 (hyper mode camera?).
+
+---
+
+## 6. Evidence and scripts (in this folder)
+
+- `tec_b3.py` — BCM→BSK→BSP→SPX chain of a B3 character (`python tec_b3.py <cam> <anm> <bsp>`).
+- `tec_sb.py` — the same for SB2 with its formats (`python tec_sb.py BCxxx.amb BSP_xxx.amb`).
+- `tree.py`, `sbafs.py` (copy from explorer 01) — LE/BE #AMB tree; PSP AFS reader.
+- `skc_ki_check.py` / `skc_ki_check.txt` — ki and forms in the `#SKC`.
+- `gohan_adulto_b3.txt`, `gohan_teen_b3.txt`, `goku_b3.txt`, `nappa_b3.txt` — B3 chains.
+- `ghf_sb2.txt`, `ghf_m1_sb2.txt` — GHF's techniques in SB2 (base form and SSJ).
+- `beam_struggle_censo.txt`, `definitivos_b3.txt`, `bsp_censo_b3.txt` — censuses of the 38.
 - `ast_b3_vs_sb2_kamehameha.txt`, `ase_oracle_ghl.txt`, `bsk_oracle_ghl.txt`, `ame_nodos.txt`
-  — comparaciones de formato B3 ↔ SB2.
-- `texturas_rayos_montaje.png` — texturas: U1 (magenta 24/57), S1/U2 (44/45), GHL SB2 (34), B3 (42).
-- `sb2_btl_us.txt`, `sb2_sys_us.txt` — listados de AFS de SB2.
-- En `D:\DBZ3HD\explore\02_tecnicas\`: bins PS2/HD extraídos (528, 529, 231, 234, 241, 245…),
-  `BSP_GHL_sb2.amb`, `BCGHL_sb2.amb`, `BSP_CMN_sb2.amb`, `menu_*.amb`, texturas PNG; caché de
-  `afs_pair` en `tmp\` (se fijó `TEMP` ahí para no escribir fuera).
+  — B3 ↔ SB2 format comparisons.
+- `texturas_rayos_montaje.png` — textures: U1 (magenta 24/57), S1/U2 (44/45), GHL SB2 (34), B3 (42).
+- `sb2_btl_us.txt`, `sb2_sys_us.txt` — SB2 AFS listings.
+- In the exploration work folder (`02_tecnicas\`): extracted PS2/HD bins (528, 529, 231, 234,
+  241, 245…), `BSP_GHL_sb2.amb`, `BCGHL_sb2.amb`, `BSP_CMN_sb2.amb`, `menu_*.amb`, PNG textures;
+  `afs_pair` cache in `tmp\` (`TEMP` was set there so as not to write outside).

@@ -1,44 +1,41 @@
-# Sesión 2026-09-23 — Volcado de texturas: formatos del HUD + packs RGBA8 (v1.2.8.1)
+# Session 2026-09-23 — Texture dump: HUD formats + RGBA8 packs (v1.2.8.1)
 
-> Seguimiento del **issue #11** ("Error al dumpear texturas"). El fix del volcado
-> entró en la **v1.2.8**; al probarlo, el reporter (`mellisxboxkp`) confirmó que
-> ya volcaba y reportó **dos cosas más**:
+> Follow-up of **issue #11** ("Error al dumpear texturas"). The dump fix went
+> into **v1.2.8**; when testing it, the reporter (`mellisxboxkp`) confirmed it
+> now dumped and reported **two more things**:
 >
-> 1. "no se guardan todas las texturas que se ven en pantalla, solo algunas, el
->    volcado parece omitir la mayoría de texturas del HUD exceptuando algunos
->    fonts";
-> 2. "algunas texturas aparecen como un cuadrado negro, cosa que en PCSX2 no
->    pasa".
+> 1. "not every texture seen on screen is saved, only some, the dump seems to
+>    skip most of the HUD textures except some fonts";
+> 2. "some textures appear as a black square, which does not happen in PCSX2".
 >
-> Esta sesión arregla (1), explica (2) y amplía los packs a las texturas RGBA8.
-> Publicado en **v1.2.8.1**.
+> This session fixes (1), explains (2) and extends packs to RGBA8 textures.
+> Published in **v1.2.8.1**.
 
 ---
 
-## 1. Por qué faltaban texturas (causa)
+## 1. Why textures were missing (cause)
 
-`Dbz3DdsFourCc()` (`src/graphics/dbz3_texture_pack.cpp`) solo reconocía
-**DXT1 / DXT2_3 / DXT4_5**; para cualquier otro formato devolvía `0` y el volcado
-hacía `return` **en silencio**. Como el HUD/UI/menús del juego usan sobre todo
-formatos **sin comprimir** (`k_8_8_8_8`, `k_1_5_5_5`, `k_5_6_5`, `k_8`...), el
-volcado se quedaba con los DXT y unos pocos fonts: exactamente lo que describía
-el reporter.
+`Dbz3DdsFourCc()` (`src/graphics/dbz3_texture_pack.cpp`) only recognised
+**DXT1 / DXT2_3 / DXT4_5**; for any other format it returned `0` and the dump
+did a **silent** `return`. Since the game's HUD/UI/menus mostly use
+**uncompressed** formats (`k_8_8_8_8`, `k_1_5_5_5`, `k_5_6_5`, `k_8`...), the
+dump kept the DXT ones and a few fonts: exactly what the reporter described.
 
-Además el volcado **no avisaba** de nada, así que parecía que el juego "no
-tenía" esas texturas.
+Moreover the dump **warned about nothing**, so it looked as if the game "did
+not have" those textures.
 
-## 2. Layouts de bits (verificados, no adivinados)
+## 2. Bit layouts (verified, not guessed)
 
-Un DDS sin comprimir necesita **máscaras de bits**, y como el volcado es el
-bitmap **CRUDO** (byte a byte, sin decodificar), las máscaras tienen que ser las
-del **guest**. Hay una trampa: en Xenos varios formatos tienen el **rojo en los
-bits bajos** (`k_5_6_5` = R en 0-4), al contrario de lo que sugiere el nombre.
+An uncompressed DDS needs **bit masks**, and since the dump is the **RAW**
+bitmap (byte for byte, undecoded), the masks have to be the **guest's**. There
+is a trap: in Xenos several formats have **red in the low bits** (`k_5_6_5` =
+R in 0-4), contrary to what the name suggests.
 
-Se verificó contra la fuente original (Xenia, `pixel_formats.xesli`, funciones
-`XePack*UNorm` y las conversiones `XeR5G6B5ToB5G6R5`, `XeR4G4B4A4ToB4G4R4A4`,
-`XeR5G5B6ToB5G6R5WithRBGASwizzle`):
+Verified against the original source (Xenia, `pixel_formats.xesli`, functions
+`XePack*UNorm` and the conversions `XeR5G6B5ToB5G6R5`,
+`XeR4G4B4A4ToB4G4R4A4`, `XeR5G5B6ToB5G6R5WithRBGASwizzle`):
 
-| Formato | fmt | DDS | bits | R | G | B | A |
+| Format | fmt | DDS | bits | R | G | B | A |
 |---|---|---|---|---|---|---|---|
 | `k_8_8_8_8` | 6 | RGBA8 | 32 | `0x000000FF` | `0x0000FF00` | `0x00FF0000` | `0xFF000000` |
 | `k_2_10_10_10` | 7 | RGBA1010102 | 32 | `0x000003FF` | `0x000FFC00` | `0x3FF00000` | `0xC0000000` |
@@ -49,120 +46,122 @@ Se verificó contra la fuente original (Xenia, `pixel_formats.xesli`, funciones
 | `k_8` / `k_8_A` | 2 / 8 | L8 | 8 | `0xFF` | — | — | — |
 | `k_8_8` | 10 | L8A8 | 16 | `0x00FF` | — | — | `0xFF00` |
 
-Comprimidos (sin cambio): DXT1/DXT2_3/DXT4_5 (y sus variantes `_AS_16_16_16_16`)
-con su FourCC.
+Compressed (unchanged): DXT1/DXT2_3/DXT4_5 (and their `_AS_16_16_16_16`
+variants) with their FourCC.
 
-⚠️ **Ojo**: el `texture_dump.cc` de Xenia (antiguo) escribe para `k_8_8_8_8` las
-máscaras `R=0x00FF0000` (BGRA). **Es incorrecto** para esta base de código:
-`XePackR8G8B8A8UNorm` empaqueta `R | G<<8 | B<<16 | A<<24` (byte 0 = R), que es
-también lo que asume el `texture_load_32bpb` (passthrough) y la mejora HD de
-RGBA8 nativas ya validada. **No copiar las máscaras de ahí.**
+⚠️ **Careful**: Xenia's (old) `texture_dump.cc` writes for `k_8_8_8_8` the
+masks `R=0x00FF0000` (BGRA). **That is wrong** for this codebase:
+`XePackR8G8B8A8UNorm` packs `R | G<<8 | B<<16 | A<<24` (byte 0 = R), which is
+also what `texture_load_32bpb` (passthrough) and the already-validated HD
+upscale of native RGBA8 assume. **Do not copy the masks from there.**
 
-## 3. Cambios
+## 3. Changes
 
-| Fichero | Cambio |
+| File | Change |
 |---|---|
-| `src/graphics/dbz3_texture_pack.h` | `Dbz3DumpFormat` (sufijo + formato DDS) + `Dbz3DumpFormatFor()` + `Dbz3PackReplaceableFormat()` |
-| `src/graphics/dbz3_texture_pack.cpp` | tabla de formatos volcables; `Dbz3PackReplaceableFormat` (DXT + `k_8_8_8_8`) |
-| `src/graphics/d3d12/texture_cache.cpp` | `Dbz3WriteDds` escribe FourCC **o** máscaras (y arregla el header); `DumpTextureToDds` usa la tabla y el sufijo; `LinearizeGuestTexture` acepta los formatos nuevos; **tope de versiones por identidad**; aviso de formato no soportado; el pack acepta RGBA8 |
-| `src/graphics/vulkan/texture_cache.cpp` | mismos gates que D3D12 (`Dbz3DumpFormatFor` / `Dbz3PackReplaceableFormat`) |
+| `src/graphics/dbz3_texture_pack.h` | `Dbz3DumpFormat` (suffix + DDS format) + `Dbz3DumpFormatFor()` + `Dbz3PackReplaceableFormat()` |
+| `src/graphics/dbz3_texture_pack.cpp` | table of dumpable formats; `Dbz3PackReplaceableFormat` (DXT + `k_8_8_8_8`) |
+| `src/graphics/d3d12/texture_cache.cpp` | `Dbz3WriteDds` writes a FourCC **or** masks (and fixes the header); `DumpTextureToDds` uses the table and the suffix; `LinearizeGuestTexture` accepts the new formats; **per-identity version cap**; unsupported-format warning; the pack accepts RGBA8 |
+| `src/graphics/vulkan/texture_cache.cpp` | the same gates as D3D12 (`Dbz3DumpFormatFor` / `Dbz3PackReplaceableFormat`) |
 
-### 3.1 Bug del header DDS
+### 3.1 DDS header bug
 
-`dwCaps` se escribía en **+104**, que **no** es `dwCaps` sino **`dwABitMask`**
-dentro de `DDS_PIXELFORMAT` (que ocupa 76..107): se perdía el `dwCaps` **y** se
-pisaba la máscara de alpha. Inofensivo en DXT (los visores ignoran `dwCaps`),
-pero **crítico** para los formatos sin comprimir. Ahora va en **+108** y las
-máscaras quedan limpias. De paso se distingue `DDPF_RGB` / `DDPF_LUMINANCE` (para
-`L8`/`L8A8`) y se marca `DDPF_ALPHAPIXELS` si hay alpha.
+`dwCaps` was written at **+104**, which is **not** `dwCaps` but **`dwABitMask`**
+inside `DDS_PIXELFORMAT` (which spans 76..107): `dwCaps` was lost **and** the
+alpha mask was overwritten. Harmless for DXT (viewers ignore `dwCaps`), but
+**critical** for the uncompressed formats. Now it goes at **+108** and the
+masks stay clean. Along the way `DDPF_RGB` / `DDPF_LUMINANCE` are distinguished
+(for `L8`/`L8A8`) and `DDPF_ALPHAPIXELS` is set if there is alpha.
 
-## 4. El flood del vídeo (y el tope por identidad)
+## 4. The video flood (and the per-identity cap)
 
-Al aceptar los formatos sin comprimir, la **textura de vídeo de la intro**
-(`k_8`, 480x360 / 960x720, sin mips) entra en el volcado. Como su **contenido
-cambia en cada fotograma**, el dedup por hash no la paraba: **4096 ficheros /
-1,4 GB en 5 minutos** (se agotó el límite de 4096 y casi todo eran fotogramas).
+Once the uncompressed formats were accepted, the **intro video texture**
+(`k_8`, 480x360 / 960x720, no mips) entered the dump. Since its **content
+changes every frame**, the hash dedup did not stop it: **4096 files / 1.4 GB
+in 5 minutes** (the 4096 limit was exhausted and almost all were frames).
 
-Fix: tope de **versiones por IDENTIDAD** (dirección guest + formato + tamaño),
-`kDbz3DumpMaxVersionsPerTexture = 4`. El dedup por hash se mantiene (así una
-dirección de pool reutilizada con otro contenido **sí** se vuelca), pero el churn
-de vídeo se corta:
+Fix: a cap of **versions per IDENTITY** (guest address + format + size),
+`kDbz3DumpMaxVersionsPerTexture = 4`. The hash dedup is kept (so a reused pool
+address with other content **is** dumped), but the video churn is cut:
 
-| | antes | con el tope |
+| | before | with the cap |
 |---|---|---|
-| ficheros (5 min) | 4096 (límite) | 194 |
-| tamaño | 1,4 GB | 51 MB |
-| fotogramas de vídeo | 4080+ | 36 (9 identidades x4) |
+| files (5 min) | 4096 (limit) | 194 |
+| size | 1.4 GB | 51 MB |
+| video frames | 4080+ | 36 (9 identities x4) |
 
-Aviso en el log una sola vez:
+Warning in the log only once:
 `dbz3: volcado: textura en 0x... cambia de contenido en cada uso (video/render target): solo se volcaron 4 versiones`.
 
-## 5. Los "cuadrados negros" (NO es un bug del volcado)
+## 5. The "black squares" (NOT a dump bug)
 
-Comprobado sobre el volcado real: las texturas que se ven negras son **DXT3 cuyo
-canal alpha está TODO a cero** (`00 00 00 00 00 00 00 00 | <color válido>` en cada
-bloque). El color es correcto; lo que falta es el alpha. El juego **dibuja esas
-texturas ignorando su alpha** (por eso se ven bien en el juego), pero un visor
-las muestra **transparentes** → cuadrado negro. En PCSX2 no pasa porque allí el
-volcado es de los assets de PS2, que son otros.
+Checked on the real dump: the textures that look black are **DXT3 whose alpha
+channel is ALL zero** (`00 00 00 00 00 00 00 00 | <valid colour>` in every
+block). The colour is right; what is missing is the alpha. The game **draws
+those textures ignoring their alpha** (that is why they look fine in game),
+but a viewer shows them **transparent** → a black square. It does not happen
+in PCSX2 because there the dump is of the PS2 assets, which are different.
 
-No se toca el dato (el volcado es fiel). Para verlas/utilizarlas,
-`texture_dump_import.py` gana **`--opaque-alpha`**: si el alpha del DDS está todo
-a cero, escribe el PNG opaco y lo marca (`alpha_all_zero`) en `manifest.json`.
+The data is not touched (the dump is faithful). To see/use them,
+`texture_dump_import.py` gains **`--opaque-alpha`**: if the DDS alpha is all
+zero, it writes the PNG opaque and marks it (`alpha_all_zero`) in
+`manifest.json`.
 
-## 6. Packs: formatos reemplazables
+## 6. Packs: replaceable formats
 
-El reemplazo sube siempre **RGBA8**, así que solo valen los formatos cuyo
-**recurso host es RGBA8**:
+The replacement always uploads **RGBA8**, so only formats whose **host
+resource is RGBA8** qualify:
 
-- **DXT1/DXT3/DXT5** (se descomprimen a RGBA8) — ya funcionaba;
-- **`k_8_8_8_8` (RGBA8 nativa, swizzle identidad)** — **nuevo**: antes el gate
-  del pack exigía DXT, así que las texturas del HUD que ahora se vuelcan no se
-  habrían podido reemplazar. Es el caso que más importa.
+- **DXT1/DXT3/DXT5** (decompressed to RGBA8) — it already worked;
+- **`k_8_8_8_8` (native RGBA8, identity swizzle)** — **new**: before, the
+  pack's gate required DXT, so the HUD textures now being dumped could not
+  have been replaced. It is the case that matters most.
 
-Los formatos de 8/16 bits (`k_8`, `k_8_8`, `k_5_6_5`, `k_1_5_5_5`, `k_4_4_4_4`)
-se **vuelcan como referencia** pero su pack se **ignora** (su recurso host no es
-RGBA8 y su swizzle es propio del formato). Habilitarlos requiere un recurso RGBA8
-para el pack + swizzle identidad en el camino caliente del fetch → **siguiente
-paso**, no en un parche. La regla vive en `Dbz3PackReplaceableFormat()` (común a
-los dos backends, para que Windows y Linux hagan lo mismo).
+The 8/16-bit formats (`k_8`, `k_8_8`, `k_5_6_5`, `k_1_5_5_5`, `k_4_4_4_4`)
+are **dumped as a reference** but their pack is **ignored** (their host
+resource is not RGBA8 and their swizzle is format-specific). Enabling them
+needs an RGBA8 resource for the pack + an identity swizzle in the fetch's hot
+path → **next step**, not a patch. The rule lives in
+`Dbz3PackReplaceableFormat()` (common to both backends, so that Windows and
+Linux behave the same).
 
-## 7. Verificación (medida)
+## 7. Verification (measured)
 
-Arnés `%TEMP%\opencode\dump_test.ps1` (boot directo con `dbz3_skip_launcher`,
-volcado a `%TEMP%\opencode\dump_test`, `dbz3_texture_dump_max=600`):
+Harness `%TEMP%\opencode\dump_test.ps1` (direct boot with
+`dbz3_skip_launcher`, dump to `%TEMP%\opencode\dump_test`,
+`dbz3_texture_dump_max=600`):
 
-- **Volcado (240 s, intro)**: **194 DDS / 51 MB** — 96 DXT3, **26 RGBA8**, 72 L8.
-  Antes (solo DXT): 51 DDS. Log: `formato k_24_8 (fmt=22) no soportado` +
-  el aviso del tope de vídeo.
-- **Pillow lee los tres**: DXT3 128x512 RGBA, **RGBA8 128x1024 RGBA con colores
-  reales** (p.ej. `(39,133,213)`), L8 960x720 modo L.
-- **Pack end-to-end** (`mods/_packtest`, magenta DXT3 + verde RGBA8):
+- **Dump (240 s, intro)**: **194 DDS / 51 MB** — 96 DXT3, **26 RGBA8**, 72 L8.
+  Before (DXT only): 51 DDS. Log: `formato k_24_8 (fmt=22) no soportado` +
+  the video-cap warning.
+- **Pillow reads all three**: DXT3 128x512 RGBA, **RGBA8 128x1024 RGBA with
+  real colours** (e.g. `(39,133,213)`), L8 960x720 mode L.
+- **Pack end to end** (`mods/_packtest`, magenta DXT3 + green RGBA8):
   ```
   dbz3: pack '_packtest' reemplaza 128x512 (fmt 19) -> 128x512 (x1)
   dbz3: pack '_packtest' subido 128x512 (10 niveles, 523776 B)
   dbz3: pack '_packtest' reemplaza 128x1024 (fmt 6) -> 128x1024 (x1)
   dbz3: pack '_packtest' subido 128x1024 (11 niveles, 1048064 B)
   ```
-  ⇒ el pack de **RGBA8 (fmt 6)** se aplica (nuevo) y el de DXT3 sigue igual, sin
-  errores ni `Unsupported texture formats`.
-- Sin regresión: el DDS de DXT sigue byte a byte como antes (mismas máscaras
-  FourCC, mismo hash).
+  ⇒ the **RGBA8 (fmt 6)** pack is applied (new) and the DXT3 one is
+  unchanged, with no errors or `Unsupported texture formats`.
+- No regression: the DXT DDS is still byte for byte as before (same FourCC
+  masks, same hash).
 
-## 8. Pendiente
+## 8. Pending
 
-1. **Packs para formatos de 8/16 bits** (el caso del HUD si resulta ser
-   `k_5_6_5`/`k_1_5_5_5`): recurso RGBA8 para el pack + swizzle identidad en
-   `GetHostFormatSwizzle` (camino caliente: medir antes).
-2. Formatos aún no volcables: `k_DXN` (normales, BC5), `k_DXT5A` (alpha, BC4),
-   `k_DXT3A`, `k_24_8` (profundidad), `k_16_16_16_16`.
-3. Confirmar con el reporter de #11 que ya ve el HUD en el volcado.
+1. **Packs for 8/16-bit formats** (the HUD's case if it turns out to be
+   `k_5_6_5`/`k_1_5_5_5`): an RGBA8 resource for the pack + identity swizzle
+   in `GetHostFormatSwizzle` (hot path: measure first).
+2. Formats not dumpable yet: `k_DXN` (normals, BC5), `k_DXT5A` (alpha, BC4),
+   `k_DXT3A`, `k_24_8` (depth), `k_16_16_16_16`.
+3. Confirm with #11's reporter that the HUD now shows up in the dump.
 
-## 9. Ficheros tocados
+## 9. Files touched
 
 - `rexglue-sdk-0.10/src/graphics/dbz3_texture_pack.{h,cpp}`
 - `rexglue-sdk-0.10/src/graphics/d3d12/texture_cache.cpp`
 - `rexglue-sdk-0.10/src/graphics/vulkan/texture_cache.cpp`
 - `awo_tools/texture_dump_import.py` (`--opaque-alpha`)
 - `docs/02_mods/PACKS_DE_TEXTURAS.md`
-- DLLs canónicas: `rexgpu-xenos.dll` **6342656 B**, `rexruntime.dll` 10910720 B.
+- Canonical DLLs: `rexgpu-xenos.dll` **6342656 B**, `rexruntime.dll` 10910720 B.

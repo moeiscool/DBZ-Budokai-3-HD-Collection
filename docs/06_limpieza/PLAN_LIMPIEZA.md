@@ -1,144 +1,146 @@
-# PLAN DE LIMPIEZA Y REORGANIZACIÓN
+# CLEANUP AND REORGANISATION PLAN
 
-> Actualizado: 2026-08-14. Este documento cataloga la limpieza pendiente.
-> **NADA SE HA BORRADO AÚN** — este es el plan; se ejecutará con tu aprobación.
+> Updated: 2026-08-14. This document catalogues the pending cleanup.
+> **NOTHING HAS BEEN DELETED YET** — this is the plan; it will be carried out
+> with your approval.
 
 ---
 
-## 1. RESUMEN DE DESORDEN DETECTADO
+## 1. SUMMARY OF THE MESS FOUND
 
-| Área | Problema | Espacio |
+| Area | Problem | Space |
 |---|---|---|
-| Builds | 4 builds, algunos dudosos | ~19GB |
-| BMPs debug | ~30 frontbuf_*.bmp + black_*.bmp (31.5MB c/u) | ~1GB |
-| Backups DLL | _backup_d3d12/_backup_pre_opt/_backup_tracy | ~50MB |
-| Mods viejos | 5 mods con AFS completos (293MB c/u) de experimentos pasados | ~1.5GB |
-| og_music | EU y US duplicados (mismos ADX/SFD) | ~3GB (redundante) |
-| modding resources | 4 carpetas con duplicados posibles | ~4.3GB |
-| Crash dumps | 8 archivos crash_*.dmp | ~2.4MB |
+| Builds | 4 builds, some doubtful | ~19 GB |
+| Debug BMPs | ~30 frontbuf_*.bmp + black_*.bmp (31.5 MB each) | ~1 GB |
+| DLL backups | _backup_d3d12/_backup_pre_opt/_backup_tracy | ~50 MB |
+| Old mods | 5 mods with full AFS (293 MB each) from past experiments | ~1.5 GB |
+| og_music | EU and US duplicated (same ADX/SFD) | ~3 GB (redundant) |
+| modding resources | 4 folders with possible duplicates | ~4.3 GB |
+| Crash dumps | 8 crash_*.dmp files | ~2.4 MB |
 
 ---
 
-## 2. PLAN POR ÁREA
+## 2. PLAN PER AREA
 
-### 2.1 BMPs de debug (seguro borrar — ya gateados por Dev mode, 2026-08-19)
-**Qué**: `frontbuf_*.bmp`, `black_*.bmp` (31.5MB c/u, ~30 archivos) en el build release.
-**Qué son**: dumps de framebuffer del shader dump / debug.
-**Acción**: borrarlos. No afectan al juego.
-**Riesgo**: nulo.
-**Estado**: ✅ los 28 .bmp (~840MB) ya se borraron el 2026-08-19. Además, el toggle
-"GPU diagnostic logging" ahora SOLO genera estos dumps si el **Dev mode** está
-también activo (fix en `src/launcher/settings.cpp`: `dbz1_diag_logging` se propaga
-como `DiagLogging() && DevMode()`), así que no reaparecen en juego normal aunque
-el checkbox quede activado por accidente.
+### 2.1 Debug BMPs (safe to delete — already gated by Dev mode, 2026-08-19)
+**What**: `frontbuf_*.bmp`, `black_*.bmp` (31.5 MB each, ~30 files) in the release build.
+**What they are**: framebuffer dumps from the shader dump / debug.
+**Action**: delete them. They do not affect the game.
+**Risk**: none.
+**State**: ✅ the 28 .bmp files (~840 MB) were already deleted on 2026-08-19.
+In addition, the "GPU diagnostic logging" toggle now ONLY generates these
+dumps if **Dev mode** is also on (fix in `src/launcher/settings.cpp`:
+`dbz1_diag_logging` is propagated as `DiagLogging() && DevMode()`), so they do
+not reappear in normal play even if the checkbox is left on by accident.
 
-### 2.2 Crash dumps (seguro borrar)
-**Qué**: `crash_*.dmp` (8 archivos).
-**Acción**: borrarlos (son de las pruebas de hoy).
+### 2.2 Crash dumps (safe to delete)
+**What**: `crash_*.dmp` (8 files).
+**Action**: delete them (they are from today's tests).
 
-### 2.3 Backups de DLLs
-**Qué**: `_backup_d3d12/`, `_backup_pre_opt/`, `_backup_tracy/`, `rexruntime.dll.bak_afstest`.
-**Acción**: conservar SOLO el `.bak_afstest` (referencia del runtime). Los demás
-  archivar o borrar tras confirmar que el runtime actual funciona.
+### 2.3 DLL backups
+**What**: `_backup_d3d12/`, `_backup_pre_opt/`, `_backup_tracy/`, `rexruntime.dll.bak_afstest`.
+**Action**: keep ONLY `.bak_afstest` (runtime reference). Archive or delete
+  the others after confirming the current runtime works.
 
-### 2.4 Builds redundantes
-| Build | Acción propuesta |
+### 2.4 Redundant builds
+| Build | Proposed action |
 |---|---|
-| `win-amd64-release` | CONSERVAR (principal) |
-| `win-amd64-tracy` | CONSERVAR (profiling) |
-| `win-amd64-sdk-test` | VERIFICAR si se usa; si no, archivar |
-| `win-amd64-relwithdebinfo` | VERIFICAR; probablemente archivable |
+| `win-amd64-release` | KEEP (main) |
+| `win-amd64-tracy` | KEEP (profiling) |
+| `win-amd64-sdk-test` | CHECK whether it is used; if not, archive |
+| `win-amd64-relwithdebinfo` | CHECK; probably archivable |
 
-### 2.5 Mods viejos (experimentos)
-| Mod | Contenido | Acción |
+### 2.5 Old mods (experiments)
+| Mod | Contents | Action |
 |---|---|---|
-| `janemba_v10` | AFS con Krillin ORIGINAL | CONSERVAR (referencia del AFS intacto) |
-| `og_music` | Música (funciona) | CONSERVAR, deduplicar EU/US |
-| `janemba` | AFS Janemba viejo | Archivar |
-| `krillin_1byte` | AFS Krillin variante | Archivar |
-| `krillin_afs` | AFS Krillin variante | Archivar |
-| `krillin_control` | AFS Krillin variante | Archivar |
-| `krillin_test` | Textura | Archivar |
-| `krillin_texture` | Textura | Archivar |
-| `afstest` | Override prueba | Archivar |
-| `goten_body` | Cuerpo Goten (crashea) | CONSERVAR (investigación activa) |
+| `janemba_v10` | AFS with ORIGINAL Krillin | KEEP (reference of the untouched AFS) |
+| `og_music` | Music (works) | KEEP, deduplicate EU/US |
+| `janemba` | Old Janemba AFS | Archive |
+| `krillin_1byte` | Krillin AFS variant | Archive |
+| `krillin_afs` | Krillin AFS variant | Archive |
+| `krillin_control` | Krillin AFS variant | Archive |
+| `krillin_test` | Texture | Archive |
+| `krillin_texture` | Texture | Archive |
+| `afstest` | Test override | Archive |
+| `goten_body` | Goten's body (crashes) | KEEP (active research) |
 
-**Propuesta**: mover los archivados a `mods/_archivo/` (fuera de `mods/` para que
-el runtime no los escanee), o simplemente mantenerlos `.disabled`.
+**Proposal**: move the archived ones to `mods/_archivo/` (outside `mods/` so
+the runtime does not scan them), or simply keep them `.disabled`.
 
-### 2.6 og_music (deduplicación)
-- `us/adx_jpn.AFS` == `eu/adx_jpn.afs`? (728MB c/u, probablemente idénticos)
-- `us/` y `eu/` tienen los mismos 4 archivos.
-- **Propuesta**: verificar hashes; si son iguales, conservar solo la variante de
-  la región que se usa (us).
+### 2.6 og_music (deduplication)
+- `us/adx_jpn.AFS` == `eu/adx_jpn.afs`? (728 MB each, probably identical)
+- `us/` and `eu/` have the same 4 files.
+- **Proposal**: check hashes; if equal, keep only the variant for the region
+  in use (us).
 
-### 2.7 modding resources (4 carpetas)
-| Carpeta | Contenido |
+### 2.7 modding resources (4 folders)
+| Folder | Contents |
 |---|---|
-| `modding resources` | Base (modelos, listas, SDBH) — CONSERVAR |
-| `modding resources update` | Buzón del usuario — CONSERVAR |
-| `modding resources update 2` | Tutoriales/modelos nuevos — CONSERVAR |
-| `modding resources discord` | Descargas del Discord — CONSERVAR |
+| `modding resources` | Base (models, lists, SDBH) — KEEP |
+| `modding resources update` | The user's inbox — KEEP |
+| `modding resources update 2` | New tutorials/models — KEEP |
+| `modding resources discord` | Discord downloads — KEEP |
 
-**Acción**: crear un INVENTARIO de qué hay en cada una (evitar duplicados
-futuros). NO mover los contenidos aún (riesgo de romper rutas de scripts).
+**Action**: create an INVENTORY of what is in each one (avoid future
+duplicates). Do NOT move the contents yet (risk of breaking script paths).
 
 ---
 
-## 3. REORGANIZACIÓN DE DOCUMENTACIÓN (ya hecha)
+## 3. DOCUMENTATION REORGANISATION (already done)
 
-Se creó la estructura `docs/`:
+The `docs/` structure was created:
 ```
 docs/
-├── README.md                  ← índice general
+├── README.md                  ← general index
 ├── 01_estructura/
-│   ├── ARBOL.md               ← qué es cada carpeta
-│   └── ESTADO.md              ← qué funciona / qué falla
+│   ├── ARBOL.md               ← what each folder is
+│   └── ESTADO.md              ← what works / what fails
 ├── 02_mods/
-│   ├── COMO_HACER_MODS.md     ← pipeline de mods
-│   └── MODEL_SWAP.md          ← investigación de model swap
+│   ├── COMO_HACER_MODS.md     ← mod pipeline
+│   └── MODEL_SWAP.md          ← model swap research
 ├── 03_formatos/
-│   ├── AMO_AWO.md             ← formato PS2 vs HD
-│   └── BIN_LAYOUT.md          ← layout del bin campo a campo
+│   ├── AMO_AWO.md             ← PS2 vs HD format
+│   └── BIN_LAYOUT.md          ← bin layout field by field
 ├── 04_herramientas/
-│   └── TOOLS.md               ← inventario de herramientas
+│   └── TOOLS.md               ← tool inventory
 ├── 05_build/
-│   └── COMO_COMPILAR.md       ← compilar juego/SDK
+│   └── COMO_COMPILAR.md       ← building the game/SDK
 └── 06_limpieza/
-    └── PLAN_LIMPIEZA.md       ← este documento
+    └── PLAN_LIMPIEZA.md       ← this document
 ```
 
 ---
 
-## 4. TAREAS DE LIMPIEZA (por orden de prioridad)
+## 4. CLEANUP TASKS (by priority)
 
-- [x] **A**: Borrar BMPs de debug + crash dumps (1GB, riesgo nulo) — *ya no estaban*
-- [x] **B**: Verificar hashes og_music EU/US y deduplicar — *3/4 idénticos, archivados los duplicados*
-- [x] **C**: Archivar mods viejos (mover a `out/build/_archivo_mods/`) — *8 mods archivados*
-- [x] **D**: Verificar builds sdk-test/relwithdebinfo (¿se usan?) — *movidos a `out/build/_archivo_builds/`*
-- [x] **F**: Mover backups de DLLs a un lugar central — *`out/build/_archivo_dlls/`*
-- [x] **E**: Crear inventario de modding resources (4 carpetas) — *`INVENTARIO_MODDING.md`*
+- [x] **A**: Delete debug BMPs + crash dumps (1 GB, no risk) — *they were already gone*
+- [x] **B**: Check og_music EU/US hashes and deduplicate — *3/4 identical, duplicates archived*
+- [x] **C**: Archive old mods (move to `out/build/_archivo_mods/`) — *8 mods archived*
+- [x] **D**: Check the sdk-test/relwithdebinfo builds (are they used?) — *moved to `out/build/_archivo_builds/`*
+- [x] **F**: Move DLL backups to a central place — *`out/build/_archivo_dlls/`*
+- [x] **E**: Create the modding resources inventory (4 folders) — *`INVENTARIO_MODDING.md`*
 
-### 4.1 Resultado de la limpieza ejecutada (2026-08-14)
+### 4.1 Result of the cleanup carried out (2026-08-14)
 
 ```
 out/build/
-├── win-amd64-release/          ← BUILD PRINCIPAL (4.5GB, funciona)
-├── win-amd64-tracy/            ← Build Tracy (10.7GB)
-├── _archivo_builds/            ← relwithdebinfo + sdk-test (266MB)
-├── _archivo_dlls/              ← backups de DLLs (62MB)
-└── _archivo_mods/              ← mods de experimentos pasados (2.7GB)
+├── win-amd64-release/          ← MAIN BUILD (4.5 GB, works)
+├── win-amd64-tracy/            ← Tracy build (10.7 GB)
+├── _archivo_builds/            ← relwithdebinfo + sdk-test (266 MB)
+├── _archivo_dlls/              ← DLL backups (62 MB)
+└── _archivo_mods/              ← mods from past experiments (2.7 GB)
 ```
 
-- El build release bajó de 8.3GB → 4.5GB.
-- Mods conservados: `goten_body` (investigación), `janemba_v10` (AFS original referencia), `og_music` (funciona).
-- Verificado: dbz3.exe, runtime con fix de override, toml intacto.
+- The release build went from 8.3 GB → 4.5 GB.
+- Mods kept: `goten_body` (research), `janemba_v10` (original reference AFS), `og_music` (works).
+- Verified: dbz3.exe, runtime with the override fix, toml intact.
 
 ---
 
-## 5. IMPORTANTE
+## 5. IMPORTANT
 
-- **El juego funciona AHORA** (todos los mods desactivados). No romperlo.
-- **El `active_region/` se reconstruye en cada arranque** — no tocarlo.
-- **`us/` y `eu/`** son los assets originales — NO borrar.
-- Los scripts en `awo_tools/` referencian rutas absolutas — NO mover sin actualizar.
+- **The game works NOW** (all mods disabled). Do not break it.
+- **`active_region/` is rebuilt at every start** — do not touch it.
+- **`us/` and `eu/`** are the original assets — do NOT delete.
+- The scripts in `awo_tools/` reference absolute paths — do NOT move them
+  without updating.

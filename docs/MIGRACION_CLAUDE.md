@@ -1,118 +1,120 @@
-# MIGRACIÓN TEMPORAL A CLAUDE — handoff y protocolo de retorno
+# TEMPORARY MIGRATION TO CLAUDE — handoff and return protocol
 
-> Documento de traspaso entre **opencode** (este repo, canónico) y **Claude**
-> (migración temporal). Objetivo: trabajar en Claude **sin** perder trazabilidad y
-> que **todo cambio vuelva a este disco como un único `.md`**. Claude **no** hace
-> push a GitHub; el mantenedor aplica y sube desde opencode.
+> Handover document between **opencode** (this repo, canonical) and **Claude**
+> (temporary migration). Goal: work in Claude **without** losing traceability,
+> with **every change coming back to this disk as a single `.md`**. Claude does
+> **not** push to GitHub's main branch; the maintainer applies and publishes
+> from opencode.
 
-Última actualización: **2026-10-03**.
-
----
-
-## 1. CONTEXTO MÍNIMO PARA CLAUDE (leer en este orden)
-
-1. `AGENTS.md` — referencia operativa del proyecto (formato, constraints,
-   comandos, invariantes). **Es la fuente estable.**
-2. `MEMORY.md` — estado vivo (qué se hizo, qué falta, trampas, protocolo).
-3. `docs/07_ports/SESION_DRAW_SEMANTICS_2026-09-11.md` — histórico de la Vía B;
-   **§24** = último resultado (RE del skinning).
-4. `docs/07_ports/UNIVERSAL_MODDER_2026-09-30.md` — método/RE con agentes.
-
-**Naturaleza del proyecto**: port recompilado a PC de *DBZ Budokai 3 HD
-Collection (Xbox 360)* con **ReXGlue SDK** (derivado de Xenia). La entrega
-principal es el **swap nativo HD↔HD**; la Vía A (inyección PS2→HD) es aproximada;
-la Vía B (port completo) está **aparcada** pero con un hallazgo RE nuevo.
+Last updated: **2026-10-06** (documentation translated to English; PS5 port
+added — see `docs/PS5.md`).
 
 ---
 
-## 2. 🟥 INSTRUCCIÓN OBLIGATORIA PARA CLAUDE (genera un handback `.md`)
+## 1. MINIMUM CONTEXT FOR CLAUDE (read in this order)
 
-> **CLAUDE: al terminar tu sesión, tu ÚNICO artefacto accionable es un fichero
-> Markdown** llamado:
+1. `AGENTS.md` — the project's operational reference (format, constraints,
+   commands, invariants). **It is the stable source.**
+2. `MEMORY.md` — live state (what was done, what is missing, traps, protocol).
+3. `docs/07_ports/SESION_DRAW_SEMANTICS_2026-09-11.md` — history of Route B;
+   **§24** = latest result (skinning RE).
+4. `docs/07_ports/UNIVERSAL_MODDER_2026-09-30.md` — method/RE with agents.
+
+**Nature of the project**: a PC recompilation of *DBZ Budokai 3 HD Collection
+(Xbox 360)* with the **ReXGlue SDK** (derived from Xenia). The main deliverable
+is the **native HD↔HD swap**; Route A (PS2→HD injection) is approximate;
+Route B (full port) is **parked** but with a new RE finding.
+
+---
+
+## 2. 🟥 MANDATORY INSTRUCTION FOR CLAUDE (produce a handback `.md`)
+
+> **CLAUDE: when you finish your session, your ONLY actionable artefact is a
+> Markdown file** named:
 >
 > ```
-> HANDOFF_CLAUDE_<AAAA-MM-DD>_<tema-corto>.md
+> HANDOFF_CLAUDE_<YYYY-MM-DD>_<short-topic>.md
 > ```
 >
-> Estructura **obligatoria**:
+> **Mandatory** structure:
 >
-> 1. **Resumen** — qué hiciste y para qué, en 3-8 líneas.
-> 2. **Cambios por fichero** — lista EXACTA de rutas **relativas al repo**
->    (creados / modificados / borrados). Por cada uno:
->    - Si es **nuevo**: el contenido completo en un bloque de código.
->    - Si es **modificado**: un `diff` unificado (`--- a/… +++ b/…`) o la función
->      completa antes/después. No describas: **muestra el cambio**.
-> 3. **Comandos ejecutados** y su resultado (build, tests, scripts).
-> 4. **No hecho / riesgo / supuestos** — qué quedó a medias, qué no pudiste
->    verificar, qué asumiste.
-> 5. **Siguiente paso recomendado**.
+> 1. **Summary** — what you did and why, in 3-8 lines.
+> 2. **Changes per file** — EXACT list of paths **relative to the repo**
+>    (created / modified / deleted). For each one:
+>    - If **new**: the complete content in a code block.
+>    - If **modified**: a unified `diff` (`--- a/… +++ b/…`) or the whole
+>      function before/after. Do not describe: **show the change**.
+> 3. **Commands run** and their result (build, tests, scripts).
+> 4. **Not done / risk / assumptions** — what was left half-done, what you
+>    could not verify, what you assumed.
+> 5. **Recommended next step**.
 >
-> Reglas:
-> - **NO** hagas push a GitHub. **NO** abras PR.
-> - **NO** reescribas `AGENTS.md`/`MEMORY.md` salvo que el mantenedor lo pida
->   explícitamente para esta sesión; si propones cambios ahí, **descríbelos en el
->   handback** como texto a pegar, no los apliques.
-> - Usa **rutas relativas** y **no incluyas** rutas personales (`C:\Users\...`),
->   claves ni datos de juego (`.bin/.afs/.awo/.xex/...`).
-> - Si tocaste el SDK (`rexglue-sdk-0.10/`), recuerda que el build del juego
->   **sobrescribe** `rexruntime.dll`: hay que recopiar DLLs canónicas con
+> Rules:
+> - Do **NOT** push to GitHub's main branch. Do **NOT** open a PR.
+> - Do **NOT** rewrite `AGENTS.md`/`MEMORY.md` unless the maintainer explicitly
+>   asks for it for this session; if you propose changes there, **describe them
+>   in the handback** as text to paste, do not apply them.
+> - Use **relative paths** and do **not include** personal paths
+>   (`C:\Users\...`), keys or game data (`.bin/.afs/.awo/.xex/...`).
+> - If you touched the SDK (`rexglue-sdk-0.10/`), remember the game build
+>   **overwrites** `rexruntime.dll`: the canonical DLLs must be copied back with
 >   `tools\copy_sdk_dlls.ps1` (AGENTS §7).
-> - Si tu trabajo es de **RE/instrumentación**, deja claro en el handback cómo
->   **revertir** y qué tamaños canónicos de DLL deben quedar
->   (v1.4.0, SDK rama `dbz3-burstlimit`: `rexgpu-xenos.dll` **6372864 B**,
->   `rexruntime.dll` **11034624 B**; antes, v1.3.0: 6360064 / 10920448).
+> - If your work is **RE/instrumentation**, make clear in the handback how to
+>   **revert** and which canonical DLL sizes must remain
+>   (v1.4.0, SDK branch `dbz3-burstlimit`: `rexgpu-xenos.dll` **6372864 B**,
+>   `rexruntime.dll` **11034624 B**; before, v1.3.0: 6360064 / 10920448).
 
-### 2.1 Plantilla vacía (Claude puede copiarla)
+### 2.1 Empty template (Claude can copy it)
 ```markdown
-# HANDOFF_CLAUDE_<fecha>_<tema>
+# HANDOFF_CLAUDE_<date>_<topic>
 
-## 1. Resumen
+## 1. Summary
 
-## 2. Cambios por fichero
-### CREADO: ruta/relativa.ext
+## 2. Changes per file
+### CREATED: path/relative.ext
 ```
-<contenido completo>
+<complete content>
 ```
-### MODIFICADO: ruta/relativa.ext
+### MODIFIED: path/relative.ext
 ```diff
---- a/ruta/relativa.ext
-+++ b/ruta/relativa.ext
+--- a/path/relative.ext
++++ b/path/relative.ext
 @@ ... @@
 ```
-### BORRADO: ruta/relativa.ext
+### DELETED: path/relative.ext
 
-## 3. Comandos ejecutados
-## 4. No hecho / riesgo / supuestos
-## 5. Siguiente paso recomendado
+## 3. Commands run
+## 4. Not done / risk / assumptions
+## 5. Recommended next step
 ```
 
 ---
 
-## 3. PROTOCOLO OPERATIVO (ambos lados)
+## 3. OPERATING PROTOCOL (both sides)
 
-### 3.1 opencode → Claude (entrega)
-1. Cerrar la sesión local: `git -C github status` limpio + commit local.
-2. Entregar `AGENTS.md` + `MEMORY.md` + este documento + estado de `github/`.
-3. Fijar el **alcance** de la sesión de Claude (un objetivo concreto).
-4. Recordar la **instrucción de §2**.
+### 3.1 opencode → Claude (handover)
+1. Close the local session: `git -C github status` clean + local commit.
+2. Hand over `AGENTS.md` + `MEMORY.md` + this document + the state of `github/`.
+3. Set the **scope** of Claude's session (one concrete goal).
+4. Remind of the **instruction in §2**.
 
-### 3.2 Claude → opencode (retorno)
-1. Claude produce `HANDOFF_CLAUDE_*.md` (§2).
-2. El mantenedor lo coloca en el repo (p.ej. `docs/handoffs/`) y lo revisa en
-   opencode.
-3. opencode aplica los cambios, actualiza `MEMORY.md` (estado) y, si toca,
+### 3.2 Claude → opencode (return)
+1. Claude produces `HANDOFF_CLAUDE_*.md` (§2).
+2. The maintainer places it in the repo (e.g. `docs/handoffs/`) and reviews it
+   in opencode.
+3. opencode applies the changes, updates `MEMORY.md` (state) and, if needed,
    `AGENTS.md`.
 4. `powershell -ExecutionPolicy Bypass -File tools\sync_github.ps1`
-   (ejecuta `publish_check.ps1`; exit 1 = **no subir**).
-5. Commit local → **push solo si el mantenedor lo autoriza**.
+   (runs `publish_check.ps1`; exit 1 = **do not publish**).
+5. Local commit → **push only if the maintainer authorises it**.
 
 ---
 
-## 4. CHECKLIST DE CIERRE (para opencode)
-- [ ] `HANDOFF_CLAUDE_*.md` leído y aplicado.
-- [ ] `MEMORY.md` §1/§2 actualizados.
-- [ ] `AGENTS.md` actualizado si el cambio es estable/invariante.
-- [ ] `sync_github.ps1` → `publish_check.ps1` en PASS (o WARN aceptados).
-- [ ] Commit local hecho; push pendiente de OK.
-- [ ] Entorno de build limpio (sin procesos; DLLs canónicas; toml sin flags dev;
-      artefactos RE de captura borrados).
+## 4. CLOSING CHECKLIST (for opencode)
+- [ ] `HANDOFF_CLAUDE_*.md` read and applied.
+- [ ] `MEMORY.md` §1/§2 updated.
+- [ ] `AGENTS.md` updated if the change is stable/invariant.
+- [ ] `sync_github.ps1` → `publish_check.ps1` PASS (or accepted WARNs).
+- [ ] Local commit done; push pending approval.
+- [ ] Clean build environment (no processes; canonical DLLs; toml without dev
+      flags; RE capture artefacts deleted).
